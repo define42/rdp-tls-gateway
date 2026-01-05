@@ -35,20 +35,15 @@ import (
 	"log"
 	"math/big"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"time"
-)
 
-const (
-	// RDP negotiation struct types
-	RDP_NEG_REQ = 0x01
-	RDP_NEG_RSP = 0x02
-
-	// Protocol selections
-	PROTOCOL_RDP    = 0x00000000
-	PROTOCOL_SSL    = 0x00000001 // TLS
-	PROTOCOL_HYBRID = 0x00000002 // NLA (not implemented here)
+	"github.com/tomatome/grdp/core"
+	"github.com/tomatome/grdp/glog"
+	"github.com/tomatome/grdp/protocol/tpkt"
+	"github.com/tomatome/grdp/protocol/x224"
 )
 
 func main() {
@@ -61,6 +56,8 @@ func main() {
 		minTLS12   = flag.Bool("tls12", true, "force TLS 1.2+ on both sides")
 	)
 	flag.Parse()
+
+	initGRDPLogging()
 
 	routes := parseRoutes(*routesArg)
 	if len(routes) == 0 {
@@ -109,14 +106,14 @@ func handleConn(raw net.Conn, frontTLS *tls.Config, routes map[string]string, ti
 
 	// Require that client offered TLS in RDP_NEG_REQ (practical for SNI routing).
 	reqProto, ok := findClientRequestedProtocols(crq)
-	if !ok || (reqProto&PROTOCOL_SSL) == 0 {
+	if !ok || (reqProto&x224.PROTOCOL_SSL) == 0 {
 		log.Printf("client did not offer TLS (ok=%v requested=0x%08x) from %s", ok, reqProto, raw.RemoteAddr())
 		return
 	}
 
 	// 2) Send server Connection Confirm selecting TLS
-	ccfTLS := buildServerCCFSelectTLS()
-	if _, err := raw.Write(ccfTLS); err != nil {
+	ccfPayload := buildServerCCFSelectTLS()
+	if err := writeTPKT(raw, ccfPayload); err != nil {
 		log.Printf("write CCF(TLS): %v", err)
 		return
 	}
@@ -168,7 +165,7 @@ func handleConn(raw net.Conn, frontTLS *tls.Config, routes map[string]string, ti
 		_ = clientTLS.Close()
 		return
 	}
-	if sel != PROTOCOL_SSL {
+	if sel != x224.PROTOCOL_SSL {
 		log.Printf("backend did not select TLS (selected=0x%08x) backend=%s", sel, backendAddr)
 		_ = clientTLS.Close()
 		return
@@ -224,7 +221,7 @@ func readTPKT(c net.Conn) ([]byte, error) {
 	if _, err := io.ReadFull(c, h); err != nil {
 		return nil, err
 	}
-	if h[0] != 0x03 || h[1] != 0x00 {
+	if h[0] != tpkt.FASTPATH_ACTION_X224 || h[1] != 0x00 {
 		return nil, fmt.Errorf("not TPKT (v=%02x r=%02x)", h[0], h[1])
 	}
 	n := int(binary.BigEndian.Uint16(h[2:4]))
@@ -242,55 +239,89 @@ func readTPKT(c net.Conn) ([]byte, error) {
 // findClientRequestedProtocols finds an embedded RDP_NEG_REQ and returns requestedProtocols.
 // We scan the payload for the 8-byte structure: type=0x01, len=8, then uint32 LE protocols.
 func findClientRequestedProtocols(tpkt []byte) (uint32, bool) {
-	if len(tpkt) < 12 {
+	neg, ok := findX224Negotiation(tpkt, x224.TYPE_RDP_NEG_REQ)
+	if !ok {
 		return 0, false
 	}
-	// Scan all possible 8-byte windows
-	for i := 0; i+8 <= len(tpkt); i++ {
-		if tpkt[i] != RDP_NEG_REQ {
-			continue
-		}
-		if binary.LittleEndian.Uint16(tpkt[i+2:i+4]) != 8 {
-			continue
-		}
-		req := binary.LittleEndian.Uint32(tpkt[i+4 : i+8])
-		return req, true
-	}
-	return 0, false
+	return neg.Result, true
 }
 
 // findServerSelectedProtocol finds an embedded RDP_NEG_RSP and returns selectedProtocol.
 func findServerSelectedProtocol(tpkt []byte) (uint32, bool) {
-	if len(tpkt) < 12 {
+	neg, ok := findX224Negotiation(tpkt, x224.TYPE_RDP_NEG_RSP)
+	if !ok {
 		return 0, false
 	}
-	for i := 0; i+8 <= len(tpkt); i++ {
-		if tpkt[i] != RDP_NEG_RSP {
-			continue
-		}
-		if binary.LittleEndian.Uint16(tpkt[i+2:i+4]) != 8 {
-			continue
-		}
-		sel := binary.LittleEndian.Uint32(tpkt[i+4 : i+8])
-		return sel, true
-	}
-	return 0, false
+	return neg.Result, true
 }
 
-// buildServerCCFSelectTLS returns a minimal X.224 Connection Confirm selecting TLS (PROTOCOL_SSL).
+// buildServerCCFSelectTLS returns a minimal X.224 Connection Confirm payload selecting TLS (PROTOCOL_SSL).
 func buildServerCCFSelectTLS() []byte {
-	// TPKT (4) + X.224 CC (7) + RDP_NEG_RSP (8) = 19 bytes (0x13)
-	return []byte{
-		0x03, 0x00, 0x00, 0x13, // TPKT header
-		0x0e, 0xd0, // X.224 CC TPDU (0x0e is LI)
+	neg := x224.Negotiation{
+		Type:   x224.TYPE_RDP_NEG_RSP,
+		Flag:   0,
+		Length: 8,
+		Result: x224.PROTOCOL_SSL,
+	}
+
+	li := uint8(6 + neg.Length) // CC header (6) + negotiation (8)
+	payload := make([]byte, 0, int(li)+1)
+	payload = append(payload,
+		li,
+		byte(x224.TPDU_CONNECTION_CONFIRM),
 		0x00, 0x00, // dst ref
 		0x12, 0x34, // src ref (arbitrary)
-		0x00,       // class/options
-		0x02,       // RDP_NEG_RSP type
-		0x00,       // flags
-		0x08, 0x00, // length=8 (LE)
-		0x01, 0x00, 0x00, 0x00, // selectedProtocol = PROTOCOL_SSL
+		0x00, // class/options
+		byte(neg.Type),
+		neg.Flag,
+	)
+
+	lengthBytes := make([]byte, 2)
+	binary.LittleEndian.PutUint16(lengthBytes, neg.Length)
+	payload = append(payload, lengthBytes...)
+
+	resultBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(resultBytes, neg.Result)
+	payload = append(payload, resultBytes...)
+
+	return payload
+}
+
+func findX224Negotiation(tpkt []byte, wantType x224.NegotiationType) (*x224.Negotiation, bool) {
+	if len(tpkt) < 11 { // TPKT(4) + X.224 header(7)
+		return nil, false
 	}
+	payload := tpkt[4:]
+	if len(payload) < 7 {
+		return nil, false
+	}
+	for i := 7; i+8 <= len(payload); i++ {
+		if payload[i] != byte(wantType) {
+			continue
+		}
+		neg := &x224.Negotiation{
+			Type:   x224.NegotiationType(payload[i]),
+			Flag:   payload[i+1],
+			Length: binary.LittleEndian.Uint16(payload[i+2 : i+4]),
+			Result: binary.LittleEndian.Uint32(payload[i+4 : i+8]),
+		}
+		if neg.Length != 8 {
+			continue
+		}
+		return neg, true
+	}
+	return nil, false
+}
+
+func writeTPKT(conn net.Conn, payload []byte) error {
+	t := &tpkt.TPKT{Conn: core.NewSocketLayer(conn)}
+	_, err := t.Write(payload)
+	return err
+}
+
+func initGRDPLogging() {
+	glog.SetLogger(log.New(os.Stdout, "", 0))
+	glog.SetLevel(glog.ERROR)
 }
 
 func parseRoutes(s string) map[string]string {
