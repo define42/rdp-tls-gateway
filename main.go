@@ -11,7 +11,7 @@
 //
 // Flow (backend side):
 //   4) TCP connect to chosen backend
-//   5) Send the original client's Connection Request (includes RDP_NEG_REQ)
+//   5) Send a new Connection Request to backend that only requests TLS (RDP_NEG_REQ)
 //   6) Read backend Connection Confirm, require it selects TLS (PROTOCOL_SSL)
 //   7) Do TLS handshake to backend (skip cert verification)
 //   8) Proxy bytes both ways: clientTLS <-> backendTLS
@@ -145,8 +145,9 @@ func handleConn(raw net.Conn, frontTLS *tls.Config, routes map[string]string, ti
 
 	_ = backendRaw.SetDeadline(time.Now().Add(timeout))
 
-	// 5) Send CRQ to backend (keep negotiation request intact, so backend selects TLS)
-	if _, err := backendRaw.Write(crq); err != nil {
+	// 5) Send CRQ to backend (force TLS-only negotiation)
+	backendCRQ := buildClientCRQSelectTLS()
+	if err := writeTPKT(backendRaw, backendCRQ); err != nil {
 		log.Printf("write backend CRQ: %v", err)
 		_ = clientTLS.Close()
 		return
@@ -285,6 +286,16 @@ func buildServerCCFSelectTLS() []byte {
 	payload = append(payload, resultBytes...)
 
 	return payload
+}
+
+func buildClientCRQSelectTLS() []byte {
+	pdu := x224.NewClientConnectionRequestPDU(nil)
+	pdu.ProtocolNeg.Type = x224.TYPE_RDP_NEG_REQ
+	pdu.ProtocolNeg.Flag = 0
+	pdu.ProtocolNeg.Length = 8
+	pdu.ProtocolNeg.Result = x224.PROTOCOL_SSL
+	pdu.Len = uint8(len(pdu.Serialize()) - 1)
+	return pdu.Serialize()
 }
 
 func findX224Negotiation(tpkt []byte, wantType x224.NegotiationType) (*x224.Negotiation, bool) {
