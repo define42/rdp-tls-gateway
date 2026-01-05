@@ -1,0 +1,397 @@
+// main.go
+//
+// RDP TLS SNI gateway (TLS terminate on the front, TLS initiate to backend).
+// Routing is based on the client's TLS SNI.
+// Backend TLS certificates are NOT validated (InsecureSkipVerify=true).
+//
+// Flow (front side):
+//   1) Read client's X.224 Connection Request (TPKT)
+//   2) Reply with X.224 Connection Confirm selecting TLS (PROTOCOL_SSL)
+//   3) Do TLS handshake with client, read SNI
+//
+// Flow (backend side):
+//   4) TCP connect to chosen backend
+//   5) Send the original client's Connection Request (includes RDP_NEG_REQ)
+//   6) Read backend Connection Confirm, require it selects TLS (PROTOCOL_SSL)
+//   7) Do TLS handshake to backend (skip cert verification)
+//   8) Proxy bytes both ways: clientTLS <-> backendTLS
+//
+// Note: This is NOT Microsoft RD Gateway (no HTTP/UDP transports). It’s a TLS-to-TLS RDP proxy.
+
+package main
+
+import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/binary"
+	"encoding/pem"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"log"
+	"math/big"
+	"net"
+	"strings"
+	"sync"
+	"time"
+)
+
+const (
+	// RDP negotiation struct types
+	RDP_NEG_REQ = 0x01
+	RDP_NEG_RSP = 0x02
+
+	// Protocol selections
+	PROTOCOL_RDP    = 0x00000000
+	PROTOCOL_SSL    = 0x00000001 // TLS
+	PROTOCOL_HYBRID = 0x00000002 // NLA (not implemented here)
+)
+
+func main() {
+	var (
+		listenAddr = flag.String("listen", ":3389", "listen address")
+		certFile   = flag.String("cert", "", "TLS certificate PEM for clients (front side)")
+		keyFile    = flag.String("key", "", "TLS private key PEM for clients (front side, unencrypted)")
+		routesArg  = flag.String("routes", "", "comma-separated routing rules: host=ip:port,*.suffix=ip:port,*=default (required)")
+		timeout    = flag.Duration("timeout", 10*time.Second, "handshake/dial/read timeout for setup")
+		minTLS12   = flag.Bool("tls12", true, "force TLS 1.2+ on both sides")
+	)
+	flag.Parse()
+
+	routes := parseRoutes(*routesArg)
+	if len(routes) == 0 {
+		log.Fatalf("no routes configured; use -routes")
+	}
+
+	cert, err := loadOrGenerateCert(*certFile, *keyFile)
+	if err != nil {
+		log.Fatalf("cert setup: %v", err)
+	}
+
+	frontTLS := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+	}
+	if *minTLS12 {
+		frontTLS.MinVersion = tls.VersionTLS12
+	}
+
+	ln, err := net.Listen("tcp", *listenAddr)
+	if err != nil {
+		log.Fatalf("listen: %v", err)
+	}
+	log.Printf("listening on %s", *listenAddr)
+
+	for {
+		c, err := ln.Accept()
+		if err != nil {
+			log.Printf("accept: %v", err)
+			continue
+		}
+		go handleConn(c, frontTLS, routes, *timeout, *minTLS12)
+	}
+}
+
+func handleConn(raw net.Conn, frontTLS *tls.Config, routes map[string]string, timeout time.Duration, minTLS12 bool) {
+	defer raw.Close()
+
+	_ = raw.SetDeadline(time.Now().Add(timeout))
+
+	// 1) Read client Connection Request (TPKT)
+	crq, err := readTPKT(raw)
+	if err != nil {
+		log.Printf("read client CRQ: %v", err)
+		return
+	}
+
+	// Require that client offered TLS in RDP_NEG_REQ (practical for SNI routing).
+	reqProto, ok := findClientRequestedProtocols(crq)
+	if !ok || (reqProto&PROTOCOL_SSL) == 0 {
+		log.Printf("client did not offer TLS (ok=%v requested=0x%08x) from %s", ok, reqProto, raw.RemoteAddr())
+		return
+	}
+
+	// 2) Send server Connection Confirm selecting TLS
+	ccfTLS := buildServerCCFSelectTLS()
+	if _, err := raw.Write(ccfTLS); err != nil {
+		log.Printf("write CCF(TLS): %v", err)
+		return
+	}
+
+	// 3) TLS handshake with client; get SNI
+	clientTLS := tls.Server(raw, frontTLS)
+	if err := clientTLS.Handshake(); err != nil {
+		log.Printf("client tls handshake: %v", err)
+		return
+	}
+	sni := strings.ToLower(strings.TrimSpace(clientTLS.ConnectionState().ServerName))
+	backendAddr := routeForSNI(routes, sni)
+	if backendAddr == "" {
+		log.Printf("no route for SNI=%q from %s", sni, raw.RemoteAddr())
+		_ = clientTLS.Close()
+		return
+	}
+	log.Printf("client %s SNI=%q -> %s", raw.RemoteAddr(), sni, backendAddr)
+
+	// 4) Dial backend TCP
+	d := net.Dialer{Timeout: timeout}
+	backendRaw, err := d.Dial("tcp", backendAddr)
+	if err != nil {
+		log.Printf("dial backend %s: %v", backendAddr, err)
+		_ = clientTLS.Close()
+		return
+	}
+	defer backendRaw.Close()
+
+	_ = backendRaw.SetDeadline(time.Now().Add(timeout))
+
+	// 5) Send CRQ to backend (keep negotiation request intact, so backend selects TLS)
+	if _, err := backendRaw.Write(crq); err != nil {
+		log.Printf("write backend CRQ: %v", err)
+		_ = clientTLS.Close()
+		return
+	}
+
+	// 6) Read backend CCF and require TLS selected
+	ccfBackend, err := readTPKT(backendRaw)
+	if err != nil {
+		log.Printf("read backend CCF: %v", err)
+		_ = clientTLS.Close()
+		return
+	}
+	sel, ok := findServerSelectedProtocol(ccfBackend)
+	if !ok {
+		log.Printf("backend did not include RDP_NEG_RSP (cannot confirm TLS); backend=%s", backendAddr)
+		_ = clientTLS.Close()
+		return
+	}
+	if sel != PROTOCOL_SSL {
+		log.Printf("backend did not select TLS (selected=0x%08x) backend=%s", sel, backendAddr)
+		_ = clientTLS.Close()
+		return
+	}
+
+	// 7) Start TLS to backend, ignoring certificate validation
+	backendTLSCfg := &tls.Config{
+		InsecureSkipVerify: true, // ignore backend cert chain + hostname
+	}
+	if minTLS12 {
+		backendTLSCfg.MinVersion = tls.VersionTLS12
+	}
+	// Still send SNI to backend if we have it (helps if backend uses SNI-based cert selection)
+	if sni != "" && sni != "*" {
+		backendTLSCfg.ServerName = sni
+	}
+
+	backendTLS := tls.Client(backendRaw, backendTLSCfg)
+	if err := backendTLS.Handshake(); err != nil {
+		log.Printf("backend tls handshake: %v (backend=%s)", err, backendAddr)
+		_ = clientTLS.Close()
+		return
+	}
+
+	// Clear deadlines for steady-state proxying
+	_ = clientTLS.SetDeadline(time.Time{})
+	_ = backendTLS.SetDeadline(time.Time{})
+
+	// 8) Proxy both directions: clientTLS <-> backendTLS
+	proxyBidirectional(clientTLS, backendTLS)
+}
+
+func proxyBidirectional(a, b net.Conn) {
+	var once sync.Once
+	closeBoth := func() {
+		once.Do(func() {
+			_ = a.Close()
+			_ = b.Close()
+		})
+	}
+
+	go func() {
+		_, _ = io.Copy(b, a)
+		closeBoth()
+	}()
+	_, _ = io.Copy(a, b)
+	closeBoth()
+}
+
+// readTPKT reads one TPKT-framed PDU (4-byte header + payload).
+func readTPKT(c net.Conn) ([]byte, error) {
+	h := make([]byte, 4)
+	if _, err := io.ReadFull(c, h); err != nil {
+		return nil, err
+	}
+	if h[0] != 0x03 || h[1] != 0x00 {
+		return nil, fmt.Errorf("not TPKT (v=%02x r=%02x)", h[0], h[1])
+	}
+	n := int(binary.BigEndian.Uint16(h[2:4]))
+	if n < 4 || n > 64*1024 {
+		return nil, fmt.Errorf("invalid TPKT length %d", n)
+	}
+	b := make([]byte, n)
+	copy(b[:4], h)
+	if _, err := io.ReadFull(c, b[4:]); err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+// findClientRequestedProtocols finds an embedded RDP_NEG_REQ and returns requestedProtocols.
+// We scan the payload for the 8-byte structure: type=0x01, len=8, then uint32 LE protocols.
+func findClientRequestedProtocols(tpkt []byte) (uint32, bool) {
+	if len(tpkt) < 12 {
+		return 0, false
+	}
+	// Scan all possible 8-byte windows
+	for i := 0; i+8 <= len(tpkt); i++ {
+		if tpkt[i] != RDP_NEG_REQ {
+			continue
+		}
+		if binary.LittleEndian.Uint16(tpkt[i+2:i+4]) != 8 {
+			continue
+		}
+		req := binary.LittleEndian.Uint32(tpkt[i+4 : i+8])
+		return req, true
+	}
+	return 0, false
+}
+
+// findServerSelectedProtocol finds an embedded RDP_NEG_RSP and returns selectedProtocol.
+func findServerSelectedProtocol(tpkt []byte) (uint32, bool) {
+	if len(tpkt) < 12 {
+		return 0, false
+	}
+	for i := 0; i+8 <= len(tpkt); i++ {
+		if tpkt[i] != RDP_NEG_RSP {
+			continue
+		}
+		if binary.LittleEndian.Uint16(tpkt[i+2:i+4]) != 8 {
+			continue
+		}
+		sel := binary.LittleEndian.Uint32(tpkt[i+4 : i+8])
+		return sel, true
+	}
+	return 0, false
+}
+
+// buildServerCCFSelectTLS returns a minimal X.224 Connection Confirm selecting TLS (PROTOCOL_SSL).
+func buildServerCCFSelectTLS() []byte {
+	// TPKT (4) + X.224 CC (7) + RDP_NEG_RSP (8) = 19 bytes (0x13)
+	return []byte{
+		0x03, 0x00, 0x00, 0x13, // TPKT header
+		0x0e, 0xd0, // X.224 CC TPDU (0x0e is LI)
+		0x00, 0x00, // dst ref
+		0x12, 0x34, // src ref (arbitrary)
+		0x00,       // class/options
+		0x02,       // RDP_NEG_RSP type
+		0x00,       // flags
+		0x08, 0x00, // length=8 (LE)
+		0x01, 0x00, 0x00, 0x00, // selectedProtocol = PROTOCOL_SSL
+	}
+}
+
+func parseRoutes(s string) map[string]string {
+	m := map[string]string{}
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return m
+	}
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		kv := strings.SplitN(part, "=", 2)
+		if len(kv) != 2 {
+			log.Fatalf("bad route %q (want host=ip:port)", part)
+		}
+		host := strings.ToLower(strings.TrimSpace(kv[0]))
+		addr := strings.TrimSpace(kv[1])
+		if host == "" || addr == "" {
+			log.Fatalf("bad route %q (empty host/addr)", part)
+		}
+		m[host] = addr
+	}
+	return m
+}
+
+func routeForSNI(routes map[string]string, sni string) string {
+	// exact match first
+	if sni != "" {
+		if v, ok := routes[sni]; ok {
+			return v
+		}
+		// wildcard suffix matches like *.example.com
+		for k, v := range routes {
+			if strings.HasPrefix(k, "*.") {
+				suffix := strings.TrimPrefix(k, "*") // ".example.com"
+				if strings.HasSuffix(sni, suffix) {
+					return v
+				}
+			}
+		}
+	}
+
+	// default
+	if v, ok := routes["*"]; ok {
+		return v
+	}
+	return ""
+}
+
+func loadOrGenerateCert(certPath, keyPath string) (tls.Certificate, error) {
+	if certPath == "" && keyPath == "" {
+		log.Printf("no -cert/-key provided; generating self-signed certificate for this run")
+		return generateSelfSignedCert()
+	}
+	if certPath == "" || keyPath == "" {
+		return tls.Certificate{}, fmt.Errorf("both -cert and -key must be provided, or neither for auto-generated cert")
+	}
+	return tls.LoadX509KeyPair(certPath, keyPath)
+}
+
+func generateSelfSignedCert() (tls.Certificate, error) {
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	tmpl := x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			CommonName: "rdp-tls-gateway",
+		},
+		NotBefore:             time.Now().Add(-1 * time.Hour),
+		NotAfter:              time.Now().Add(365 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		DNSNames:              []string{"localhost"},
+		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1")},
+	}
+
+	derBytes, err := x509.CreateCertificate(rand.Reader, &tmpl, &tmpl, &priv.PublicKey, priv)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)})
+
+	return tls.X509KeyPair(certPEM, keyPEM)
+}
+
+// --- Optional helpers if you later want better error reporting ---
+
+var errBackendNoTLS = errors.New("backend did not select TLS")
+
+//func _ = errBackendNoTLS // keep linter quiet if unused
