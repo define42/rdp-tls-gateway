@@ -64,7 +64,6 @@ func main() {
 		acmeEmail       = flag.String("acme-email", "", "ACME account email (recommended)")
 		acmeCA          = flag.String("acme-ca", "", "ACME CA directory URL or 'staging'")
 		acmeStore       = flag.String("acme-storage", "", "ACME storage path (optional)")
-		acmeOD          = flag.Bool("acme-ondemand", true, "obtain certificates on demand (restricted to route hostnames)")
 		frontPageDomain = flag.String("frontpage-domain", "", "optional domain to serve front page on HTTPS requests")
 	)
 	flag.Parse()
@@ -81,7 +80,7 @@ func main() {
 		log.Fatalf("cert setup: %v", err)
 	}
 
-	frontTLS, err := buildFrontTLS(*acmeEnable, *acmeEmail, *acmeCA, *acmeStore, *acmeOD, routes, cert, *minTLS12, *frontPageDomain)
+	frontTLS, err := buildFrontTLS(*acmeEnable, *acmeEmail, *acmeCA, *acmeStore, routes, cert, *minTLS12, *frontPageDomain)
 	if err != nil {
 		log.Fatalf("tls setup: %v", err)
 	}
@@ -513,7 +512,7 @@ func routeForSNI(routes map[string]string, sni string) string {
 	return ""
 }
 
-func buildFrontTLS(acmeEnabled bool, email, ca, storage string, onDemand bool, routes map[string]string, fallback tls.Certificate, minTLS12 bool, frontPageDomain string) (*tls.Config, error) {
+func buildFrontTLS(acmeEnabled bool, email, ca, storage string, routes map[string]string, fallback tls.Certificate, minTLS12 bool, frontPageDomain string) (*tls.Config, error) {
 	if !acmeEnabled {
 		frontTLS := &tls.Config{
 			Certificates: []tls.Certificate{fallback},
@@ -539,32 +538,20 @@ func buildFrontTLS(acmeEnabled bool, email, ca, storage string, onDemand bool, r
 	}
 
 	magic := certmagic.NewDefault()
-	if onDemand {
-		magic.OnDemand = &certmagic.OnDemandConfig{
-			DecisionFunc: func(name string) error {
-				if !acmeHostAllowed(routes, strings.ToLower(name)) {
-					return fmt.Errorf("acme: %q not configured", name)
-				}
-				return nil
-			},
-		}
-		if !hasACMEEligibleRoute(routes) {
-			log.Printf("acme: no eligible routes found; on-demand issuance will be rejected")
-		}
-	} else {
-		domains, skipped := acmeManagedHosts(routes)
-		if len(domains) == 0 {
-			return nil, fmt.Errorf("acme enabled without on-demand; no explicit hostnames in -routes")
-		}
-		if len(skipped) > 0 {
-			log.Printf("acme: skipping wildcard routes for pre-issuance: %s", strings.Join(skipped, ", "))
-		}
+	domains, skipped := acmeManagedHosts(routes)
+	if frontPageDomain != "" {
 		domains = append(domains, frontPageDomain)
-		log.Printf("acme: pre-issuing certificates for: %s", strings.Join(domains, ", "))
+	}
+	if len(domains) == 0 {
+		return nil, fmt.Errorf("acme enabled but no explicit hostnames provided in -routes or -frontpage-domain")
+	}
+	if len(skipped) > 0 {
+		log.Printf("acme: skipping wildcard routes for pre-issuance: %s", strings.Join(skipped, ", "))
+	}
+	log.Printf("acme: pre-issuing certificates for: %s", strings.Join(domains, ", "))
 
-		if err := magic.ManageSync(context.Background(), domains); err != nil {
-			return nil, err
-		}
+	if err := magic.ManageSync(context.Background(), domains); err != nil {
+		return nil, err
 	}
 
 	tlsCfg := magic.TLSConfig()
@@ -588,34 +575,6 @@ func acmeGetCertificate(magic *certmagic.Config, fallback tls.Certificate) func(
 		}
 		return magic.GetCertificate(hello)
 	}
-}
-
-func acmeHostAllowed(routes map[string]string, host string) bool {
-	if host == "" {
-		return false
-	}
-	if _, ok := routes[host]; ok {
-		return true
-	}
-	for routeHost := range routes {
-		if strings.HasPrefix(routeHost, "*.") {
-			suffix := strings.TrimPrefix(routeHost, "*")
-			if strings.HasSuffix(host, suffix) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func hasACMEEligibleRoute(routes map[string]string) bool {
-	for host := range routes {
-		if host == "*" {
-			continue
-		}
-		return true
-	}
-	return false
 }
 
 func acmeManagedHosts(routes map[string]string) ([]string, []string) {
