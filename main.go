@@ -48,7 +48,7 @@ import (
 
 func main() {
 	var (
-		listenAddr = flag.String("listen", ":3389", "listen address")
+		listenAddr = flag.String("listen", ":443", "listen address")
 		certFile   = flag.String("cert", "", "TLS certificate PEM for clients (front side)")
 		keyFile    = flag.String("key", "", "TLS private key PEM for clients (front side, unencrypted)")
 		routesArg  = flag.String("routes", "", "comma-separated routing rules: host=ip:port,*.suffix=ip:port,*=default (required)")

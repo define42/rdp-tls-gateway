@@ -1,0 +1,39 @@
+services:
+  gateway:
+    build: ./
+    restart: always
+    privileged: true
+    ports:
+      - "443:443"
+    volumes:
+      - /var/run/libvirt:/var/run/libvirt
+      - /data/:/data/
+    command: -routes localhost=192.168.122.29:3389
+    networks:
+      virbr0-net:
+        ipv4_address: 192.168.122.254
+      app-net:           # host-access + port publishing
+
+  ldap:
+    image: glauth/glauth
+    container_name: ldap
+    restart: always
+    ports:
+      - "389:389"
+    volumes:
+      - ./testldap/default-config.cfg:/app/config/config.cfg
+      - ./testldap/key.pem:/app/config/key.pem
+      - ./testldap/cert.pem:/app/config/cert.pem
+    networks:
+      app-net:
+networks:
+  virbr0-net:
+    driver: macvlan
+    driver_opts:
+      parent: virbr0
+    ipam:
+      config:
+        - subnet: 192.168.122.0/24
+          gateway: 192.168.122.1
+  app-net:
+    driver: bridge
