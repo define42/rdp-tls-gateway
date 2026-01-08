@@ -1,2 +1,5 @@
 all:
-	go run main.go -routes peter:wq
+	docker compose down
+	docker compose stop
+	docker compose build
+	docker compose up

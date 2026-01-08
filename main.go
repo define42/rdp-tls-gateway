@@ -21,6 +21,7 @@
 package main
 
 import (
+	"bufio"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -35,6 +36,7 @@ import (
 	"log"
 	"math/big"
 	"net"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -97,6 +99,33 @@ func handleConn(raw net.Conn, frontTLS *tls.Config, routes map[string]string, ti
 
 	_ = raw.SetDeadline(time.Now().Add(timeout))
 
+	br := bufio.NewReader(raw)
+	first, err := br.Peek(1)
+	if err != nil {
+		log.Printf("peek protocol byte: %v", err)
+		return
+	}
+	conn := &bufferedConn{Conn: raw, r: br}
+
+	if first[0] == tlsHandshakeRecordType {
+		handleHTTPS(conn, frontTLS, timeout)
+		return
+	}
+	handleRDP(conn, frontTLS, routes, timeout, minTLS12)
+}
+
+const tlsHandshakeRecordType = 0x16
+
+type bufferedConn struct {
+	net.Conn
+	r *bufio.Reader
+}
+
+func (c *bufferedConn) Read(p []byte) (int, error) {
+	return c.r.Read(p)
+}
+
+func handleRDP(raw net.Conn, frontTLS *tls.Config, routes map[string]string, timeout time.Duration, minTLS12 bool) {
 	// 1) Read client Connection Request (TPKT)
 	crq, err := readTPKT(raw)
 	if err != nil {
@@ -197,6 +226,33 @@ func handleConn(raw net.Conn, frontTLS *tls.Config, routes map[string]string, ti
 
 	// 8) Proxy both directions: clientTLS <-> backendTLS
 	proxyBidirectional(clientTLS, backendTLS)
+}
+
+func handleHTTPS(raw net.Conn, frontTLS *tls.Config, timeout time.Duration) {
+	// TLS handshake with client; get SNI
+	clientTLS := tls.Server(raw, frontTLS)
+	if err := clientTLS.Handshake(); err != nil {
+		log.Printf("client tls handshake: %v", err)
+		return
+	}
+	sni := strings.ToLower(strings.TrimSpace(clientTLS.ConnectionState().ServerName))
+	log.Printf("https client %s SNI=%q -> hello world", raw.RemoteAddr(), sni)
+
+	_ = clientTLS.SetReadDeadline(time.Now().Add(timeout))
+	br := bufio.NewReader(clientTLS)
+	req, err := http.ReadRequest(br)
+	if err != nil {
+		log.Printf("read https request: %v", err)
+	} else {
+		_ = req.Body.Close()
+	}
+
+	body := "<!doctype html><html><head><title>Hello</title></head><body><h1>Hello, world!</h1></body></html>"
+	resp := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s", len(body), body)
+
+	_ = clientTLS.SetWriteDeadline(time.Now().Add(timeout))
+	_, _ = io.WriteString(clientTLS, resp)
+	_ = clientTLS.Close()
 }
 
 func proxyBidirectional(a, b net.Conn) {
