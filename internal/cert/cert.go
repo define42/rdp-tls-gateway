@@ -71,7 +71,6 @@ func BuildFrontTLS(acmeEnabled bool, email, ca, storage string, routes map[strin
 		tlsCfg.MinVersion = 0
 		tlsCfg.CipherSuites = nil
 		tlsCfg.CurvePreferences = nil
-		tlsCfg.PreferServerCipherSuites = false
 	}
 	return tlsCfg, nil
 }
