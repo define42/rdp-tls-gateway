@@ -22,6 +22,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -38,10 +39,13 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/caddyserver/certmagic"
+	"github.com/mholt/acmez"
 	"github.com/tomatome/grdp/core"
 	"github.com/tomatome/grdp/glog"
 	"github.com/tomatome/grdp/protocol/tpkt"
@@ -50,12 +54,18 @@ import (
 
 func main() {
 	var (
-		listenAddr = flag.String("listen", ":443", "listen address")
-		certFile   = flag.String("cert", "", "TLS certificate PEM for clients (front side)")
-		keyFile    = flag.String("key", "", "TLS private key PEM for clients (front side, unencrypted)")
-		routesArg  = flag.String("routes", "", "comma-separated routing rules: host=ip:port,*.suffix=ip:port,*=default (required)")
-		timeout    = flag.Duration("timeout", 10*time.Second, "handshake/dial/read timeout for setup")
-		minTLS12   = flag.Bool("tls12", true, "force TLS 1.2+ on both sides")
+		listenAddr      = flag.String("listen", ":443", "listen address")
+		certFile        = flag.String("cert", "", "TLS certificate PEM for clients (front side)")
+		keyFile         = flag.String("key", "", "TLS private key PEM for clients (front side, unencrypted)")
+		routesArg       = flag.String("routes", "", "comma-separated routing rules: host=ip:port,*.suffix=ip:port,*=default (required)")
+		timeout         = flag.Duration("timeout", 10*time.Second, "handshake/dial/read timeout for setup")
+		minTLS12        = flag.Bool("tls12", true, "force TLS 1.2+ on both sides")
+		acmeEnable      = flag.Bool("acme", false, "enable ACME certificate management with certmagic for front TLS")
+		acmeEmail       = flag.String("acme-email", "", "ACME account email (recommended)")
+		acmeCA          = flag.String("acme-ca", "", "ACME CA directory URL or 'staging'")
+		acmeStore       = flag.String("acme-storage", "", "ACME storage path (optional)")
+		acmeOD          = flag.Bool("acme-ondemand", true, "obtain certificates on demand (restricted to route hostnames)")
+		frontPageDomain = flag.String("frontpage-domain", "", "optional domain to serve front page on HTTPS requests")
 	)
 	flag.Parse()
 
@@ -66,16 +76,14 @@ func main() {
 		log.Fatalf("no routes configured; use -routes")
 	}
 
-	cert, err := loadOrGenerateCert(*certFile, *keyFile)
+	cert, err := loadOrGenerateCert(*certFile, *keyFile, *acmeEnable)
 	if err != nil {
 		log.Fatalf("cert setup: %v", err)
 	}
 
-	frontTLS := &tls.Config{
-		Certificates: []tls.Certificate{cert},
-	}
-	if *minTLS12 {
-		frontTLS.MinVersion = tls.VersionTLS12
+	frontTLS, err := buildFrontTLS(*acmeEnable, *acmeEmail, *acmeCA, *acmeStore, *acmeOD, routes, cert, *minTLS12, *frontPageDomain)
+	if err != nil {
+		log.Fatalf("tls setup: %v", err)
 	}
 
 	ln, err := net.Listen("tcp", *listenAddr)
@@ -235,7 +243,14 @@ func handleHTTPS(raw net.Conn, frontTLS *tls.Config, timeout time.Duration) {
 		log.Printf("client tls handshake: %v", err)
 		return
 	}
-	sni := strings.ToLower(strings.TrimSpace(clientTLS.ConnectionState().ServerName))
+
+	state := clientTLS.ConnectionState()
+	if state.NegotiatedProtocol == acmez.ACMETLS1Protocol {
+		_ = clientTLS.Close()
+		return
+	}
+
+	sni := strings.ToLower(strings.TrimSpace(state.ServerName))
 	log.Printf("https client %s SNI=%q -> hello world", raw.RemoteAddr(), sni)
 
 	_ = clientTLS.SetDeadline(time.Time{})
@@ -498,9 +513,147 @@ func routeForSNI(routes map[string]string, sni string) string {
 	return ""
 }
 
-func loadOrGenerateCert(certPath, keyPath string) (tls.Certificate, error) {
+func buildFrontTLS(acmeEnabled bool, email, ca, storage string, onDemand bool, routes map[string]string, fallback tls.Certificate, minTLS12 bool, frontPageDomain string) (*tls.Config, error) {
+	if !acmeEnabled {
+		frontTLS := &tls.Config{
+			Certificates: []tls.Certificate{fallback},
+		}
+		if minTLS12 {
+			frontTLS.MinVersion = tls.VersionTLS12
+		}
+		return frontTLS, nil
+	}
+
+	certmagic.DefaultACME.Agreed = true
+	certmagic.DefaultACME.DisableHTTPChallenge = true
+	if email != "" {
+		certmagic.DefaultACME.Email = email
+	} else {
+		log.Printf("acme: no -acme-email provided; account registration may be rejected by some CAs")
+	}
+	if ca != "" {
+		certmagic.DefaultACME.CA = resolveACMECA(ca)
+	}
+	if storage != "" {
+		certmagic.Default.Storage = &certmagic.FileStorage{Path: storage}
+	}
+
+	magic := certmagic.NewDefault()
+	if onDemand {
+		magic.OnDemand = &certmagic.OnDemandConfig{
+			DecisionFunc: func(name string) error {
+				if !acmeHostAllowed(routes, strings.ToLower(name)) {
+					return fmt.Errorf("acme: %q not configured", name)
+				}
+				return nil
+			},
+		}
+		if !hasACMEEligibleRoute(routes) {
+			log.Printf("acme: no eligible routes found; on-demand issuance will be rejected")
+		}
+	} else {
+		domains, skipped := acmeManagedHosts(routes)
+		if len(domains) == 0 {
+			return nil, fmt.Errorf("acme enabled without on-demand; no explicit hostnames in -routes")
+		}
+		if len(skipped) > 0 {
+			log.Printf("acme: skipping wildcard routes for pre-issuance: %s", strings.Join(skipped, ", "))
+		}
+		domains = append(domains, frontPageDomain)
+		log.Printf("acme: pre-issuing certificates for: %s", strings.Join(domains, ", "))
+
+		if err := magic.ManageSync(context.Background(), domains); err != nil {
+			return nil, err
+		}
+	}
+
+	tlsCfg := magic.TLSConfig()
+	tlsCfg.NextProtos = append([]string{"http/1.1"}, tlsCfg.NextProtos...)
+	tlsCfg.GetCertificate = acmeGetCertificate(magic, fallback)
+	if minTLS12 {
+		tlsCfg.MinVersion = tls.VersionTLS12
+	} else {
+		tlsCfg.MinVersion = 0
+		tlsCfg.CipherSuites = nil
+		tlsCfg.CurvePreferences = nil
+		tlsCfg.PreferServerCipherSuites = false
+	}
+	return tlsCfg, nil
+}
+
+func acmeGetCertificate(magic *certmagic.Config, fallback tls.Certificate) func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+	return func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+		if hello == nil || hello.ServerName == "" {
+			return &fallback, nil
+		}
+		return magic.GetCertificate(hello)
+	}
+}
+
+func acmeHostAllowed(routes map[string]string, host string) bool {
+	if host == "" {
+		return false
+	}
+	if _, ok := routes[host]; ok {
+		return true
+	}
+	for routeHost := range routes {
+		if strings.HasPrefix(routeHost, "*.") {
+			suffix := strings.TrimPrefix(routeHost, "*")
+			if strings.HasSuffix(host, suffix) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hasACMEEligibleRoute(routes map[string]string) bool {
+	for host := range routes {
+		if host == "*" {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func acmeManagedHosts(routes map[string]string) ([]string, []string) {
+	var domains []string
+	var skipped []string
+	for host := range routes {
+		if host == "*" {
+			continue
+		}
+		if strings.Contains(host, "*") {
+			skipped = append(skipped, host)
+			continue
+		}
+		domains = append(domains, host)
+	}
+	sort.Strings(domains)
+	sort.Strings(skipped)
+	return domains, skipped
+}
+
+func resolveACMECA(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "staging":
+		return certmagic.LetsEncryptStagingCA
+	case "production", "prod":
+		return certmagic.LetsEncryptProductionCA
+	default:
+		return raw
+	}
+}
+
+func loadOrGenerateCert(certPath, keyPath string, acmeEnabled bool) (tls.Certificate, error) {
 	if certPath == "" && keyPath == "" {
-		log.Printf("no -cert/-key provided; generating self-signed certificate for this run")
+		if acmeEnabled {
+			log.Printf("acme enabled; no -cert/-key provided; generating self-signed fallback certificate for non-SNI clients")
+		} else {
+			log.Printf("no -cert/-key provided; generating self-signed certificate for this run")
+		}
 		return generateSelfSignedCert()
 	}
 	if certPath == "" || keyPath == "" {
