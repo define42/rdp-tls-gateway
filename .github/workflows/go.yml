@@ -67,6 +67,8 @@ jobs:
           export LIBVIRT_VOLUME_MODE=0666
           export LIBVIRT_VOLUME_OWNER=$(id -u libvirt-qemu 2>/dev/null || echo 0)
           export LIBVIRT_VOLUME_GROUP=$(id -g libvirt-qemu 2>/dev/null || echo 0)
+          sudo mkdir /data/
+          sudo chmod 777 /data/
           go test ./... -coverprofile=coverage.out -coverpkg=./...
 
       - name: Show coverage in job summary
