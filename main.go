@@ -22,19 +22,12 @@ package main
 
 import (
 	"bufio"
-	"context"
-	"crypto/rand"
-	"crypto/rsa"
 	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/pem"
 	"errors"
 	"flag"
-	"fmt"
+	"html/template"
 	"io"
 	"log"
-	"math/big"
 	"net"
 	"net/http"
 	"sort"
@@ -42,9 +35,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/caddyserver/certmagic"
-	"github.com/mholt/acmez"
-
+	"rdptlsgateway/internal/cert"
 	"rdptlsgateway/internal/rdp"
 )
 
@@ -71,12 +62,12 @@ func main() {
 		log.Fatalf("no routes configured; use -routes")
 	}
 
-	cert, err := loadOrGenerateCert(*certFile, *keyFile, *acmeEnable)
+	cert2, err := cert.LoadOrGenerateCert(*certFile, *keyFile, *acmeEnable)
 	if err != nil {
 		log.Fatalf("cert setup: %v", err)
 	}
 
-	frontTLS, err := buildFrontTLS(*acmeEnable, *acmeEmail, *acmeCA, *acmeStore, routes, cert, *minTLS12, *frontPageDomain)
+	frontTLS, err := cert.BuildFrontTLS(*acmeEnable, *acmeEmail, *acmeCA, *acmeStore, routes, cert2, *minTLS12, *frontPageDomain)
 	if err != nil {
 		log.Fatalf("tls setup: %v", err)
 	}
@@ -111,7 +102,7 @@ func handleConn(raw net.Conn, frontTLS *tls.Config, routes map[string]string, ti
 	conn := &bufferedConn{Conn: raw, r: br}
 
 	if first[0] == tlsHandshakeRecordType {
-		handleHTTPS(conn, frontTLS, timeout)
+		handleHTTPS(conn, frontTLS, routes, timeout)
 		return
 	}
 	rdp.HandleConn(conn, frontTLS, func(sni string) string {
@@ -130,7 +121,7 @@ func (c *bufferedConn) Read(p []byte) (int, error) {
 	return c.r.Read(p)
 }
 
-func handleHTTPS(raw net.Conn, frontTLS *tls.Config, timeout time.Duration) {
+func handleHTTPS(raw net.Conn, frontTLS *tls.Config, routes map[string]string, timeout time.Duration) {
 	// TLS handshake with client; get SNI
 	clientTLS := tls.Server(raw, frontTLS)
 	if err := clientTLS.Handshake(); err != nil {
@@ -139,18 +130,18 @@ func handleHTTPS(raw net.Conn, frontTLS *tls.Config, timeout time.Duration) {
 	}
 
 	state := clientTLS.ConnectionState()
-	if state.NegotiatedProtocol == acmez.ACMETLS1Protocol {
+	if cert.IsACMETLSALPN(state.NegotiatedProtocol) {
 		_ = clientTLS.Close()
 		return
 	}
 
 	sni := strings.ToLower(strings.TrimSpace(state.ServerName))
-	log.Printf("https client %s SNI=%q -> hello world", raw.RemoteAddr(), sni)
+	log.Printf("https client %s SNI=%q -> https page", raw.RemoteAddr(), sni)
 
 	_ = clientTLS.SetDeadline(time.Time{})
 
 	srv := &http.Server{
-		Handler:           http.HandlerFunc(helloHandler),
+		Handler:           helloHandler(routes, sni),
 		ReadHeaderTimeout: timeout,
 	}
 	ln := newSingleConnListener(clientTLS)
@@ -159,17 +150,224 @@ func handleHTTPS(raw net.Conn, frontTLS *tls.Config, timeout time.Duration) {
 	}
 }
 
-func helloHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Body != nil {
-		_, _ = io.Copy(io.Discard, r.Body)
-		_ = r.Body.Close()
-	}
+func helloHandler(routes map[string]string, connSNI string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			_, _ = io.Copy(io.Discard, r.Body)
+			_ = r.Body.Close()
+		}
 
-	body := "<!doctype html><html><head><title>Hello</title></head><body><h1>Hello, world!</h1></body></html>"
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	_, _ = io.WriteString(w, body)
+		host := strings.ToLower(normalizeHost(r.Host))
+		sni := strings.ToLower(strings.TrimSpace(connSNI))
+		domain := host
+		if domain == "" {
+			domain = sni
+		}
+
+		addr, pattern, matchType := matchRoute(routes, domain)
+		data := httpsPageData{
+			Domain:       domain,
+			Host:         host,
+			SNI:          sni,
+			MatchPattern: pattern,
+			MatchType:    matchType,
+			Backend:      addr,
+			Routes:       routesForView(routes, pattern),
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		if err := httpsPageTemplate.Execute(w, data); err != nil {
+			log.Printf("https page render: %v", err)
+		}
+	}
 }
+
+type httpsPageData struct {
+	Domain       string
+	Host         string
+	SNI          string
+	MatchPattern string
+	MatchType    string
+	Backend      string
+	Routes       []routeEntry
+}
+
+type routeEntry struct {
+	Host    string
+	Target  string
+	IsMatch bool
+}
+
+func routesForView(routes map[string]string, matchPattern string) []routeEntry {
+	list := make([]routeEntry, 0, len(routes))
+	for host, target := range routes {
+		list = append(list, routeEntry{
+			Host:    host,
+			Target:  target,
+			IsMatch: host == matchPattern,
+		})
+	}
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].Host < list[j].Host
+	})
+	return list
+}
+
+func normalizeHost(hostport string) string {
+	hostport = strings.TrimSpace(hostport)
+	if hostport == "" {
+		return ""
+	}
+	if strings.HasPrefix(hostport, "[") {
+		if idx := strings.LastIndex(hostport, "]"); idx != -1 {
+			host := hostport[1:idx]
+			return host
+		}
+	}
+	if host, _, err := net.SplitHostPort(hostport); err == nil {
+		return host
+	}
+	return hostport
+}
+
+var httpsPageTemplate = template.Must(template.New("https-page").Parse(`<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>RDP TLS Gateway</title>
+  <style>
+    :root {
+      --ink: #1f2933;
+      --muted: #556270;
+      --accent: #0f766e;
+      --paper: #fff7ee;
+      --border: #e2d8c6;
+      --bg1: #f5efe6;
+      --bg2: #e6f2f2;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Spectral", "Georgia", serif;
+      background:
+        radial-gradient(900px circle at 10% 10%, var(--bg2), transparent 60%),
+        linear-gradient(135deg, var(--bg1), #ffffff);
+    }
+    main {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 48px 20px 64px;
+    }
+    h1 {
+      margin: 0 0 6px;
+      font-size: 40px;
+      letter-spacing: 0.4px;
+    }
+    p.lead {
+      margin: 0 0 24px;
+      color: var(--muted);
+      font-size: 18px;
+    }
+    section {
+      background: var(--paper);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: 0 10px 22px rgba(31, 41, 51, 0.08);
+      margin-bottom: 20px;
+    }
+    h2 {
+      margin: 0 0 12px;
+      font-size: 20px;
+      color: var(--accent);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 15px;
+    }
+    th {
+      text-align: left;
+      font-weight: 600;
+      color: var(--muted);
+      padding: 6px 0;
+      width: 190px;
+    }
+    td {
+      padding: 6px 0;
+      font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+    }
+    code {
+      background: #efe6d8;
+      padding: 2px 6px;
+      border-radius: 6px;
+    }
+    ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: grid;
+      gap: 8px;
+    }
+    li {
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 1px dashed var(--border);
+      padding: 6px 0;
+      font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+    }
+    .tag {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-left: 8px;
+    }
+    .match {
+      color: var(--accent);
+      font-weight: 700;
+    }
+    .empty {
+      color: var(--muted);
+      font-family: "Spectral", "Georgia", serif;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Hello, world!</h1>
+    <p class="lead">This HTTPS page shows the active configuration for the requested domain.</p>
+    <section>
+      <h2>Domain configuration</h2>
+      <table>
+        <tr><th>Lookup domain</th><td>{{if .Domain}}{{.Domain}}{{else}}(none){{end}}</td></tr>
+        <tr><th>Request host</th><td>{{if .Host}}{{.Host}}{{else}}(none){{end}}</td></tr>
+        <tr><th>TLS SNI</th><td>{{if .SNI}}{{.SNI}}{{else}}(none){{end}}</td></tr>
+        <tr><th>Matched route</th><td>{{if .MatchType}}{{.MatchType}} {{.MatchPattern}}{{else}}none{{end}}</td></tr>
+        <tr><th>Backend target</th><td>{{if .Backend}}<code>{{.Backend}}</code>{{else}}(none){{end}}</td></tr>
+      </table>
+    </section>
+    <section>
+      <h2>Configured routes</h2>
+      {{if .Routes}}
+      <ul>
+        {{range .Routes}}
+        <li>
+          <span>{{.Host}}{{if .IsMatch}}<span class="tag match">match</span>{{end}}</span>
+          <code>{{.Target}}</code>
+        </li>
+        {{end}}
+      </ul>
+      {{else}}
+      <div class="empty">No routes configured.</div>
+      {{end}}
+    </section>
+  </main>
+</body>
+</html>
+`))
 
 type singleConnListener struct {
 	conn net.Conn
@@ -248,17 +446,22 @@ func parseRoutes(s string) map[string]string {
 }
 
 func routeForSNI(routes map[string]string, sni string) string {
+	addr, _, _ := matchRoute(routes, sni)
+	return addr
+}
+
+func matchRoute(routes map[string]string, sni string) (string, string, string) {
 	// exact match first
 	if sni != "" {
 		if v, ok := routes[sni]; ok {
-			return v
+			return v, sni, "exact"
 		}
 		// wildcard suffix matches like *.example.com
 		for k, v := range routes {
 			if strings.HasPrefix(k, "*.") {
 				suffix := strings.TrimPrefix(k, "*") // ".example.com"
 				if strings.HasSuffix(sni, suffix) {
-					return v
+					return v, k, "wildcard"
 				}
 			}
 		}
@@ -266,153 +469,7 @@ func routeForSNI(routes map[string]string, sni string) string {
 
 	// default
 	if v, ok := routes["*"]; ok {
-		return v
+		return v, "*", "default"
 	}
-	return ""
-}
-
-func buildFrontTLS(acmeEnabled bool, email, ca, storage string, routes map[string]string, fallback tls.Certificate, minTLS12 bool, frontPageDomain string) (*tls.Config, error) {
-	if !acmeEnabled {
-		frontTLS := &tls.Config{
-			Certificates: []tls.Certificate{fallback},
-		}
-		if minTLS12 {
-			frontTLS.MinVersion = tls.VersionTLS12
-		}
-		return frontTLS, nil
-	}
-
-	certmagic.DefaultACME.Agreed = true
-	certmagic.DefaultACME.DisableHTTPChallenge = true
-	if email != "" {
-		certmagic.DefaultACME.Email = email
-	} else {
-		log.Printf("acme: no -acme-email provided; account registration may be rejected by some CAs")
-	}
-	if ca != "" {
-		certmagic.DefaultACME.CA = resolveACMECA(ca)
-	}
-	if storage != "" {
-		certmagic.Default.Storage = &certmagic.FileStorage{Path: storage}
-	}
-
-	magic := certmagic.NewDefault()
-	domains, skipped := acmeManagedHosts(routes)
-	if frontPageDomain != "" {
-		domains = append(domains, frontPageDomain)
-	}
-	if len(domains) == 0 {
-		return nil, fmt.Errorf("acme enabled but no explicit hostnames provided in -routes or -frontpage-domain")
-	}
-	if len(skipped) > 0 {
-		log.Printf("acme: skipping wildcard routes for pre-issuance: %s", strings.Join(skipped, ", "))
-	}
-	log.Printf("acme: pre-issuing certificates for: %s", strings.Join(domains, ", "))
-
-	if err := magic.ManageSync(context.Background(), domains); err != nil {
-		return nil, err
-	}
-
-	tlsCfg := magic.TLSConfig()
-	tlsCfg.NextProtos = append([]string{"http/1.1"}, tlsCfg.NextProtos...)
-	tlsCfg.GetCertificate = acmeGetCertificate(magic, fallback)
-	if minTLS12 {
-		tlsCfg.MinVersion = tls.VersionTLS12
-	} else {
-		tlsCfg.MinVersion = 0
-		tlsCfg.CipherSuites = nil
-		tlsCfg.CurvePreferences = nil
-		tlsCfg.PreferServerCipherSuites = false
-	}
-	return tlsCfg, nil
-}
-
-func acmeGetCertificate(magic *certmagic.Config, fallback tls.Certificate) func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
-	return func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-		if hello == nil || hello.ServerName == "" {
-			return &fallback, nil
-		}
-		return magic.GetCertificate(hello)
-	}
-}
-
-func acmeManagedHosts(routes map[string]string) ([]string, []string) {
-	var domains []string
-	var skipped []string
-	for host := range routes {
-		if host == "*" {
-			continue
-		}
-		if strings.Contains(host, "*") {
-			skipped = append(skipped, host)
-			continue
-		}
-		domains = append(domains, host)
-	}
-	sort.Strings(domains)
-	sort.Strings(skipped)
-	return domains, skipped
-}
-
-func resolveACMECA(raw string) string {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "staging":
-		return certmagic.LetsEncryptStagingCA
-	case "production", "prod":
-		return certmagic.LetsEncryptProductionCA
-	default:
-		return raw
-	}
-}
-
-func loadOrGenerateCert(certPath, keyPath string, acmeEnabled bool) (tls.Certificate, error) {
-	if certPath == "" && keyPath == "" {
-		if acmeEnabled {
-			log.Printf("acme enabled; no -cert/-key provided; generating self-signed fallback certificate for non-SNI clients")
-		} else {
-			log.Printf("no -cert/-key provided; generating self-signed certificate for this run")
-		}
-		return generateSelfSignedCert()
-	}
-	if certPath == "" || keyPath == "" {
-		return tls.Certificate{}, fmt.Errorf("both -cert and -key must be provided, or neither for auto-generated cert")
-	}
-	return tls.LoadX509KeyPair(certPath, keyPath)
-}
-
-func generateSelfSignedCert() (tls.Certificate, error) {
-	priv, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-
-	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
-	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-
-	tmpl := x509.Certificate{
-		SerialNumber: serialNumber,
-		Subject: pkix.Name{
-			CommonName: "rdp-tls-gateway",
-		},
-		NotBefore:             time.Now().Add(-1 * time.Hour),
-		NotAfter:              time.Now().Add(365 * 24 * time.Hour),
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		BasicConstraintsValid: true,
-		DNSNames:              []string{"localhost"},
-		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1")},
-	}
-
-	derBytes, err := x509.CreateCertificate(rand.Reader, &tmpl, &tmpl, &priv.PublicKey, priv)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)})
-
-	return tls.X509KeyPair(certPEM, keyPEM)
+	return "", "", ""
 }
