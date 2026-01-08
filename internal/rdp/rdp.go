@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"rdptlsgateway/internal/config"
 	"strings"
 	"sync"
 	"time"
@@ -68,7 +69,7 @@ func HandleConn(raw net.Conn, frontTLS *tls.Config, routeForSNI func(string) str
 	log.Printf("client %s SNI=%q -> %s", raw.RemoteAddr(), sni, backendAddr)
 
 	// 4) Dial backend TCP
-	d := net.Dialer{Timeout: 30 * time.Second}
+	d := net.Dialer{Timeout: config.Settings.GetDuration(config.TIMEOUT)}
 	backendRaw, err := d.Dial("tcp", backendAddr)
 	if err != nil {
 		log.Printf("dial backend %s: %v", backendAddr, err)
@@ -77,7 +78,7 @@ func HandleConn(raw net.Conn, frontTLS *tls.Config, routeForSNI func(string) str
 	}
 	defer backendRaw.Close()
 
-	_ = backendRaw.SetDeadline(time.Now().Add(30 * time.Second))
+	_ = backendRaw.SetDeadline(time.Now().Add(config.Settings.GetDuration(config.TIMEOUT)))
 
 	// 5) Send CRQ to backend (force TLS-only negotiation)
 	backendCRQ := buildClientCRQSelectTLS()

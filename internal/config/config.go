@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -9,134 +10,259 @@ import (
 	"github.com/olekukonko/tablewriter"
 )
 
-type SettingsType struct {
-	m map[string]SettingType
+type Kind uint8
+
+const (
+	KindString Kind = iota
+	KindInt
+	KindBool
+	KindDuration
+)
+
+type Setting struct {
+	Description string
+	Kind        Kind
+
+	Raw string // effective value as string (nice for printing)
+
+	S string
+	I int
+	B bool
+	D time.Duration
 }
 
-type SettingType struct {
-	Description string
-	Value       string
-	IntValue    *int
+type SettingsType struct {
+	m map[string]*Setting
 }
 
 func NewSettingType(print bool) *SettingsType {
-	s := &SettingsType{m: make(map[string]SettingType)}
+	s := &SettingsType{m: make(map[string]*Setting)}
 
-	s.Set(ACME_DATA_DIR, "ACME data directory", "/data/acme/")
+	s.SetString(ACME_DATA_DIR, "ACME data directory", "/data/acme/")
 
-	s.Set(VDI_IMAGE_DIR, "Directory for VDI images", "/data/vdiimage/")
-	s.Set(LDAP_URL, "LDAP server url", "ldaps://ldap:389")
-	s.Set(LDAP_BASE_DN, "LDAP base DN", "dc=glauth,dc=com")
-	s.Set(LDAP_USER_FILTER, "LDAP user filter", "(mail=%s)")
-	s.Set(LDAP_USER_DOMAIN, "LDAP user mail domain", "@example.com")
-	s.Set(LDAP_STARTTLS, "Use StartTLS when connecting to LDAP", "false")
-	s.Set(LDAP_SKIP_TLS_VERIFY, "Skip TLS verification when connecting to LDAP", "true")
-	s.Set(NTLM_DOMAIN, "NTLM domain name", "vdi")
+	s.SetString(VDI_IMAGE_DIR, "Directory for VDI images", "/data/vdiimage/")
+	s.SetString(LDAP_URL, "LDAP server url", "ldaps://ldap:389")
+	s.SetString(LDAP_BASE_DN, "LDAP base DN", "dc=glauth,dc=com")
+	s.SetString(LDAP_USER_FILTER, "LDAP user filter", "(mail=%s)")
+	s.SetString(LDAP_USER_DOMAIN, "LDAP user mail domain", "@example.com")
+	s.SetBool(LDAP_STARTTLS, "Use StartTLS when connecting to LDAP", false)
+	s.SetBool(LDAP_SKIP_TLS_VERIFY, "Skip TLS verification when connecting to LDAP", true)
+	s.SetString(NTLM_DOMAIN, "NTLM domain name", "vdi")
+
 	s.SetInt(RDPGW_SEND_BUF, "RD Gateway socket send buffer size (bytes)", 1048576)
 	s.SetInt(RDPGW_RECV_BUF, "RD Gateway socket receive buffer size (bytes)", 1048576)
 	s.SetInt(RDPGW_WS_READ_BUF, "RD Gateway websocket read buffer size (bytes)", 65536)
 	s.SetInt(RDPGW_WS_WRITE_BUF, "RD Gateway websocket write buffer size (bytes)", 65536)
-	s.Set(BASE_IMAGE_URL, "URL to download base VDI image if not found locally", "https://github.com/define42/ubuntu-desktop-cloud-image/releases/download/v0.0.25/noble-desktop-cloudimg-amd64-v0.0.25.img")
 
-	s.Set(LISTEN_ADDR, "listen address", ":443")
-	s.Set(CERT_FILE, "TLS certificate PEM for clients (front side)", "")
-	s.Set(KEY_FILE, "TLS private key PEM for clients (front side, unencrypted)", "")
-	s.Set(ROUTES_ARG, "comma-separated routing rules: host=ip:port,*.suffix=ip:port,*=default (required)", "localhost=192.168.122.29:3389")
-	s.Set(TIMEOUT, "handshake/dial/read timeout for setup", "10s")
-	s.Set(MIN_TLS12, "force TLS 1.2+ on both sides", "true")
-	s.Set(ACME_ENABLE, "enable ACME certificate management with certmagic for front TLS", "false")
-	s.Set(ACME_EMAIL, "ACME account email (recommended)", "")
-	s.Set(ACME_CA, "ACME CA directory URL or 'staging'", "")
-	s.Set(ACME_STORE, "ACME storage path (optional)", "")
-	s.Set(FRONT_PAGE_DOMAIN, "optional domain to serve front page on HTTPS requests", "")
+	s.SetString(BASE_IMAGE_URL, "URL to download base VDI image if not found locally",
+		"https://github.com/define42/ubuntu-desktop-cloud-image/releases/download/v0.0.25/noble-desktop-cloudimg-amd64-v0.0.25.img")
+
+	s.SetString(LISTEN_ADDR, "listen address", ":443")
+	s.SetString(CERT_FILE, "TLS certificate PEM for clients (front side)", "")
+	s.SetString(KEY_FILE, "TLS private key PEM for clients (front side, unencrypted)", "")
+	s.SetString(ROUTES_ARG, "comma-separated routing rules: host=ip:port,*.suffix=ip:port,*=default (required)", "localhost=192.168.122.29:3389")
+
+	// Duration-typed setting
+	s.SetDuration(TIMEOUT, "handshake/dial/read timeout for setup", 10*time.Second)
+
+	s.SetBool(MIN_TLS12, "force TLS 1.2+ on both sides", true)
+	s.SetBool(ACME_ENABLE, "enable ACME certificate management with certmagic for front TLS", false)
+	s.SetString(ACME_EMAIL, "ACME account email (recommended)", "")
+	s.SetString(ACME_CA, "ACME CA directory URL or 'staging'", "")
+	s.SetString(ACME_STORE, "ACME storage path (optional)", "")
+	s.SetString(FRONT_PAGE_DOMAIN, "optional domain to serve front page on HTTPS requests", "")
 
 	if print {
 		table := tablewriter.NewWriter(os.Stdout)
+		table.Header("KEY", "Description", "Value")
 
-		table.Header("KEY", "Description", "value")
-		for key, setting := range s.m {
-			if err := table.Append([]string{key, setting.Description, setting.Value}); err != nil {
-				panic(err)
-			}
+		keys := make([]string, 0, len(s.m))
+		for k := range s.m {
+			keys = append(keys, k)
 		}
-		if err := table.Render(); err != nil {
-			panic(err)
+		sort.Strings(keys)
+
+		for _, key := range keys {
+			st := s.m[key]
+			_ = table.Append([]string{key, st.Description, st.Raw})
 		}
+		_ = table.Render()
 	}
+
 	return s
 }
 
-func (s *SettingsType) Get(id string) string {
-	setting := s.m[id]
-	if setting.Value != "" {
-		return setting.Value
+// ---- Setters ----
+
+func (s *SettingsType) SetString(id, description, defaultValue string) {
+	raw := defaultValue
+	if v, ok := os.LookupEnv(id); ok {
+		raw = v
 	}
-	if setting.IntValue != nil {
-		return strconv.Itoa(*setting.IntValue)
+	raw = strings.TrimSpace(raw)
+
+	s.m[id] = &Setting{
+		Description: description,
+		Kind:        KindString,
+		Raw:         raw,
+		S:           raw,
 	}
-	return ""
 }
 
+func (s *SettingsType) SetInt(id, description string, defaultValue int) {
+	value := defaultValue
+	rawUsed := strconv.Itoa(defaultValue)
+
+	if v, ok := os.LookupEnv(id); ok {
+		rawEnv := strings.TrimSpace(v)
+		if parsed, err := strconv.Atoi(rawEnv); err == nil {
+			value = parsed
+			rawUsed = rawEnv
+		}
+	}
+
+	s.m[id] = &Setting{
+		Description: description,
+		Kind:        KindInt,
+		Raw:         rawUsed,
+		I:           value,
+	}
+}
+
+func (s *SettingsType) SetBool(id, description string, defaultValue bool) {
+	value := defaultValue
+	rawUsed := strconv.FormatBool(defaultValue)
+
+	if v, ok := os.LookupEnv(id); ok {
+		rawEnv := strings.TrimSpace(v)
+		if parsed, err := strconv.ParseBool(rawEnv); err == nil {
+			value = parsed
+			rawUsed = rawEnv
+		}
+	}
+
+	s.m[id] = &Setting{
+		Description: description,
+		Kind:        KindBool,
+		Raw:         rawUsed,
+		B:           value,
+	}
+}
+
+func (s *SettingsType) SetDuration(id, description string, defaultValue time.Duration) {
+	value := defaultValue
+	rawUsed := defaultValue.String()
+
+	if v, ok := os.LookupEnv(id); ok {
+		rawEnv := strings.TrimSpace(v)
+		if parsed, err := time.ParseDuration(rawEnv); err == nil {
+			value = parsed
+			rawUsed = rawEnv
+		}
+	}
+
+	s.m[id] = &Setting{
+		Description: description,
+		Kind:        KindDuration,
+		Raw:         rawUsed,
+		D:           value,
+	}
+}
+
+// ---- Getters (no fallbacks) ----
+
 func (s *SettingsType) Has(id string) bool {
-	setting := s.m[id]
-	return setting.Value != "" || setting.IntValue != nil
+	_, ok := s.m[id]
+	return ok
+}
+
+// String form (useful for printing/logging / backwards compat)
+func (s *SettingsType) Get(id string) string { return s.GetString(id) }
+
+func (s *SettingsType) GetString(id string) string {
+	st, ok := s.m[id]
+	if !ok {
+		return ""
+	}
+	switch st.Kind {
+	case KindString:
+		return st.S
+	case KindInt:
+		return strconv.Itoa(st.I)
+	case KindBool:
+		return strconv.FormatBool(st.B)
+	case KindDuration:
+		return st.D.String()
+	default:
+		return st.Raw
+	}
+}
+
+func (s *SettingsType) GetInt(id string) int {
+	st, ok := s.m[id]
+	if !ok {
+		return 0
+	}
+	if st.Kind == KindInt {
+		return st.I
+	}
+
+	v := strings.TrimSpace(st.Raw)
+	if v == "" {
+		return 0
+	}
+	parsed, err := strconv.Atoi(v)
+	if err != nil {
+		return 0
+	}
+	return parsed
+}
+
+func (s *SettingsType) GetBool(id string) bool {
+	st, ok := s.m[id]
+	if !ok {
+		return false
+	}
+	if st.Kind == KindBool {
+		return st.B
+	}
+
+	v := strings.TrimSpace(st.Raw)
+	if v == "" {
+		return false
+	}
+	parsed, err := strconv.ParseBool(v)
+	if err != nil {
+		return false
+	}
+	return parsed
 }
 
 func (s *SettingsType) IsTrue(id string) bool {
-	return s.m[id].Value == "true"
+	return s.GetBool(id)
 }
 
-func (s *SettingsType) Set(id string, description string, defaultValue string) {
-	if value, ok := os.LookupEnv(id); ok {
-		s.m[id] = SettingType{Description: description, Value: value}
-	} else {
-		s.m[id] = SettingType{Description: description, Value: defaultValue}
+func (s *SettingsType) GetDuration(id string) time.Duration {
+	st, ok := s.m[id]
+	if !ok {
+		return 0
 	}
-}
+	if st.Kind == KindDuration {
+		return st.D
+	}
 
-func (s *SettingsType) SetInt(id string, description string, defaultValue int) {
-	value := defaultValue
-	if raw, ok := os.LookupEnv(id); ok {
-		parsed, err := strconv.Atoi(strings.TrimSpace(raw))
-		if err == nil {
-			value = parsed
-		}
+	v := strings.TrimSpace(st.Raw)
+	if v == "" {
+		return 0
 	}
-	valueCopy := value
-	s.m[id] = SettingType{
-		Description: description,
-		Value:       strconv.Itoa(value),
-		IntValue:    &valueCopy,
-	}
-}
-
-func (s *SettingsType) GetInt(id string, fallback int) int {
-	setting := s.m[id]
-	if setting.IntValue != nil {
-		return *setting.IntValue
-	}
-	value := strings.TrimSpace(setting.Value)
-	if value == "" {
-		return fallback
-	}
-	parsed, err := strconv.Atoi(value)
+	parsed, err := time.ParseDuration(v)
 	if err != nil {
-		return fallback
+		return 0
 	}
 	return parsed
 }
 
-func (s *SettingsType) GetDuration(key string, fallback time.Duration) time.Duration {
-	value := strings.TrimSpace(s.Get(key))
-	if value == "" {
-		return fallback
-	}
-	parsed, err := time.ParseDuration(value)
-	if err != nil {
-		return fallback
-	}
-	return parsed
-}
+// ---- Keys ----
 
 const (
 	ACME_DATA_DIR        = "ACME_DATA_DIR"
@@ -166,4 +292,5 @@ const (
 	TIMEOUT              = "TIMEOUT"
 )
 
+// NOTE: prints at init-time (like your original). Consider false in libraries.
 var Settings = NewSettingType(true)

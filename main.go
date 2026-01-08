@@ -124,7 +124,8 @@ func handleHTTPS(raw net.Conn, frontTLS *tls.Config, routes map[string]string) {
 	_ = clientTLS.SetDeadline(time.Time{})
 
 	srv := &http.Server{
-		Handler: helloHandler(routes, sni),
+		Handler:     helloHandler(routes, sni),
+		ReadTimeout: config.Settings.GetDuration(config.TIMEOUT),
 	}
 	ln := newSingleConnListener(clientTLS)
 	if err := srv.Serve(ln); err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
