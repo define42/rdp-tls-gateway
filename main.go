@@ -238,21 +238,79 @@ func handleHTTPS(raw net.Conn, frontTLS *tls.Config, timeout time.Duration) {
 	sni := strings.ToLower(strings.TrimSpace(clientTLS.ConnectionState().ServerName))
 	log.Printf("https client %s SNI=%q -> hello world", raw.RemoteAddr(), sni)
 
-	_ = clientTLS.SetReadDeadline(time.Now().Add(timeout))
-	br := bufio.NewReader(clientTLS)
-	req, err := http.ReadRequest(br)
-	if err != nil {
-		log.Printf("read https request: %v", err)
-	} else {
-		_ = req.Body.Close()
+	_ = clientTLS.SetDeadline(time.Time{})
+
+	srv := &http.Server{
+		Handler:           http.HandlerFunc(helloHandler),
+		ReadHeaderTimeout: timeout,
+	}
+	ln := newSingleConnListener(clientTLS)
+	if err := srv.Serve(ln); err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
+		log.Printf("https serve: %v", err)
+	}
+}
+
+func helloHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		_, _ = io.Copy(io.Discard, r.Body)
+		_ = r.Body.Close()
 	}
 
 	body := "<!doctype html><html><head><title>Hello</title></head><body><h1>Hello, world!</h1></body></html>"
-	resp := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s", len(body), body)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.WriteString(w, body)
+}
 
-	_ = clientTLS.SetWriteDeadline(time.Now().Add(timeout))
-	_, _ = io.WriteString(clientTLS, resp)
-	_ = clientTLS.Close()
+type singleConnListener struct {
+	conn net.Conn
+	addr net.Addr
+	done chan struct{}
+	once sync.Once
+}
+
+func newSingleConnListener(conn net.Conn) *singleConnListener {
+	l := &singleConnListener{
+		addr: conn.LocalAddr(),
+		done: make(chan struct{}),
+	}
+	l.conn = &closeNotifyConn{Conn: conn, done: l.done, once: &l.once}
+	return l
+}
+
+func (l *singleConnListener) Accept() (net.Conn, error) {
+	if l.conn != nil {
+		c := l.conn
+		l.conn = nil
+		return c, nil
+	}
+	<-l.done
+	return nil, net.ErrClosed
+}
+
+func (l *singleConnListener) Close() error {
+	if l.conn != nil {
+		_ = l.conn.Close()
+		l.conn = nil
+	}
+	l.once.Do(func() { close(l.done) })
+	return nil
+}
+
+func (l *singleConnListener) Addr() net.Addr {
+	return l.addr
+}
+
+type closeNotifyConn struct {
+	net.Conn
+	done chan struct{}
+	once *sync.Once
+}
+
+func (c *closeNotifyConn) Close() error {
+	err := c.Conn.Close()
+	c.once.Do(func() { close(c.done) })
+	return err
 }
 
 func proxyBidirectional(a, b net.Conn) {
@@ -487,9 +545,3 @@ func generateSelfSignedCert() (tls.Certificate, error) {
 
 	return tls.X509KeyPair(certPEM, keyPEM)
 }
-
-// --- Optional helpers if you later want better error reporting ---
-
-var errBackendNoTLS = errors.New("backend did not select TLS")
-
-//func _ = errBackendNoTLS // keep linter quiet if unused
