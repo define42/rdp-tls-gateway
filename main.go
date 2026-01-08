@@ -24,7 +24,6 @@ import (
 	"bufio"
 	"crypto/tls"
 	"errors"
-	"flag"
 	"html/template"
 	"io"
 	"log"
@@ -36,62 +35,46 @@ import (
 	"time"
 
 	"rdptlsgateway/internal/cert"
+	"rdptlsgateway/internal/config"
 	"rdptlsgateway/internal/rdp"
 )
 
 func main() {
-	var (
-		listenAddr      = flag.String("listen", ":443", "listen address")
-		certFile        = flag.String("cert", "", "TLS certificate PEM for clients (front side)")
-		keyFile         = flag.String("key", "", "TLS private key PEM for clients (front side, unencrypted)")
-		routesArg       = flag.String("routes", "", "comma-separated routing rules: host=ip:port,*.suffix=ip:port,*=default (required)")
-		timeout         = flag.Duration("timeout", 10*time.Second, "handshake/dial/read timeout for setup")
-		minTLS12        = flag.Bool("tls12", true, "force TLS 1.2+ on both sides")
-		acmeEnable      = flag.Bool("acme", false, "enable ACME certificate management with certmagic for front TLS")
-		acmeEmail       = flag.String("acme-email", "", "ACME account email (recommended)")
-		acmeCA          = flag.String("acme-ca", "", "ACME CA directory URL or 'staging'")
-		acmeStore       = flag.String("acme-storage", "", "ACME storage path (optional)")
-		frontPageDomain = flag.String("frontpage-domain", "", "optional domain to serve front page on HTTPS requests")
-	)
-	flag.Parse()
 
 	rdp.InitLogging()
 
-	routes := parseRoutes(*routesArg)
+	routes := parseRoutes(config.Settings.Get(config.ROUTES_ARG))
 	if len(routes) == 0 {
 		log.Fatalf("no routes configured; use -routes")
 	}
 
-	cert2, err := cert.LoadOrGenerateCert(*certFile, *keyFile, *acmeEnable)
+	cert2, err := cert.LoadOrGenerateCert(config.Settings.Get(config.CERT_FILE), config.Settings.Get(config.KEY_FILE), config.Settings.IsTrue(config.ACME_ENABLE))
 	if err != nil {
 		log.Fatalf("cert setup: %v", err)
 	}
 
-	frontTLS, err := cert.BuildFrontTLS(*acmeEnable, *acmeEmail, *acmeCA, *acmeStore, routes, cert2, *minTLS12, *frontPageDomain)
+	frontTLS, err := cert.BuildFrontTLS(config.Settings.IsTrue(config.ACME_ENABLE), config.Settings.Get(config.ACME_EMAIL), config.Settings.Get(config.ACME_CA), config.Settings.Get(config.ACME_STORE), routes, cert2, config.Settings.IsTrue(config.MIN_TLS12), config.Settings.Get(config.FRONT_PAGE_DOMAIN))
 	if err != nil {
 		log.Fatalf("tls setup: %v", err)
 	}
 
-	ln, err := net.Listen("tcp", *listenAddr)
+	ln, err := net.Listen("tcp", config.Settings.Get(config.LISTEN_ADDR))
 	if err != nil {
 		log.Fatalf("listen: %v", err)
 	}
-	log.Printf("listening on %s", *listenAddr)
-
+	log.Printf("listening on %s", config.Settings.Get(config.LISTEN_ADDR))
 	for {
 		c, err := ln.Accept()
 		if err != nil {
 			log.Printf("accept: %v", err)
 			continue
 		}
-		go handleConn(c, frontTLS, routes, *timeout, *minTLS12)
+		go handleConn(c, frontTLS, routes)
 	}
 }
 
-func handleConn(raw net.Conn, frontTLS *tls.Config, routes map[string]string, timeout time.Duration, minTLS12 bool) {
+func handleConn(raw net.Conn, frontTLS *tls.Config, routes map[string]string) {
 	defer raw.Close()
-
-	_ = raw.SetDeadline(time.Now().Add(timeout))
 
 	br := bufio.NewReader(raw)
 	first, err := br.Peek(1)
@@ -102,12 +85,12 @@ func handleConn(raw net.Conn, frontTLS *tls.Config, routes map[string]string, ti
 	conn := &bufferedConn{Conn: raw, r: br}
 
 	if first[0] == tlsHandshakeRecordType {
-		handleHTTPS(conn, frontTLS, routes, timeout)
+		handleHTTPS(conn, frontTLS, routes)
 		return
 	}
 	rdp.HandleConn(conn, frontTLS, func(sni string) string {
 		return routeForSNI(routes, sni)
-	}, timeout, minTLS12)
+	}, config.Settings.IsTrue(config.MIN_TLS12))
 }
 
 const tlsHandshakeRecordType = 0x16
@@ -121,7 +104,7 @@ func (c *bufferedConn) Read(p []byte) (int, error) {
 	return c.r.Read(p)
 }
 
-func handleHTTPS(raw net.Conn, frontTLS *tls.Config, routes map[string]string, timeout time.Duration) {
+func handleHTTPS(raw net.Conn, frontTLS *tls.Config, routes map[string]string) {
 	// TLS handshake with client; get SNI
 	clientTLS := tls.Server(raw, frontTLS)
 	if err := clientTLS.Handshake(); err != nil {
@@ -141,8 +124,7 @@ func handleHTTPS(raw net.Conn, frontTLS *tls.Config, routes map[string]string, t
 	_ = clientTLS.SetDeadline(time.Time{})
 
 	srv := &http.Server{
-		Handler:           helloHandler(routes, sni),
-		ReadHeaderTimeout: timeout,
+		Handler: helloHandler(routes, sni),
 	}
 	ln := newSingleConnListener(clientTLS)
 	if err := srv.Serve(ln); err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
