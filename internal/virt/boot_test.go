@@ -6,6 +6,8 @@ import (
 	typesUser "rdptlsgateway/internal/types"
 	"rdptlsgateway/internal/virt"
 	"testing"
+
+	"libvirt.org/go/libvirt"
 )
 
 const (
@@ -32,7 +34,13 @@ func TestStartVM(t *testing.T) {
 		t.Fatalf("Failed to boot new VM %s: %v", vmName, err)
 	}
 
-	vms, err := virt.ListVMs(testUsername)
+	conn, err := libvirt.NewConnect(virt.LibvirtURI())
+	if err != nil {
+		log.Printf("list vms connect: %v", err)
+	}
+	defer conn.Close()
+
+	vms, err := virt.ListVMs(testUsername, conn)
 	if err != nil {
 		t.Fatalf("Failed to list VMs: %v", err)
 	}
@@ -57,7 +65,7 @@ func TestStartVM(t *testing.T) {
 	}
 
 	// Verify that the VM has been removed
-	vms, err = virt.ListVMs("")
+	vms, err = virt.ListVMs("", conn)
 	if err != nil {
 		t.Fatalf("Failed to list VMs after deletion: %v", err)
 	}

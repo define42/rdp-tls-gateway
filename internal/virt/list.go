@@ -21,13 +21,7 @@ type vmInfo struct {
 	PrimaryIP string
 }
 
-func ListVMs(prefix string) ([]vmInfo, error) {
-	conn, err := libvirt.NewConnect(LibvirtURI())
-	if err != nil {
-		log.Printf("list vms connect: %v", err)
-		return nil, err
-	}
-	defer conn.Close()
+func ListVMs(prefix string, conn *libvirt.Connect) ([]vmInfo, error) {
 
 	doms, err := conn.ListAllDomains(0)
 	if err != nil {
@@ -217,10 +211,16 @@ func GetInstance() *SingletonWorker {
 func (s *SingletonWorker) run() {
 	log.Println("singleton worker started")
 
+	conn, err := libvirt.NewConnect(LibvirtURI())
+	if err != nil {
+		log.Printf("list vms connect: %v", err)
+	}
+	defer conn.Close()
+
 	for {
 		select {
 		case <-s.ticker.C:
-			s.doWork()
+			s.doWork(conn)
 		case <-s.ctx.Done():
 			log.Println("singleton worker stopped")
 			return
@@ -228,10 +228,10 @@ func (s *SingletonWorker) run() {
 	}
 }
 
-func (s *SingletonWorker) doWork() {
+func (s *SingletonWorker) doWork(conn *libvirt.Connect) {
 	log.Println("doing work every 2 seconds")
 	var err error
-	s.vms, err = ListVMs("")
+	s.vms, err = ListVMs("", conn)
 	if err != nil {
 		log.Printf("singleton worker list vms: %v", err)
 	}
