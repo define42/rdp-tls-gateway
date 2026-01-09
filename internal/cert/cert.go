@@ -12,6 +12,7 @@ import (
 	"log"
 	"math/big"
 	"net"
+	"rdptlsgateway/internal/config"
 	"sort"
 	"strings"
 	"time"
@@ -20,7 +21,13 @@ import (
 	"github.com/mholt/acmez"
 )
 
-func BuildFrontTLS(acmeEnabled bool, email, ca, storage string, routes map[string]string, fallback tls.Certificate, minTLS12 bool, frontPageDomain string) (*tls.Config, error) {
+func BuildFrontTLS(settings *config.SettingsType, routes map[string]string, fallback tls.Certificate, minTLS12 bool, frontPageDomain string) (*tls.Config, error) {
+
+	acmeEnabled := settings.IsTrue(config.ACME_ENABLE)
+	email := settings.Get(config.ACME_EMAIL)
+	ca := settings.Get(config.ACME_CA)
+	storage := settings.Get(config.ACME_STORE)
+
 	if !acmeEnabled {
 		frontTLS := &tls.Config{
 			Certificates: []tls.Certificate{fallback},
@@ -75,7 +82,10 @@ func BuildFrontTLS(acmeEnabled bool, email, ca, storage string, routes map[strin
 	return tlsCfg, nil
 }
 
-func LoadOrGenerateCert(certPath, keyPath string, acmeEnabled bool) (tls.Certificate, error) {
+func LoadOrGenerateCert(settings *config.SettingsType) (tls.Certificate, error) {
+	certPath := settings.Get(config.CERT_FILE)
+	keyPath := settings.Get(config.KEY_FILE)
+	acmeEnabled := settings.IsTrue(config.ACME_ENABLE)
 	if certPath == "" && keyPath == "" {
 		if acmeEnabled {
 			log.Printf("acme enabled; no -cert/-key provided; generating self-signed fallback certificate for non-SNI clients")

@@ -284,4 +284,4 @@ const (
 )
 
 // NOTE: prints at init-time (like your original). Consider false in libraries.
-var Settings = NewSettingType(true)
+//var Settings = NewSettingType(true)

@@ -26,7 +26,7 @@ func InitLogging() {
 }
 
 // HandleConn handles a single RDP connection over TLS.
-func HandleConn(raw net.Conn, frontTLS *tls.Config, routeForSNI func(string) string, minTLS12 bool) {
+func HandleConn(raw net.Conn, frontTLS *tls.Config, routeForSNI func(string) string, settings *config.SettingsType) {
 	if routeForSNI == nil {
 		log.Printf("rdp: no route function provided")
 		return
@@ -69,7 +69,7 @@ func HandleConn(raw net.Conn, frontTLS *tls.Config, routeForSNI func(string) str
 	log.Printf("client %s SNI=%q -> %s", raw.RemoteAddr(), sni, backendAddr)
 
 	// 4) Dial backend TCP
-	d := net.Dialer{Timeout: config.Settings.GetDuration(config.TIMEOUT)}
+	d := net.Dialer{Timeout: settings.GetDuration(config.TIMEOUT)}
 	backendRaw, err := d.Dial("tcp", backendAddr)
 	if err != nil {
 		log.Printf("dial backend %s: %v", backendAddr, err)
@@ -78,7 +78,7 @@ func HandleConn(raw net.Conn, frontTLS *tls.Config, routeForSNI func(string) str
 	}
 	defer backendRaw.Close()
 
-	_ = backendRaw.SetDeadline(time.Now().Add(config.Settings.GetDuration(config.TIMEOUT)))
+	_ = backendRaw.SetDeadline(time.Now().Add(settings.GetDuration(config.TIMEOUT)))
 
 	// 5) Send CRQ to backend (force TLS-only negotiation)
 	backendCRQ := buildClientCRQSelectTLS()
@@ -111,7 +111,7 @@ func HandleConn(raw net.Conn, frontTLS *tls.Config, routeForSNI func(string) str
 	backendTLSCfg := &tls.Config{
 		InsecureSkipVerify: true, // ignore backend cert chain + hostname
 	}
-	if minTLS12 {
+	if settings.IsTrue(config.MIN_TLS12) {
 		backendTLSCfg.MinVersion = tls.VersionTLS12
 	}
 	// Still send SNI to backend if we have it (helps if backend uses SNI-based cert selection)
