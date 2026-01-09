@@ -24,6 +24,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # Copy source
 COPY *.go ./
 COPY internal internal
+COPY static static
 # Build
 RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=1 go build -o remotegateway

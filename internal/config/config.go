@@ -49,11 +49,6 @@ func NewSettingType(print bool) *SettingsType {
 	s.SetBool(LDAP_SKIP_TLS_VERIFY, "Skip TLS verification when connecting to LDAP", true)
 	s.SetString(NTLM_DOMAIN, "NTLM domain name", "vdi")
 
-	s.SetInt(RDPGW_SEND_BUF, "RD Gateway socket send buffer size (bytes)", 1048576)
-	s.SetInt(RDPGW_RECV_BUF, "RD Gateway socket receive buffer size (bytes)", 1048576)
-	s.SetInt(RDPGW_WS_READ_BUF, "RD Gateway websocket read buffer size (bytes)", 65536)
-	s.SetInt(RDPGW_WS_WRITE_BUF, "RD Gateway websocket write buffer size (bytes)", 65536)
-
 	s.SetString(BASE_IMAGE_URL, "URL to download base VDI image if not found locally",
 		"https://github.com/define42/ubuntu-desktop-cloud-image/releases/download/v0.0.25/noble-desktop-cloudimg-amd64-v0.0.25.img")
 
@@ -283,10 +278,6 @@ const (
 	MIN_TLS12            = "MIN_TLS12"
 	VDI_IMAGE_DIR        = "VDI_IMAGE_DIR"
 	NTLM_DOMAIN          = "NTLM_DOMAIN"
-	RDPGW_SEND_BUF       = "RDPGW_SEND_BUF"
-	RDPGW_RECV_BUF       = "RDPGW_RECV_BUF"
-	RDPGW_WS_READ_BUF    = "RDPGW_WS_READ_BUF"
-	RDPGW_WS_WRITE_BUF   = "RDPGW_WS_WRITE_BUF"
 	BASE_IMAGE_URL       = "BASE_IMAGE_URL"
 	ROUTES_ARG           = "ROUTES_ARG"
 	TIMEOUT              = "TIMEOUT"

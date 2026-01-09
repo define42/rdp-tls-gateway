@@ -1,0 +1,434 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"html"
+	"io"
+	"log"
+	"net/http"
+	"rdptlsgateway/internal/config"
+	"rdptlsgateway/internal/ldap"
+	"rdptlsgateway/internal/session"
+	"rdptlsgateway/internal/virt"
+	"strings"
+
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/adapters/humachi"
+	"github.com/go-chi/chi/v5"
+)
+
+const (
+	cacheControlValue = "no-store, no-cache, must-revalidate, max-age=0"
+	pragmaValue       = "no-cache"
+	expiresValue      = "0"
+)
+
+func extractCredentials(r *http.Request) (string, string, bool, error) {
+	username, password, ok := r.BasicAuth()
+	if ok && username != "" && password != "" {
+		return username, password, true, nil
+	}
+	if err := r.ParseForm(); err != nil {
+		return "", "", false, err
+	}
+	username = strings.TrimSpace(r.FormValue("username"))
+	password = r.FormValue("password")
+	if username == "" || password == "" {
+		return username, password, false, nil
+	}
+	return username, password, true, nil
+}
+
+func handleLoginPost(sessionManager *session.Manager, settings *config.SettingsType) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		username, password, ok, err := extractCredentials(r)
+		if err != nil {
+			serveLogin(w, "Invalid form submission.")
+			return
+		}
+		if !ok {
+			serveLogin(w, "Missing credentials.")
+			return
+		}
+
+		user, err := ldap.LdapAuthenticateAccess(username, password, settings)
+		if err != nil {
+			log.Printf("ldap auth failed for %s: %v", username, err)
+			serveLogin(w, "Invalid credentials.")
+			return
+		}
+
+		if err := sessionManager.CreateSession(r.Context(), user); err != nil {
+			log.Printf("session create failed for %s: %v", username, err)
+			serveLogin(w, "Login failed.")
+			return
+		}
+		http.Redirect(w, r, "/api/dashboard", http.StatusSeeOther)
+	}
+}
+
+func serveLogin(w http.ResponseWriter, message string) {
+	setNoCacheHeaders(w)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	errorHTML := ""
+	if message != "" {
+		errorHTML = `<div class="error">` + html.EscapeString(message) + `</div>`
+	}
+	fmt.Fprint(w, strings.Replace(loginHTML, "{{ERROR}}", errorHTML, 1))
+}
+
+func setNoCacheHeaders(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", cacheControlValue)
+	w.Header().Set("Pragma", pragmaValue)
+	w.Header().Set("Expires", expiresValue)
+}
+
+func handleLoginGet(w http.ResponseWriter, r *http.Request) {
+	serveLogin(w, "")
+}
+
+func handleLogout(sessionManager *session.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := sessionManager.DestroySession(r.Context()); err != nil {
+			log.Printf("session destroy failed: %v", err)
+		}
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+	}
+}
+
+func handleKdcProxy(w http.ResponseWriter, r *http.Request) {
+	if r.Body != nil {
+		_, _ = io.Copy(io.Discard, r.Body)
+		_ = r.Body.Close()
+	}
+	log.Printf(
+		"KdcProxy request: method=%s remote=%s ua=%q content_type=%q content_len=%d",
+		r.Method,
+		r.RemoteAddr,
+		r.UserAgent(),
+		r.Header.Get("Content-Type"),
+		r.ContentLength,
+	)
+	w.Header().Set("Content-Type", "application/kerberos")
+	w.WriteHeader(http.StatusOK)
+}
+
+func getRemoteGatewayRotuer(sessionManager *session.Manager, settings *config.SettingsType) http.Handler {
+
+	router := chi.NewRouter()
+	router.Use(sessionManager.LoadAndSave)
+
+	router.Handle("/static/*", http.FileServer(http.FS(staticFiles)))
+	router.Post("/login", handleLoginPost(sessionManager, settings))
+	router.Get("/login", handleLoginGet)
+	router.HandleFunc("/logout", handleLogout(sessionManager))
+	router.HandleFunc("/KdcProxy", handleKdcProxy)
+
+	router.HandleFunc("/api/health", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if _, err := w.Write([]byte("ok\n")); err != nil {
+			log.Printf("failed to write health response: %v", err)
+		}
+	})
+
+	apiCfg := huma.DefaultConfig("RemoteGateway", "1.0.0")
+	apiCfg.OpenAPIPath = ""
+	apiCfg.DocsPath = ""
+	apiCfg.SchemasPath = ""
+	api := humachi.New(router, apiCfg)
+	registerAPI(api, sessionManager, settings)
+
+	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+	})
+	return router
+}
+
+func registerAPI(api huma.API, sessionManager *session.Manager, settings *config.SettingsType) {
+	group := huma.NewGroup(api, "/api")
+	group.UseMiddleware(sessionManager.SessionMiddleware())
+	huma.Get(group, "/rdpgw.rdp", func(_ context.Context, _ *struct{}) (*huma.StreamResponse, error) {
+		return &huma.StreamResponse{
+			Body: func(ctx huma.Context) {
+				req, w := humachi.Unwrap(ctx)
+				user, ok := sessionManager.UserFromContext(req.Context())
+				if !ok {
+					http.Error(w, "unauthorized", http.StatusUnauthorized)
+					return
+				}
+
+				gatewayHost := gatewayHostFromRequest(req)
+				targetHost := rdpTargetFromRequest(req)
+				rdpContent := rdpFileContent(gatewayHost, targetHost, settings, user.GetName())
+
+				w.Header().Set("Content-Type", "application/x-rdp")
+				w.Header().Set("Content-Disposition", `attachment; filename="`+rdpFilename+`"`)
+				w.Header().Set("Cache-Control", "no-store")
+				w.WriteHeader(http.StatusOK)
+				if _, err := w.Write([]byte(rdpContent)); err != nil {
+					log.Printf("failed to write RDP file response: %v", err)
+				}
+			},
+		}, nil
+	}, func(op *huma.Operation) {
+		op.Hidden = true
+	})
+
+	huma.Get(group, "/dashboard", func(_ context.Context, _ *struct{}) (*huma.StreamResponse, error) {
+		return &huma.StreamResponse{
+			Body: func(ctx huma.Context) {
+				_, w := humachi.Unwrap(ctx)
+				renderDashboardPage(w)
+			},
+		}, nil
+	}, func(op *huma.Operation) {
+		op.Hidden = true
+	})
+
+	huma.Get(group, "/dashboard/data", func(_ context.Context, _ *struct{}) (*huma.StreamResponse, error) {
+		return &huma.StreamResponse{
+			Body: func(ctx huma.Context) {
+				_, w := humachi.Unwrap(ctx)
+				vmRows, err := listDashboardVMs()
+				if err != nil {
+					log.Printf("list vms: %v", err)
+					writeJSON(w, http.StatusInternalServerError, dashboardDataResponse{
+						Filename: rdpFilename,
+						Error:    "Unable to load virtual machines right now.",
+					})
+					return
+				}
+				writeJSON(w, http.StatusOK, dashboardDataResponse{
+					Filename: rdpFilename,
+					VMs:      vmRows,
+				})
+			},
+		}, nil
+	}, func(op *huma.Operation) {
+		op.Hidden = true
+	})
+
+	huma.Post(group, "/dashboard", func(_ context.Context, _ *struct{}) (*huma.StreamResponse, error) {
+		return &huma.StreamResponse{
+			Body: func(ctx huma.Context) {
+				req, w := humachi.Unwrap(ctx)
+
+				if err := req.ParseForm(); err != nil {
+					log.Printf("dashboard form parse failed: %v", err)
+					writeJSON(w, http.StatusBadRequest, dashboardActionResponse{
+						OK:    false,
+						Error: "Invalid form submission.",
+					})
+					return
+				}
+
+				name, err := validateVMName(req.FormValue("vm_name"))
+				if err != nil {
+					writeJSON(w, http.StatusBadRequest, dashboardActionResponse{
+						OK:    false,
+						Error: err.Error(),
+					})
+					return
+				}
+
+				user, ok := sessionManager.UserFromContext(req.Context())
+				if !ok {
+					writeJSON(w, http.StatusUnauthorized, dashboardActionResponse{
+						OK:    false,
+						Error: "Login required.",
+					})
+					return
+				}
+
+				if vmName, err := virt.BootNewVM(name, user, settings); err != nil {
+					log.Printf("boot new vm %q failed: %v", vmName, err)
+					writeJSON(w, http.StatusInternalServerError, dashboardActionResponse{
+						OK:    false,
+						Error: "Failed to create VM.",
+					})
+					return
+				}
+
+				writeJSON(w, http.StatusOK, dashboardActionResponse{
+					OK:      true,
+					Message: "VM creation started.",
+				})
+			},
+		}, nil
+	}, func(op *huma.Operation) {
+		op.Hidden = true
+	})
+
+	huma.Post(group, "/dashboard/remove", func(_ context.Context, _ *struct{}) (*huma.StreamResponse, error) {
+		return &huma.StreamResponse{
+			Body: func(ctx huma.Context) {
+				req, w := humachi.Unwrap(ctx)
+
+				name, err := parseDashboardVMName(req)
+				if handleDashboardFormError(w, "dashboard remove", err) {
+					return
+				}
+
+				if err := virt.RemoveVM(name); err != nil {
+					log.Printf("remove vm %q failed: %v", name, err)
+					writeJSON(w, http.StatusInternalServerError, dashboardActionResponse{
+						OK:    false,
+						Error: "Failed to remove VM.",
+					})
+					return
+				}
+
+				writeJSON(w, http.StatusOK, dashboardActionResponse{
+					OK:      true,
+					Message: "VM removed.",
+				})
+			},
+		}, nil
+	}, func(op *huma.Operation) {
+		op.Hidden = true
+	})
+
+	huma.Post(group, "/dashboard/start", func(_ context.Context, _ *struct{}) (*huma.StreamResponse, error) {
+		return &huma.StreamResponse{
+			Body: func(ctx huma.Context) {
+				req, w := humachi.Unwrap(ctx)
+
+				name, err := parseDashboardVMName(req)
+				if handleDashboardFormError(w, "dashboard start", err) {
+					return
+				}
+
+				if err := virt.StartExistingVM(name); err != nil {
+					log.Printf("start vm %q failed: %v", name, err)
+					writeJSON(w, http.StatusInternalServerError, dashboardActionResponse{
+						OK:    false,
+						Error: "Failed to start VM.",
+					})
+					return
+				}
+
+				writeJSON(w, http.StatusOK, dashboardActionResponse{
+					OK:      true,
+					Message: "VM start requested.",
+				})
+			},
+		}, nil
+	}, func(op *huma.Operation) {
+		op.Hidden = true
+	})
+
+	huma.Post(group, "/dashboard/restart", func(_ context.Context, _ *struct{}) (*huma.StreamResponse, error) {
+		return &huma.StreamResponse{
+			Body: func(ctx huma.Context) {
+				req, w := humachi.Unwrap(ctx)
+
+				name, err := parseDashboardVMName(req)
+				if handleDashboardFormError(w, "dashboard restart", err) {
+					return
+				}
+
+				if err := virt.RestartVM(name); err != nil {
+					log.Printf("restart vm %q failed: %v", name, err)
+					writeJSON(w, http.StatusInternalServerError, dashboardActionResponse{
+						OK:    false,
+						Error: "Failed to restart VM.",
+					})
+					return
+				}
+
+				writeJSON(w, http.StatusOK, dashboardActionResponse{
+					OK:      true,
+					Message: "VM restart requested.",
+				})
+			},
+		}, nil
+	}, func(op *huma.Operation) {
+		op.Hidden = true
+	})
+
+	huma.Post(group, "/dashboard/shutdown", func(_ context.Context, _ *struct{}) (*huma.StreamResponse, error) {
+		return &huma.StreamResponse{
+			Body: func(ctx huma.Context) {
+				req, w := humachi.Unwrap(ctx)
+
+				name, err := parseDashboardVMName(req)
+				if handleDashboardFormError(w, "dashboard shutdown", err) {
+					return
+				}
+
+				if err := virt.ShutdownVM(name); err != nil {
+					log.Printf("shutdown vm %q failed: %v", name, err)
+					writeJSON(w, http.StatusInternalServerError, dashboardActionResponse{
+						OK:    false,
+						Error: "Failed to shutdown VM.",
+					})
+					return
+				}
+
+				writeJSON(w, http.StatusOK, dashboardActionResponse{
+					OK:      true,
+					Message: "VM shutdown requested.",
+				})
+			},
+		}, nil
+	}, func(op *huma.Operation) {
+		op.Hidden = true
+	})
+}
+
+func validateVMName(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", fmt.Errorf("VM name is required.")
+	}
+	if len(name) > 64 {
+		return "", fmt.Errorf("VM name is too long.")
+	}
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') ||
+			(r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') ||
+			r == '-' || r == '_' {
+			continue
+		}
+		return "", fmt.Errorf("VM name may only use letters, numbers, '-' or '_'.")
+	}
+	return name, nil
+}
+
+func parseDashboardVMName(req *http.Request) (string, error) {
+	if err := req.ParseForm(); err != nil {
+		return "", fmt.Errorf("%w: %v", errInvalidDashboardForm, err)
+	}
+	name := strings.TrimSpace(req.FormValue("vm_name"))
+	if name == "" {
+		return "", fmt.Errorf("VM name is required.")
+	}
+	if len(name) > 128 {
+		return "", fmt.Errorf("VM name is too long.")
+	}
+	return name, nil
+}
+
+func handleDashboardFormError(w http.ResponseWriter, action string, err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, errInvalidDashboardForm) {
+		log.Printf("%s form parse failed: %v", action, err)
+		writeJSON(w, http.StatusBadRequest, dashboardActionResponse{
+			OK:    false,
+			Error: "Invalid form submission.",
+		})
+		return true
+	}
+	writeJSON(w, http.StatusBadRequest, dashboardActionResponse{
+		OK:    false,
+		Error: err.Error(),
+	})
+	return true
+}
+
+var errInvalidDashboardForm = errors.New("invalid form submission")

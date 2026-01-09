@@ -37,11 +37,16 @@ import (
 	"rdptlsgateway/internal/cert"
 	"rdptlsgateway/internal/config"
 	"rdptlsgateway/internal/rdp"
+	"rdptlsgateway/internal/session"
 )
 
 func main() {
 
 	rdp.InitLogging()
+	sessionManager := session.NewManager()
+	settings := config.NewSettingType(true)
+
+	mux := getRemoteGatewayRotuer(sessionManager, settings)
 
 	routes := parseRoutes(config.Settings.Get(config.ROUTES_ARG))
 	if len(routes) == 0 {
@@ -69,11 +74,11 @@ func main() {
 			log.Printf("accept: %v", err)
 			continue
 		}
-		go handleConn(c, frontTLS, routes)
+		go handleConn(c, frontTLS, routes, mux)
 	}
 }
 
-func handleConn(raw net.Conn, frontTLS *tls.Config, routes map[string]string) {
+func handleConn(raw net.Conn, frontTLS *tls.Config, routes map[string]string, mux http.Handler) {
 	defer raw.Close()
 
 	br := bufio.NewReader(raw)
@@ -85,7 +90,7 @@ func handleConn(raw net.Conn, frontTLS *tls.Config, routes map[string]string) {
 	conn := &bufferedConn{Conn: raw, r: br}
 
 	if first[0] == tlsHandshakeRecordType {
-		handleHTTPS(conn, frontTLS, routes)
+		handleHTTPS(conn, frontTLS, routes, mux)
 		return
 	}
 	rdp.HandleConn(conn, frontTLS, func(sni string) string {
@@ -104,7 +109,7 @@ func (c *bufferedConn) Read(p []byte) (int, error) {
 	return c.r.Read(p)
 }
 
-func handleHTTPS(raw net.Conn, frontTLS *tls.Config, routes map[string]string) {
+func handleHTTPS(raw net.Conn, frontTLS *tls.Config, routes map[string]string, mux http.Handler) {
 	// TLS handshake with client; get SNI
 	clientTLS := tls.Server(raw, frontTLS)
 	if err := clientTLS.Handshake(); err != nil {
@@ -124,7 +129,7 @@ func handleHTTPS(raw net.Conn, frontTLS *tls.Config, routes map[string]string) {
 	_ = clientTLS.SetDeadline(time.Time{})
 
 	srv := &http.Server{
-		Handler:     helloHandler(routes, sni),
+		Handler:     mux,
 		ReadTimeout: config.Settings.GetDuration(config.TIMEOUT),
 	}
 	ln := newSingleConnListener(clientTLS)
