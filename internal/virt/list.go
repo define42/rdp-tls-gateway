@@ -110,7 +110,6 @@ func domainIPs(d libvirt.Domain, name string) []string {
 		libvirt.DOMAIN_INTERFACE_ADDRESSES_SRC_ARP,
 	}
 	var ipv4 []string
-	var ipv6 []string
 	seen := make(map[string]struct{})
 	var firstErr error
 
@@ -134,20 +133,13 @@ func domainIPs(d libvirt.Domain, name string) []string {
 				switch addr.Type {
 				case libvirt.IP_ADDR_TYPE_IPV4:
 					ipv4 = append(ipv4, addr.Addr)
-				case libvirt.IP_ADDR_TYPE_IPV6:
-					ipv6 = append(ipv6, addr.Addr)
 				default:
 					ipv4 = append(ipv4, addr.Addr)
 				}
 			}
 		}
 	}
-
-	if len(ipv4) == 0 && len(ipv6) == 0 && firstErr != nil {
-		log.Printf("domain ip addresses %s: %v", name, firstErr)
-	}
-
-	return append(ipv4, ipv6...)
+	return ipv4
 }
 
 func formatState(state libvirt.DomainState) string {
