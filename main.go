@@ -35,9 +35,12 @@ import (
 	"rdptlsgateway/internal/config"
 	"rdptlsgateway/internal/rdp"
 	"rdptlsgateway/internal/session"
+	"rdptlsgateway/internal/virt"
 )
 
 func main() {
+
+	virt.GetInstance()
 
 	rdp.InitLogging()
 	sessionManager := session.NewManager()
@@ -55,7 +58,7 @@ func main() {
 		log.Fatalf("cert setup: %v", err)
 	}
 
-	frontTLS, err := cert.BuildFrontTLS(settings, routes, cert2, settings.IsTrue(config.MIN_TLS12), settings.Get(config.FRONT_PAGE_DOMAIN))
+	frontTLS, err := cert.BuildFrontTLS(settings, routes, cert2, settings.IsTrue(config.MIN_TLS12), settings.Get(config.FRONT_DOMAIN))
 	if err != nil {
 		log.Fatalf("tls setup: %v", err)
 	}
@@ -71,11 +74,11 @@ func main() {
 			log.Printf("accept: %v", err)
 			continue
 		}
-		go handleConn(c, frontTLS, routes, mux, settings)
+		go handleSharedConn(c, frontTLS, routes, mux, settings)
 	}
 }
 
-func handleConn(raw net.Conn, frontTLS *tls.Config, routes map[string]string, mux http.Handler, settings *config.SettingsType) {
+func handleSharedConn(raw net.Conn, frontTLS *tls.Config, routes map[string]string, mux http.Handler, settings *config.SettingsType) {
 	defer raw.Close()
 
 	br := bufio.NewReader(raw)
@@ -90,8 +93,8 @@ func handleConn(raw net.Conn, frontTLS *tls.Config, routes map[string]string, mu
 		handleHTTPS(conn, frontTLS, routes, mux, settings)
 		return
 	}
-	rdp.HandleConn(conn, frontTLS, func(sni string) string {
-		return routeForSNI(routes, sni)
+	rdp.HandleRDP(conn, frontTLS, func(sni string) string {
+		return routeForSNI(routes, sni, settings)
 	}, settings)
 }
 
@@ -211,7 +214,7 @@ func parseRoutes(s string) map[string]string {
 	return m
 }
 
-func routeForSNI(routes map[string]string, sni string) string {
+func routeForSNI(routes map[string]string, sni string, settings *config.SettingsType) string {
 	addr, _, _ := matchRoute(routes, sni)
 	return addr
 }

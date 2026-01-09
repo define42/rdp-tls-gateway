@@ -47,10 +47,8 @@ func renderDashboardPage(w http.ResponseWriter) {
 }
 
 func listDashboardVMs() ([]dashboardVM, error) {
-	vmList, err := virt.ListVMs("")
-	if err != nil {
-		return nil, err
-	}
+	vmList := virt.GetInstance().GetVMs()
+
 	rows := make([]dashboardVM, 0, len(vmList))
 	for _, vm := range vmList {
 		rdpHost := rdpTargetHost(vm.Name)

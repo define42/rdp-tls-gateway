@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"rdptlsgateway/internal/config"
+	"rdptlsgateway/internal/virt"
 	"strings"
 	"sync"
 	"time"
@@ -25,8 +26,24 @@ func InitLogging() {
 	glog.SetLevel(glog.ERROR)
 }
 
-// HandleConn handles a single RDP connection over TLS.
-func HandleConn(raw net.Conn, frontTLS *tls.Config, routeForSNI func(string) string, settings *config.SettingsType) {
+func getSubdomain(host, root string) (string, bool) {
+	suffix := "." + root
+
+	if !strings.HasSuffix(host, suffix) {
+		return "", false
+	}
+
+	sub := strings.TrimSuffix(host, suffix)
+
+	if sub == "" {
+		return "", false // no subdomain
+	}
+
+	return sub, true
+}
+
+// HandleRDP handles a single RDP connection over TLS.
+func HandleRDP(raw net.Conn, frontTLS *tls.Config, routeForSNI func(string) string, settings *config.SettingsType) {
 	if routeForSNI == nil {
 		log.Printf("rdp: no route function provided")
 		return
@@ -60,12 +77,36 @@ func HandleConn(raw net.Conn, frontTLS *tls.Config, routeForSNI func(string) str
 		return
 	}
 	sni := strings.ToLower(strings.TrimSpace(clientTLS.ConnectionState().ServerName))
-	backendAddr := routeForSNI(sni)
+
+	// check end of sni is setting.Get(config.FRONT_DOMAIN)
+	if settings.Get(config.FRONT_DOMAIN) != "" && !strings.HasSuffix(sni, settings.Get(config.FRONT_DOMAIN)) {
+		log.Printf("client SNI=%q does not match required domain %q from %s", sni, settings.Get(config.FRONT_DOMAIN), raw.RemoteAddr())
+		_ = clientTLS.Close()
+		return
+	}
+	hostname, ok := getSubdomain(sni, settings.Get(config.FRONT_DOMAIN))
+	if !ok {
+		log.Printf("client SNI=%q does not have valid subdomain for domain %q from %s", sni, settings.Get(config.FRONT_DOMAIN), raw.RemoteAddr())
+		_ = clientTLS.Close()
+		return
+	}
+
+	// get target from virt singleton worker
+
+	backendAddr, err := virt.GetInstance().GetIpOfVm(hostname)
+	if err != nil {
+		log.Printf("get IP of VM %s: %v", hostname, err)
+		_ = clientTLS.Close()
+		return
+	}
+
+	//backendAddr := routeForSNI(sni)
 	if backendAddr == "" {
 		log.Printf("no route for SNI=%q from %s", sni, raw.RemoteAddr())
 		_ = clientTLS.Close()
 		return
 	}
+	backendAddr = net.JoinHostPort(backendAddr, "3389")
 	log.Printf("client %s SNI=%q -> %s", raw.RemoteAddr(), sni, backendAddr)
 
 	// 4) Dial backend TCP

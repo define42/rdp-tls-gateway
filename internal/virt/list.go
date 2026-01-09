@@ -1,9 +1,12 @@
 package virt
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strings"
+	"sync"
+	"time"
 
 	"libvirt.org/go/libvirt"
 )
@@ -90,7 +93,7 @@ func domainResources(d libvirt.Domain) (int, int) {
 func domainDiskGB(d libvirt.Domain) int {
 	info, err := d.GetBlockInfo("vda", 0)
 	if err != nil {
-		log.Printf("block info: %v", err)
+		//log.Printf("block info: %v", err)
 		return 0
 	}
 	size := info.Capacity
@@ -170,24 +173,71 @@ func formatState(state libvirt.DomainState) string {
 	}
 }
 
-func GetIpOfVm(vmName string) (string, error) {
-	conn, err := libvirt.NewConnect(LibvirtURI())
-	if err != nil {
-		log.Printf("list vms connect: %v", err)
-		return "", err
-	}
-	defer conn.Close()
+type SingletonWorker struct {
+	ticker *time.Ticker
+	ctx    context.Context
+	cancel context.CancelFunc
+	vms    []vmInfo
+}
 
-	dom, err := conn.LookupDomainByName(vmName)
-	if err != nil {
-		log.Printf("lookup domain %s: %v", vmName, err)
-		return "", err
-	}
-	defer func() { _ = dom.Free() }()
+func (s *SingletonWorker) GetVMs() []vmInfo {
+	return s.vms
+}
 
-	ips := domainIPs(*dom, vmName)
-	if len(ips) == 0 {
-		return "", fmt.Errorf("no IP addresses found for VM %s", vmName)
+func (s *SingletonWorker) GetIpOfVm(vmName string) (string, error) {
+	for _, vm := range s.vms {
+		if vm.Name == vmName {
+			return vm.PrimaryIP, nil
+		}
 	}
-	return ips[0], nil
+	return "", fmt.Errorf("VM %s not found", vmName)
+}
+
+var (
+	instance *SingletonWorker
+	once     sync.Once
+)
+
+func GetInstance() *SingletonWorker {
+	once.Do(func() {
+		ctx, cancel := context.WithCancel(context.Background())
+
+		instance = &SingletonWorker{
+			ticker: time.NewTicker(2 * time.Second),
+			ctx:    ctx,
+			cancel: cancel,
+		}
+
+		go instance.run()
+	})
+
+	return instance
+}
+
+func (s *SingletonWorker) run() {
+	log.Println("singleton worker started")
+
+	for {
+		select {
+		case <-s.ticker.C:
+			s.doWork()
+		case <-s.ctx.Done():
+			log.Println("singleton worker stopped")
+			return
+		}
+	}
+}
+
+func (s *SingletonWorker) doWork() {
+	log.Println("doing work every 2 seconds")
+	var err error
+	s.vms, err = ListVMs("")
+	if err != nil {
+		log.Printf("singleton worker list vms: %v", err)
+	}
+}
+
+func (s *SingletonWorker) Stop() {
+	s.cancel()
+	s.ticker.Stop()
 }

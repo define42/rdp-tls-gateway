@@ -65,7 +65,7 @@ func NewSettingType(print bool) *SettingsType {
 	s.SetString(ACME_EMAIL, "ACME account email (recommended)", "")
 	s.SetString(ACME_CA, "ACME CA directory URL or 'staging'", "")
 	s.SetString(ACME_STORE, "ACME storage path (optional)", "")
-	s.SetString(FRONT_PAGE_DOMAIN, "optional domain to serve front page on HTTPS requests", "")
+	s.SetString(FRONT_DOMAIN, "Front domain to serve front page on HTTPS requests and also the prefix for vm names", "desktop.local.gd")
 
 	if print {
 		table := tablewriter.NewWriter(os.Stdout)
@@ -266,7 +266,7 @@ const (
 	ACME_ENABLE          = "ACME_ENABLE"
 	ACME_STORE           = "ACME_STORE"
 	CERT_FILE            = "CERT_FILE"
-	FRONT_PAGE_DOMAIN    = "FRONT_PAGE_DOMAIN"
+	FRONT_DOMAIN         = "FRONT_DOMAIN"
 	KEY_FILE             = "KEY_FILE"
 	LDAP_URL             = "LDAP_URL"
 	LDAP_BASE_DN         = "LDAP_BASE_DN"
