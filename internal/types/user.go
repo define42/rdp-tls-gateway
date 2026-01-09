@@ -7,7 +7,7 @@ type User struct {
 	CloudInitPasswordHash string
 }
 
-func NewUser(name, password, domain string) (*User, error) {
+func NewUser(name, password string) (*User, error) {
 
 	cloudInitPassword, err := hash.CloudInitPasswordHash(password)
 	if err != nil {

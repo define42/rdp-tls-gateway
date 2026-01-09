@@ -22,7 +22,7 @@ func TestStartVM(t *testing.T) {
 		log.Fatalf("Failed to initialize virtualization: %v", err)
 	}
 
-	user, err := typesUser.NewUser(testUsername, testPassword, "")
+	user, err := typesUser.NewUser(testUsername, testPassword)
 	if err != nil {
 		t.Fatalf("Failed to create test user: %v", err)
 	}

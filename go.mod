@@ -8,6 +8,7 @@ require (
 	github.com/alexedwards/scs/v2 v2.9.0
 	github.com/caddyserver/certmagic v0.19.2
 	github.com/danielgtaylor/huma/v2 v2.34.1
+	github.com/go-chi/chi/v5 v5.2.2
 	github.com/go-ldap/ldap/v3 v3.4.12
 	github.com/kdomanski/iso9660 v0.4.0
 	github.com/mholt/acmez v1.2.0
@@ -42,7 +43,6 @@ require (
 	github.com/fatih/color v1.15.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/go-asn1-ber/asn1-ber v1.5.8-0.20250403174932-29230038a667 // indirect
-	github.com/go-chi/chi/v5 v5.2.2 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
