@@ -3,6 +3,8 @@ const DEFAULT_VM_ERROR = "Unable to load virtual machines right now.";
 const AUTO_REFRESH_INTERVAL_MS = 10000;
 const DEFAULT_VCPU = "4";
 const DEFAULT_MEMORY_MIB = "4096";
+const VCPU_OPTIONS = ["1", "2", "4", "8"];
+const MEMORY_OPTIONS = ["4096", "8192", "16384", "32768"];
 const state = {
     vms: [],
     filename: "rdpgw.rdp",
@@ -41,6 +43,19 @@ function formatMemoryGB(memoryMiB) {
     const gb = memoryMiB / 1024;
     const formatted = Number.isInteger(gb) ? gb.toFixed(0) : gb.toFixed(1);
     return `${formatted} GB`;
+}
+function buildSelect(options, selectedValue, labelFn) {
+    const select = document.createElement("select");
+    for (const value of options) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = labelFn(value);
+        if (String(value) === String(selectedValue)) {
+            option.selected = true;
+        }
+        select.appendChild(option);
+    }
+    return select;
 }
 function bootstrap() {
     const root = document.getElementById("app");
@@ -244,6 +259,34 @@ function bootstrap() {
             });
             actions.appendChild(removeButton);
             actionCell.appendChild(actions);
+            if (hasName && !isActive) {
+                const resourceRow = document.createElement("div");
+                resourceRow.className = "vm-resources";
+                const vcpuSelect = buildSelect(VCPU_OPTIONS, vm.vcpu || DEFAULT_VCPU, (value) => `${value} vCPU`);
+                vcpuSelect.className = "vm-resource-select";
+                vcpuSelect.disabled = state.busy;
+                const memorySelect = buildSelect(MEMORY_OPTIONS, vm.memoryMiB || DEFAULT_MEMORY_MIB, (value) => formatMemoryGB(value));
+                memorySelect.className = "vm-resource-select";
+                memorySelect.disabled = state.busy;
+                const applyButton = document.createElement("button");
+                applyButton.type = "button";
+                applyButton.className = "vm-resource-apply";
+                applyButton.textContent = "Apply";
+                applyButton.disabled = state.busy;
+                applyButton.addEventListener("click", () => {
+                    void updateVMResources(rawName, vcpuSelect.value, memorySelect.value);
+                });
+                resourceRow.appendChild(vcpuSelect);
+                resourceRow.appendChild(memorySelect);
+                resourceRow.appendChild(applyButton);
+                actionCell.appendChild(resourceRow);
+            }
+            else if (hasName && isActive) {
+                const note = document.createElement("div");
+                note.className = "vm-disabled";
+                note.textContent = "Stop VM to edit resources.";
+                actionCell.appendChild(note);
+            }
             row.appendChild(actionCell);
             tbody.appendChild(row);
         }
@@ -441,6 +484,43 @@ function bootstrap() {
                 return;
             }
             setActionMessage(result.data.message || successMessage);
+            await loadVMs();
+        }
+        finally {
+            setBusy(false);
+        }
+    }
+    async function updateVMResources(name, vcpu, memoryMiB) {
+        if (state.busy) {
+            return;
+        }
+        clearAction();
+        setBusy(true);
+        try {
+            const body = new URLSearchParams({
+                vm_name: name,
+                vm_vcpu: vcpu,
+                vm_memory_mib: memoryMiB,
+            });
+            const result = await requestJSON("/api/dashboard/resources", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                body: body.toString(),
+            });
+            if (!result) {
+                return;
+            }
+            if (!result.ok || !result.data) {
+                setActionError(result.error || "Failed to update VM resources.");
+                return;
+            }
+            if (!result.data.ok) {
+                setActionError(result.data.error || "Failed to update VM resources.");
+                return;
+            }
+            setActionMessage(result.data.message || "VM resources updated.");
             await loadVMs();
         }
         finally {

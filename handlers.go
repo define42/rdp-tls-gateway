@@ -289,6 +289,45 @@ func registerAPI(api huma.API, sessionManager *session.Manager, settings *config
 		op.Hidden = true
 	})
 
+	huma.Post(group, "/dashboard/resources", func(_ context.Context, _ *struct{}) (*huma.StreamResponse, error) {
+		return &huma.StreamResponse{
+			Body: func(ctx huma.Context) {
+				req, w := humachi.Unwrap(ctx)
+
+				name, err := parseDashboardVMName(req)
+				if handleDashboardFormError(w, "dashboard resources", err) {
+					return
+				}
+
+				vcpu, err := parseDashboardVCPU(req.FormValue("vm_vcpu"))
+				if handleDashboardFormError(w, "dashboard resources", err) {
+					return
+				}
+
+				memoryMiB, err := parseDashboardMemoryMiB(req.FormValue("vm_memory_mib"))
+				if handleDashboardFormError(w, "dashboard resources", err) {
+					return
+				}
+
+				if err := virt.UpdateVMResources(name, vcpu, memoryMiB); err != nil {
+					log.Printf("update resources for vm %q failed: %v", name, err)
+					writeJSON(w, http.StatusBadRequest, dashboardActionResponse{
+						OK:    false,
+						Error: err.Error(),
+					})
+					return
+				}
+
+				writeJSON(w, http.StatusOK, dashboardActionResponse{
+					OK:      true,
+					Message: "VM resources updated.",
+				})
+			},
+		}, nil
+	}, func(op *huma.Operation) {
+		op.Hidden = true
+	})
+
 	huma.Post(group, "/dashboard/remove", func(_ context.Context, _ *struct{}) (*huma.StreamResponse, error) {
 		return &huma.StreamResponse{
 			Body: func(ctx huma.Context) {
