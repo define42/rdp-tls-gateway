@@ -216,11 +216,32 @@ func proxyBidirectional(a, b net.Conn) {
 		})
 	}
 
+	log.Printf(
+		"rdp debug: proxy start a_local=%s a_remote=%s b_local=%s b_remote=%s",
+		a.LocalAddr(),
+		a.RemoteAddr(),
+		b.LocalAddr(),
+		b.RemoteAddr(),
+	)
+
+	started := time.Now()
 	go func() {
-		_, _ = io.Copy(b, a)
+		n, err := io.Copy(b, a)
+		log.Printf(
+			"rdp debug: proxy a->b done bytes=%d err=%v elapsed=%s",
+			n,
+			err,
+			time.Since(started),
+		)
 		closeBoth()
 	}()
-	_, _ = io.Copy(a, b)
+	n, err := io.Copy(a, b)
+	log.Printf(
+		"rdp debug: proxy b->a done bytes=%d err=%v elapsed=%s",
+		n,
+		err,
+		time.Since(started),
+	)
 	closeBoth()
 }
 
