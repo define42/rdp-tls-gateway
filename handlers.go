@@ -23,6 +23,7 @@ const (
 	cacheControlValue = "no-store, no-cache, must-revalidate, max-age=0"
 	pragmaValue       = "no-cache"
 	expiresValue      = "0"
+	rdpFilename       = "rdpgw.rdp"
 )
 
 func extractCredentials(r *http.Request) (string, string, bool, error) {
