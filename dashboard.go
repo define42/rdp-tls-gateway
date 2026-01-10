@@ -20,7 +20,6 @@ type dashboardVM struct {
 	DisplayName string `json:"displayName"`
 	RDPConnect  string `json:"rdpConnect"`
 	IP          string `json:"ip"`
-	RDPHost     string `json:"rdpHost"`
 	State       string `json:"state"`
 	MemoryMiB   int    `json:"memoryMiB"`
 	VCPU        int    `json:"vcpu"`
@@ -76,13 +75,11 @@ func listDashboardVMs(settings *config.SettingsType) ([]dashboardVM, error) {
 		if domain := strings.TrimSpace(settings.GetString(config.FRONT_DOMAIN)); domain != "" {
 			displayName = vm.Name + "." + domain
 		}
-		rdpHost := rdpTargetHost(vm.Name)
 		rows = append(rows, dashboardVM{
 			Name:        vm.Name,
 			DisplayName: displayName,
 			RDPConnect:  generateRDP(displayName, "testuser"),
 			IP:          vm.IP,
-			RDPHost:     rdpHost,
 			State:       vm.State,
 			MemoryMiB:   vm.MemoryMiB,
 			VCPU:        vm.VCPU,

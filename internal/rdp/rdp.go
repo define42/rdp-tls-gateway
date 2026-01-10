@@ -43,11 +43,7 @@ func getSubdomain(host, root string) (string, bool) {
 }
 
 // HandleRDP handles a single RDP connection over TLS.
-func HandleRDP(raw net.Conn, frontTLS *tls.Config, routeForSNI func(string) string, settings *config.SettingsType) {
-	if routeForSNI == nil {
-		log.Printf("rdp: no route function provided")
-		return
-	}
+func HandleRDP(raw net.Conn, frontTLS *tls.Config, settings *config.SettingsType) {
 
 	started := time.Now()
 	log.Printf("rdp debug: new connection remote=%s local=%s", raw.RemoteAddr(), raw.LocalAddr())
@@ -123,7 +119,6 @@ func HandleRDP(raw net.Conn, frontTLS *tls.Config, routeForSNI func(string) stri
 	}
 	log.Printf("rdp debug: resolved VM %q to IP %q", hostname, backendAddr)
 
-	//backendAddr := routeForSNI(sni)
 	if backendAddr == "" {
 		log.Printf("no route for SNI=%q from %s", sni, raw.RemoteAddr())
 		_ = clientTLS.Close()

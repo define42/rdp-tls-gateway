@@ -67,11 +67,11 @@ func main() {
 		log.Fatalf("tls setup: %v", err)
 	}
 	//go listenServer(routes, mux, frontTLS, settings, ":3389")
-	listenServer(routes, mux, frontTLS, settings, settings.Get(config.LISTEN_ADDR))
+	listenServer(mux, frontTLS, settings, settings.Get(config.LISTEN_ADDR))
 
 }
 
-func listenServer(routes map[string]string, mux http.Handler, frontTLS *tls.Config, settings *config.SettingsType, listen string) {
+func listenServer(mux http.Handler, frontTLS *tls.Config, settings *config.SettingsType, listen string) {
 	ln, err := net.Listen("tcp", listen)
 	if err != nil {
 		log.Fatalf("listen: %v", err)
@@ -83,11 +83,11 @@ func listenServer(routes map[string]string, mux http.Handler, frontTLS *tls.Conf
 			log.Printf("accept: %v", err)
 			continue
 		}
-		go handleSharedConn(c, frontTLS, routes, mux, settings)
+		go handleSharedConn(c, frontTLS, mux, settings)
 	}
 }
 
-func handleSharedConn(raw net.Conn, frontTLS *tls.Config, routes map[string]string, mux http.Handler, settings *config.SettingsType) {
+func handleSharedConn(raw net.Conn, frontTLS *tls.Config, mux http.Handler, settings *config.SettingsType) {
 	defer raw.Close()
 
 	br := bufio.NewReader(raw)
@@ -99,12 +99,10 @@ func handleSharedConn(raw net.Conn, frontTLS *tls.Config, routes map[string]stri
 	conn := &bufferedConn{Conn: raw, r: br}
 
 	if first[0] == tlsHandshakeRecordType {
-		handleHTTPS(conn, frontTLS, routes, mux, settings)
+		handleHTTPS(conn, frontTLS, mux, settings)
 		return
 	}
-	rdp.HandleRDP(conn, frontTLS, func(sni string) string {
-		return routeForSNI(routes, sni, settings)
-	}, settings)
+	rdp.HandleRDP(conn, frontTLS, settings)
 }
 
 const tlsHandshakeRecordType = 0x16
@@ -118,7 +116,7 @@ func (c *bufferedConn) Read(p []byte) (int, error) {
 	return c.r.Read(p)
 }
 
-func handleHTTPS(raw net.Conn, frontTLS *tls.Config, routes map[string]string, mux http.Handler, settings *config.SettingsType) {
+func handleHTTPS(raw net.Conn, frontTLS *tls.Config, mux http.Handler, settings *config.SettingsType) {
 	// TLS handshake with client; get SNI
 	clientTLS := tls.Server(raw, frontTLS)
 	if err := clientTLS.Handshake(); err != nil {
@@ -221,33 +219,4 @@ func parseRoutes(s string) map[string]string {
 		m[host] = addr
 	}
 	return m
-}
-
-func routeForSNI(routes map[string]string, sni string, settings *config.SettingsType) string {
-	addr, _, _ := matchRoute(routes, sni)
-	return addr
-}
-
-func matchRoute(routes map[string]string, sni string) (string, string, string) {
-	// exact match first
-	if sni != "" {
-		if v, ok := routes[sni]; ok {
-			return v, sni, "exact"
-		}
-		// wildcard suffix matches like *.example.com
-		for k, v := range routes {
-			if strings.HasPrefix(k, "*.") {
-				suffix := strings.TrimPrefix(k, "*") // ".example.com"
-				if strings.HasSuffix(sni, suffix) {
-					return v, k, "wildcard"
-				}
-			}
-		}
-	}
-
-	// default
-	if v, ok := routes["*"]; ok {
-		return v, "*", "default"
-	}
-	return "", "", ""
 }

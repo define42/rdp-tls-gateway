@@ -1,25 +1,19 @@
 package main
 
-import (
-	"net"
-	"net/http"
-	"rdptlsgateway/internal/config"
-	"strings"
-)
-
 const (
-	defaultRDPAddress = "workstation:3389"
-	defaultRDPPort    = "3389"
-	rdpFilename       = "rdpgw.rdp"
+	//defaultRDPAddress = "workstation:3389"
+	//defaultRDPPort = "3389"
+	rdpFilename = "rdpgw.rdp"
 )
 
-func rdpTargetFromRequest(r *http.Request) string {
-	target := strings.TrimSpace(r.URL.Query().Get("target"))
-	if target == "" {
-		return defaultRDPAddress
+/*
+	func rdpTargetFromRequest(r *http.Request) string {
+		target := strings.TrimSpace(r.URL.Query().Get("target"))
+		if target == "" {
+			return defaultRDPAddress
+		}
+		return rdpTargetHost(target)
 	}
-	return rdpTargetHost(target)
-}
 
 func rdpTargetHost(target string) string {
 	target = strings.TrimSpace(target)
@@ -31,27 +25,28 @@ func rdpTargetHost(target string) string {
 	}
 	return addPort(target, defaultRDPPort)
 }
-
-func gatewayHostFromRequest(r *http.Request) string {
-	host := strings.TrimSpace(r.Header.Get("X-Forwarded-Host"))
-	if host != "" {
-		if idx := strings.Index(host, ","); idx >= 0 {
-			host = strings.TrimSpace(host[:idx])
+*/
+/*
+	func gatewayHostFromRequest(r *http.Request) string {
+		host := strings.TrimSpace(r.Header.Get("X-Forwarded-Host"))
+		if host != "" {
+			if idx := strings.Index(host, ","); idx >= 0 {
+				host = strings.TrimSpace(host[:idx])
+			}
+		} else {
+			host = strings.TrimSpace(r.Host)
 		}
-	} else {
-		host = strings.TrimSpace(r.Host)
-	}
 
-	if host == "" {
-		return "localhost:8443"
-	}
+		if host == "" {
+			return "localhost:8443"
+		}
 
-	port := strings.TrimSpace(r.Header.Get("X-Forwarded-Port"))
-	if port != "" && !hasPort(host) {
-		host = addPort(host, port)
+		port := strings.TrimSpace(r.Header.Get("X-Forwarded-Port"))
+		if port != "" && !hasPort(host) {
+			host = addPort(host, port)
+		}
+		return host
 	}
-	return host
-}
 
 func hasPort(host string) bool {
 	_, _, err := net.SplitHostPort(host)
@@ -64,6 +59,7 @@ func addPort(host, port string) string {
 	}
 	return net.JoinHostPort(host, port)
 }
+
 
 func rdpFileContent(gatewayHost, targetHost string, settings *config.SettingsType, username string) string {
 	var b strings.Builder
@@ -87,3 +83,4 @@ func rdpFileContent(gatewayHost, targetHost string, settings *config.SettingsTyp
 	//write("use redirection server name:i:1")
 	return b.String()
 }
+*/

@@ -10,6 +10,7 @@ require (
 	github.com/danielgtaylor/huma/v2 v2.34.1
 	github.com/go-chi/chi/v5 v5.2.2
 	github.com/go-ldap/ldap/v3 v3.4.12
+	github.com/google/uuid v1.6.0
 	github.com/kdomanski/iso9660 v0.4.0
 	github.com/mholt/acmez v1.2.0
 	github.com/olekukonko/tablewriter v1.1.2
@@ -46,7 +47,6 @@ require (
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/huin/asn1ber v0.0.0-20120622192748-af09f62e6358 // indirect
 	github.com/icodeface/tls v0.0.0-20190904083142-17aec93c60e5 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect

@@ -207,27 +207,6 @@ function bootstrap() {
             removeButton.addEventListener("click", () => {
                 void removeVM(rawName);
             });
-            if (hasIPv4) {
-                if (vm.rdpHost) {
-                    const download = document.createElement("a");
-                    download.className = "vm-download";
-                    download.href = `/api/${state.filename}?target=${encodeURIComponent(vm.rdpHost)}`;
-                    download.textContent = "Download";
-                    actions.appendChild(download);
-                }
-                else {
-                    const disabled = document.createElement("span");
-                    disabled.className = "vm-disabled";
-                    disabled.textContent = "n/a";
-                    actions.appendChild(disabled);
-                }
-            }
-            else {
-                const disabled = document.createElement("span");
-                disabled.className = "vm-disabled";
-                disabled.textContent = "Waiting for IP";
-                actions.appendChild(disabled);
-            }
             actions.appendChild(removeButton);
             actionCell.appendChild(actions);
             row.appendChild(actionCell);

@@ -149,32 +149,35 @@ func getRemoteGatewayRotuer(sessionManager *session.Manager, settings *config.Se
 func registerAPI(api huma.API, sessionManager *session.Manager, settings *config.SettingsType) {
 	group := huma.NewGroup(api, "/api")
 	group.UseMiddleware(sessionManager.SessionMiddleware())
-	huma.Get(group, "/rdpgw.rdp", func(_ context.Context, _ *struct{}) (*huma.StreamResponse, error) {
-		return &huma.StreamResponse{
-			Body: func(ctx huma.Context) {
-				req, w := humachi.Unwrap(ctx)
-				user, ok := sessionManager.UserFromContext(req.Context())
-				if !ok {
-					http.Error(w, "unauthorized", http.StatusUnauthorized)
-					return
-				}
 
-				gatewayHost := gatewayHostFromRequest(req)
-				targetHost := rdpTargetFromRequest(req)
-				rdpContent := rdpFileContent(gatewayHost, targetHost, settings, user.GetName())
+	/*
+		huma.Get(group, "/rdpgw.rdp", func(_ context.Context, _ *struct{}) (*huma.StreamResponse, error) {
+			return &huma.StreamResponse{
+				Body: func(ctx huma.Context) {
+					req, w := humachi.Unwrap(ctx)
+					user, ok := sessionManager.UserFromContext(req.Context())
+					if !ok {
+						http.Error(w, "unauthorized", http.StatusUnauthorized)
+						return
+					}
 
-				w.Header().Set("Content-Type", "application/x-rdp")
-				w.Header().Set("Content-Disposition", `attachment; filename="`+rdpFilename+`"`)
-				w.Header().Set("Cache-Control", "no-store")
-				w.WriteHeader(http.StatusOK)
-				if _, err := w.Write([]byte(rdpContent)); err != nil {
-					log.Printf("failed to write RDP file response: %v", err)
-				}
-			},
-		}, nil
-	}, func(op *huma.Operation) {
-		op.Hidden = true
-	})
+					gatewayHost := gatewayHostFromRequest(req)
+					targetHost := rdpTargetFromRequest(req)
+					rdpContent := rdpFileContent(gatewayHost, targetHost, settings, user.GetName())
+
+					w.Header().Set("Content-Type", "application/x-rdp")
+					w.Header().Set("Content-Disposition", `attachment; filename="`+rdpFilename+`"`)
+					w.Header().Set("Cache-Control", "no-store")
+					w.WriteHeader(http.StatusOK)
+					if _, err := w.Write([]byte(rdpContent)); err != nil {
+						log.Printf("failed to write RDP file response: %v", err)
+					}
+				},
+			}, nil
+		}, func(op *huma.Operation) {
+			op.Hidden = true
+		})
+	*/
 
 	huma.Get(group, "/dashboard", func(_ context.Context, _ *struct{}) (*huma.StreamResponse, error) {
 		return &huma.StreamResponse{
