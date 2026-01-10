@@ -34,6 +34,14 @@ function isActiveState(state) {
     const normalized = state.trim().toLowerCase();
     return normalized === "running" || normalized === "paused" || normalized === "suspended";
 }
+function formatMemoryGB(memoryMiB) {
+    if (!memoryMiB) {
+        return "n/a";
+    }
+    const gb = memoryMiB / 1024;
+    const formatted = Number.isInteger(gb) ? gb.toFixed(0) : gb.toFixed(1);
+    return `${formatted} GB`;
+}
 function bootstrap() {
     const root = document.getElementById("app");
     if (!root) {
@@ -50,7 +58,7 @@ function bootstrap() {
         <form class="vm-form" id="create-form">
           <div class="field">
             <label for="vm-name">New VM Name</label>
-            <input id="vm-name" name="vm_name" autocomplete="off" pattern="[A-Za-z0-9_-]+" maxlength="64" title="Letters, numbers, '-' or '_' only" required>
+            <input id="vm-name" name="vm_name" autocomplete="off" pattern="[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?" maxlength="63" title="Lowercase letters, numbers, and hyphens only. Must start/end with a letter or number. Max 63 characters." autocapitalize="none" spellcheck="false" required>
           </div>
           <div class="field">
             <label for="vm-cpu">vCPU</label>
@@ -143,7 +151,7 @@ function bootstrap() {
             "Name",
             "IP Address",
             "State",
-            "Memory",
+            "Memory (GB)",
             "vCPU",
             "Disk",
             "Actions",
@@ -182,7 +190,7 @@ function bootstrap() {
             stateCell.textContent = vm.state || "n/a";
             row.appendChild(stateCell);
             const memoryCell = document.createElement("td");
-            memoryCell.textContent = vm.memoryMiB ? `${vm.memoryMiB} MiB` : "n/a";
+            memoryCell.textContent = formatMemoryGB(vm.memoryMiB);
             row.appendChild(memoryCell);
             const vcpuCell = document.createElement("td");
             vcpuCell.textContent = vm.vcpu ? `${vm.vcpu}` : "n/a";

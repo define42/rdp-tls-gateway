@@ -411,17 +411,20 @@ func validateVMName(name string) (string, error) {
 	if name == "" {
 		return "", fmt.Errorf("VM name is required.")
 	}
-	if len(name) > 64 {
-		return "", fmt.Errorf("VM name is too long.")
+	if len(name) > 63 {
+		return "", fmt.Errorf("VM name must be 63 characters or fewer.")
+	}
+	if strings.HasPrefix(name, "-") || strings.HasSuffix(name, "-") {
+		return "", fmt.Errorf("VM name cannot start or end with a hyphen.")
 	}
 	for _, r := range name {
-		if (r >= 'a' && r <= 'z') ||
-			(r >= 'A' && r <= 'Z') ||
-			(r >= '0' && r <= '9') ||
-			r == '-' || r == '_' {
-			continue
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= '0' && r <= '9':
+		case r == '-':
+		default:
+			return "", fmt.Errorf("VM name must use lowercase letters, numbers, or hyphens.")
 		}
-		return "", fmt.Errorf("VM name may only use letters, numbers, '-' or '_'.")
 	}
 	return name, nil
 }
