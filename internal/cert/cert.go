@@ -13,7 +13,6 @@ import (
 	"math/big"
 	"net"
 	"rdptlsgateway/internal/config"
-	"sort"
 	"strings"
 	"time"
 
@@ -21,7 +20,7 @@ import (
 	"github.com/mholt/acmez"
 )
 
-func BuildFrontTLS(settings *config.SettingsType, routes map[string]string, fallback tls.Certificate, minTLS12 bool, frontPageDomain string) (*tls.Config, error) {
+func BuildFrontTLS(settings *config.SettingsType, fallback tls.Certificate, minTLS12 bool, frontPageDomain string) (*tls.Config, error) {
 
 	acmeEnabled := settings.IsTrue(config.ACME_ENABLE)
 	email := settings.Get(config.ACME_EMAIL)
@@ -53,15 +52,12 @@ func BuildFrontTLS(settings *config.SettingsType, routes map[string]string, fall
 	}
 
 	magic := certmagic.NewDefault()
-	domains, skipped := acmeManagedHosts(routes)
+	var domains []string
 	if frontPageDomain != "" {
 		domains = append(domains, frontPageDomain)
 	}
 	if len(domains) == 0 {
 		return nil, fmt.Errorf("acme enabled but no explicit hostnames provided in -routes or -frontpage-domain")
-	}
-	if len(skipped) > 0 {
-		log.Printf("acme: skipping wildcard routes for pre-issuance: %s", strings.Join(skipped, ", "))
 	}
 	log.Printf("acme: pre-issuing certificates for: %s", strings.Join(domains, ", "))
 
@@ -111,24 +107,6 @@ func acmeGetCertificate(magic *certmagic.Config, fallback tls.Certificate) func(
 		}
 		return magic.GetCertificate(hello)
 	}
-}
-
-func acmeManagedHosts(routes map[string]string) ([]string, []string) {
-	var domains []string
-	var skipped []string
-	for host := range routes {
-		if host == "*" {
-			continue
-		}
-		if strings.Contains(host, "*") {
-			skipped = append(skipped, host)
-			continue
-		}
-		domains = append(domains, host)
-	}
-	sort.Strings(domains)
-	sort.Strings(skipped)
-	return domains, skipped
 }
 
 func resolveACMECA(raw string) string {

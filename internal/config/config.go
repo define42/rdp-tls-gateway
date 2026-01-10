@@ -54,7 +54,6 @@ func NewSettingType(print bool) *SettingsType {
 	s.SetString(LISTEN_ADDR, "listen address", ":443")
 	s.SetString(CERT_FILE, "TLS certificate PEM for clients (front side)", "")
 	s.SetString(KEY_FILE, "TLS private key PEM for clients (front side, unencrypted)", "")
-	s.SetString(ROUTES_ARG, "comma-separated routing rules: host=ip:port,*.suffix=ip:port,*=default (required)", "localhost=192.168.122.29:3389")
 
 	// Duration-typed setting
 	s.SetDuration(TIMEOUT, "handshake/dial/read timeout for setup", 10*time.Second)
@@ -275,7 +274,6 @@ const (
 	MIN_TLS12            = "MIN_TLS12"
 	VDI_IMAGE_DIR        = "VDI_IMAGE_DIR"
 	BASE_IMAGE_URL       = "BASE_IMAGE_URL"
-	ROUTES_ARG           = "ROUTES_ARG"
 	TIMEOUT              = "TIMEOUT"
 )
 

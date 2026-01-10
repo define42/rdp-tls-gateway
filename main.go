@@ -20,7 +20,6 @@
 
 package main
 
-
 import (
 	"bufio"
 	"crypto/tls"
@@ -53,17 +52,12 @@ func main() {
 
 	mux := getRemoteGatewayRotuer(sessionManager, settings)
 
-	routes := parseRoutes(settings.Get(config.ROUTES_ARG))
-	if len(routes) == 0 {
-		log.Fatalf("no routes configured; use -routes")
-	}
-
 	cert2, err := cert.LoadOrGenerateCert(settings)
 	if err != nil {
 		log.Fatalf("cert setup: %v", err)
 	}
 
-	frontTLS, err := cert.BuildFrontTLS(settings, routes, cert2, settings.IsTrue(config.MIN_TLS12), settings.Get(config.FRONT_DOMAIN))
+	frontTLS, err := cert.BuildFrontTLS(settings, cert2, settings.IsTrue(config.MIN_TLS12), settings.Get(config.FRONT_DOMAIN))
 	if err != nil {
 		log.Fatalf("tls setup: %v", err)
 	}
@@ -195,29 +189,4 @@ func (c *closeNotifyConn) Close() error {
 	err := c.Conn.Close()
 	c.once.Do(func() { close(c.done) })
 	return err
-}
-
-func parseRoutes(s string) map[string]string {
-	m := map[string]string{}
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return m
-	}
-	for _, part := range strings.Split(s, ",") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		kv := strings.SplitN(part, "=", 2)
-		if len(kv) != 2 {
-			log.Fatalf("bad route %q (want host=ip:port)", part)
-		}
-		host := strings.ToLower(strings.TrimSpace(kv[0]))
-		addr := strings.TrimSpace(kv[1])
-		if host == "" || addr == "" {
-			log.Fatalf("bad route %q (empty host/addr)", part)
-		}
-		m[host] = addr
-	}
-	return m
 }
