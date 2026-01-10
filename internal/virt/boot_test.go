@@ -18,6 +18,24 @@ const (
 	testPassword = "dogood"
 )
 
+func checkCpuAndMemory(testUsername, vmName string, vcpu, memory int, conn *libvirt.Connect) error {
+	vms, err := virt.ListVMs(testUsername, conn)
+	if err != nil {
+		return err
+	}
+
+	for _, v := range vms {
+		if v.Name == vmName {
+			if v.VCPU == vcpu && v.MemoryMiB == memory {
+				return nil
+			}
+			return fmt.Errorf("VM %s has CPU %d and Memory %dMB, expected CPU 2 and Memory 2048MB", vmName, v.VCPU, v.MemoryMiB)
+		}
+	}
+
+	return fmt.Errorf("VM %s not found for CPU and Memory check", vmName)
+}
+
 func checkState(testUsername, vmName, state string, conn *libvirt.Connect) error {
 	vms, err := virt.ListVMs(testUsername, conn)
 	if err != nil {
@@ -60,24 +78,32 @@ func TestStartVM(t *testing.T) {
 	}
 	defer conn.Close()
 
+	//######################### Test StartExistingVM #########################
 	time.Sleep(20 * time.Second) // Wait for VM to boot up
 
 	if err := checkState(testUsername, vmName, "running", conn); err != nil {
 		t.Fatalf("VM %s is not running as expected: %v", vmName, err)
 	}
 
+	//######################### Test ShutdownVM #########################
 	if err := virt.ShutdownVM(vmName); err != nil {
 		t.Fatalf("Failed to shutdown VM %s: %v", vmName, err)
 	}
-
 	time.Sleep(20 * time.Second) // Wait for shutdown to complete
-
 	if err := checkState(testUsername, vmName, "shut off", conn); err != nil {
 		t.Fatalf("VM %s is not shut off as expected: %v", vmName, err)
 	}
 
-	time.Sleep(20 * time.Second) // Wait for shutdown to complete
+	//######################## Test UpdateVMResources #########################
+	if err := virt.UpdateVMResources(vmName, 2, 2048); err != nil {
+		t.Fatalf("Failed to update VM %s resources: %v", vmName, err)
+	}
 
+	if err := checkCpuAndMemory(testUsername, vmName, 2, 2048, conn); err != nil {
+		t.Fatalf("VM %s does not have updated CPU and Memory as expected: %v", vmName, err)
+	}
+
+	//######################### Test StartExistingVM Again #########################
 	if err := virt.StartExistingVM(vmName); err != nil {
 		t.Fatalf("Failed to start VM %s: %v", vmName, err)
 	}
