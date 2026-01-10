@@ -66,7 +66,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("tls setup: %v", err)
 	}
-	go listenServer(routes, mux, frontTLS, settings, ":3389")
+	//go listenServer(routes, mux, frontTLS, settings, ":3389")
 	listenServer(routes, mux, frontTLS, settings, settings.Get(config.LISTEN_ADDR))
 
 }
