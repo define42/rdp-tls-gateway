@@ -66,7 +66,7 @@ func generateRDP(server, username string) string {
 	return "data:application/x-rdp;base64," + encoded
 }
 
-func listDashboardVMs(settings *config.SettingsType) ([]dashboardVM, error) {
+func listDashboardVMs(settings *config.SettingsType, user string) ([]dashboardVM, error) {
 	vmList := virt.GetInstance().GetVMs()
 
 	rows := make([]dashboardVM, 0, len(vmList))
@@ -78,7 +78,7 @@ func listDashboardVMs(settings *config.SettingsType) ([]dashboardVM, error) {
 		rows = append(rows, dashboardVM{
 			Name:        vm.Name,
 			DisplayName: displayName,
-			RDPConnect:  generateRDP(displayName, "testuser"),
+			RDPConnect:  generateRDP(displayName, user),
 			IP:          vm.IP,
 			State:       vm.State,
 			MemoryMiB:   vm.MemoryMiB,

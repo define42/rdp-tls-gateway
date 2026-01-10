@@ -194,8 +194,13 @@ func registerAPI(api huma.API, sessionManager *session.Manager, settings *config
 	huma.Get(group, "/dashboard/data", func(_ context.Context, _ *struct{}) (*huma.StreamResponse, error) {
 		return &huma.StreamResponse{
 			Body: func(ctx huma.Context) {
-				_, w := humachi.Unwrap(ctx)
-				vmRows, err := listDashboardVMs(settings)
+				req, w := humachi.Unwrap(ctx)
+				user, ok := sessionManager.UserFromContext(req.Context())
+				if !ok {
+					http.Error(w, "unauthorized", http.StatusUnauthorized)
+					return
+				}
+				vmRows, err := listDashboardVMs(settings, user.Name)
 				if err != nil {
 					log.Printf("list vms: %v", err)
 					writeJSON(w, http.StatusInternalServerError, dashboardDataResponse{
