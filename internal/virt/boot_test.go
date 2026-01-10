@@ -104,7 +104,8 @@ func TestStartVM(t *testing.T) {
 	}
 
 	//######################### Test StartExistingVM Again #########################
-	if err := virt.StartExistingVM(vmName); err != nil {
+	// RewstartVM will start the VM again if it's shut off
+	if err := virt.RestartVM(vmName); err != nil {
 		t.Fatalf("Failed to start VM %s: %v", vmName, err)
 	}
 
