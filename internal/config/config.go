@@ -47,7 +47,6 @@ func NewSettingType(print bool) *SettingsType {
 	s.SetString(LDAP_USER_DOMAIN, "LDAP user mail domain", "@example.com")
 	s.SetBool(LDAP_STARTTLS, "Use StartTLS when connecting to LDAP", false)
 	s.SetBool(LDAP_SKIP_TLS_VERIFY, "Skip TLS verification when connecting to LDAP", true)
-	s.SetString(NTLM_DOMAIN, "NTLM domain name", "vdi")
 
 	s.SetString(BASE_IMAGE_URL, "URL to download base VDI image if not found locally",
 		"https://github.com/define42/ubuntu-desktop-cloud-image/releases/download/v0.0.28/noble-desktop-cloudimg-amd64-v0.0.28.img")
@@ -275,7 +274,6 @@ const (
 	LISTEN_ADDR          = "LISTEN_ADDR"
 	MIN_TLS12            = "MIN_TLS12"
 	VDI_IMAGE_DIR        = "VDI_IMAGE_DIR"
-	NTLM_DOMAIN          = "NTLM_DOMAIN"
 	BASE_IMAGE_URL       = "BASE_IMAGE_URL"
 	ROUTES_ARG           = "ROUTES_ARG"
 	TIMEOUT              = "TIMEOUT"

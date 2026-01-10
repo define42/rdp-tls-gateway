@@ -18,10 +18,6 @@ func LdapAuthenticateAccess(username, password string, settings *config.Settings
 	defer conn.Close()
 
 	userMailDomain := settings.Get(config.LDAP_USER_DOMAIN)
-	ntlmFallback := strings.TrimSpace(settings.Get(config.NTLM_DOMAIN))
-	if ntlmFallback == "" {
-		ntlmFallback = userMailDomain
-	}
 
 	mail := username
 	if !strings.Contains(username, "@") && userMailDomain != "" {

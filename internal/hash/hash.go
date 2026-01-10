@@ -2,7 +2,6 @@ package hash
 
 import (
 	"github.com/tredoe/osutil/user/crypt/sha512_crypt"
-	//nolint:staticcheck // MD4 is required for NTLM compatibility
 )
 
 // CloudInitPasswordHash generates a /etc/shadow compatible
