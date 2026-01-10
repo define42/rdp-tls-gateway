@@ -64,7 +64,6 @@ func NewSettingType(print bool) *SettingsType {
 	s.SetBool(ACME_ENABLE, "enable ACME certificate management with certmagic for front TLS", false)
 	s.SetString(ACME_EMAIL, "ACME account email (recommended)", "")
 	s.SetString(ACME_CA, "ACME CA directory URL or 'staging'", "")
-	s.SetString(ACME_STORE, "ACME storage path (optional)", "")
 	s.SetString(FRONT_DOMAIN, "Front domain to serve front page on HTTPS requests and also the prefix for vm names", "desktop.local.gd")
 
 	if print {
@@ -264,7 +263,6 @@ const (
 	ACME_EMAIL           = "ACME_EMAIL"
 	ACME_CA              = "ACME_CA"
 	ACME_ENABLE          = "ACME_ENABLE"
-	ACME_STORE           = "ACME_STORE"
 	CERT_FILE            = "CERT_FILE"
 	FRONT_DOMAIN         = "FRONT_DOMAIN"
 	KEY_FILE             = "KEY_FILE"

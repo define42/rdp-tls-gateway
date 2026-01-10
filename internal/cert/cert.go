@@ -26,7 +26,7 @@ func BuildFrontTLS(settings *config.SettingsType, routes map[string]string, fall
 	acmeEnabled := settings.IsTrue(config.ACME_ENABLE)
 	email := settings.Get(config.ACME_EMAIL)
 	ca := settings.Get(config.ACME_CA)
-	storage := settings.Get(config.ACME_STORE)
+	storage := settings.Get(config.ACME_DATA_DIR)
 
 	if !acmeEnabled {
 		frontTLS := &tls.Config{
