@@ -134,9 +134,20 @@ function bootstrap() {
         const tbody = document.createElement("tbody");
         for (const vm of state.vms) {
             const row = document.createElement("tr");
+            const nameValue = vm.name || "";
             const nameCell = document.createElement("td");
             nameCell.className = "vm-name";
-            nameCell.textContent = vm.name || "n/a";
+            if (vm.rdpConnect && nameValue.trim() !== "") {
+                const link = document.createElement("a");
+                link.className = "vm-name-link";
+                link.href = vm.rdpConnect;
+                link.textContent = nameValue;
+                link.setAttribute("download", state.filename);
+                nameCell.appendChild(link);
+            }
+            else {
+                nameCell.textContent = nameValue || "n/a";
+            }
             row.appendChild(nameCell);
             const ipCell = document.createElement("td");
             ipCell.textContent = vm.ip || "n/a";
@@ -155,7 +166,7 @@ function bootstrap() {
             diskCell.textContent = vm.volumeGB ? `${vm.volumeGB} GB` : "n/a";
             row.appendChild(diskCell);
             const hasIPv4 = vm.ip ? isValidIPv4(vm.ip) : false;
-            const hasName = vm.name.trim() !== "";
+            const hasName = nameValue.trim() !== "";
             const isActive = isActiveState(vm.state || "");
             const actionCell = document.createElement("td");
             const actions = document.createElement("div");

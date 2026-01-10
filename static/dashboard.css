@@ -157,6 +157,13 @@ body {
 .vm-name {
   font-weight: 600;
 }
+.vm-name-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+.vm-name-link:hover {
+  text-decoration: underline;
+}
 .vm-state {
   color: var(--accent);
   font-weight: 600;

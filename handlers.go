@@ -191,7 +191,7 @@ func registerAPI(api huma.API, sessionManager *session.Manager, settings *config
 		return &huma.StreamResponse{
 			Body: func(ctx huma.Context) {
 				_, w := humachi.Unwrap(ctx)
-				vmRows, err := listDashboardVMs()
+				vmRows, err := listDashboardVMs(settings)
 				if err != nil {
 					log.Printf("list vms: %v", err)
 					writeJSON(w, http.StatusInternalServerError, dashboardDataResponse{
