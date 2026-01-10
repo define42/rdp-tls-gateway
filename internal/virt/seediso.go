@@ -12,6 +12,7 @@ import (
 type SeedISO struct {
 	UserData []byte
 	MetaData []byte
+	NetworkConfig []byte
 	VolumeID string // defaults to "cidata" if empty
 }
 
@@ -44,6 +45,12 @@ func (s *SeedISO) Create(outputPath string) error {
 
 	if err := isoWriter.AddFile(bytes.NewReader(s.MetaData), "meta-data"); err != nil {
 		return fmt.Errorf("add meta-data: %w", err)
+	}
+
+	if len(s.NetworkConfig) > 0 {
+		if err := isoWriter.AddFile(bytes.NewReader(s.NetworkConfig), "network-config"); err != nil {
+			return fmt.Errorf("add network-config: %w", err)
+		}
 	}
 
 	f, err := os.Create(outputPath)

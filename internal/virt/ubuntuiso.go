@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/google/uuid"
 	"libvirt.org/go/libvirt"
 )
 
@@ -34,8 +35,21 @@ ssh_pwauth: true
 
 	fmt.Println("userData:", string(userData))
 
-	metaData := []byte(`instance-id: ubuntu-seed
+	id := uuid.New()
+	metaData := []byte(`instance-id: ` + id.String() + `
 local-hostname: ` + hostname + `
+`)
+
+	networkConfig := []byte(`#cloud-config
+network:
+  version: 2
+  ethernets:
+    all:
+      match:
+        name: "en*"
+      dhcp4: true
+	  dhcp6: false
+	  accept-ra: false
 `)
 
 	// 3. Create temporary ISO
@@ -46,8 +60,9 @@ local-hostname: ` + hostname + `
 	defer os.Remove(tmpFile.Name())
 
 	iso := SeedISO{
-		UserData: userData,
-		MetaData: metaData,
+		UserData:      userData,
+		MetaData:      metaData,
+		NetworkConfig: networkConfig,
 	}
 
 	if err := iso.Create(tmpFile.Name()); err != nil {

@@ -46,6 +46,10 @@ func main() {
 	sessionManager := session.NewManager()
 	settings := config.NewSettingType(true)
 
+	if err := virt.InitVirt(settings); err != nil {
+		log.Fatalf("Failed to initialize virtualization: %v", err)
+	}
+
 	mux := getRemoteGatewayRotuer(sessionManager, settings)
 
 	routes := parseRoutes(settings.Get(config.ROUTES_ARG))

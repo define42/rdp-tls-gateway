@@ -50,7 +50,7 @@ func NewSettingType(print bool) *SettingsType {
 	s.SetString(NTLM_DOMAIN, "NTLM domain name", "vdi")
 
 	s.SetString(BASE_IMAGE_URL, "URL to download base VDI image if not found locally",
-		"https://github.com/define42/ubuntu-desktop-cloud-image/releases/download/v0.0.25/noble-desktop-cloudimg-amd64-v0.0.25.img")
+		"https://github.com/define42/ubuntu-desktop-cloud-image/releases/download/v0.0.28/noble-desktop-cloudimg-amd64-v0.0.28.img")
 
 	s.SetString(LISTEN_ADDR, "listen address", ":443")
 	s.SetString(CERT_FILE, "TLS certificate PEM for clients (front side)", "")
