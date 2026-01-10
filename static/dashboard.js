@@ -134,19 +134,20 @@ function bootstrap() {
         const tbody = document.createElement("tbody");
         for (const vm of state.vms) {
             const row = document.createElement("tr");
-            const nameValue = vm.name || "";
+            const rawName = vm.name || "";
+            const displayName = vm.displayName || rawName;
             const nameCell = document.createElement("td");
             nameCell.className = "vm-name";
-            if (vm.rdpConnect && nameValue.trim() !== "") {
+            if (vm.rdpConnect && displayName.trim() !== "") {
                 const link = document.createElement("a");
                 link.className = "vm-name-link";
                 link.href = vm.rdpConnect;
-                link.textContent = nameValue;
+                link.textContent = displayName;
                 link.setAttribute("download", state.filename);
                 nameCell.appendChild(link);
             }
             else {
-                nameCell.textContent = nameValue || "n/a";
+                nameCell.textContent = displayName || "n/a";
             }
             row.appendChild(nameCell);
             const ipCell = document.createElement("td");
@@ -166,7 +167,7 @@ function bootstrap() {
             diskCell.textContent = vm.volumeGB ? `${vm.volumeGB} GB` : "n/a";
             row.appendChild(diskCell);
             const hasIPv4 = vm.ip ? isValidIPv4(vm.ip) : false;
-            const hasName = nameValue.trim() !== "";
+            const hasName = rawName.trim() !== "";
             const isActive = isActiveState(vm.state || "");
             const actionCell = document.createElement("td");
             const actions = document.createElement("div");
@@ -177,7 +178,7 @@ function bootstrap() {
             startButton.textContent = "Start";
             startButton.disabled = state.busy || !hasName || isActive;
             startButton.addEventListener("click", () => {
-                void startVM(vm.name);
+                void startVM(rawName);
             });
             actions.appendChild(startButton);
             const restartButton = document.createElement("button");
@@ -186,7 +187,7 @@ function bootstrap() {
             restartButton.textContent = "Restart";
             restartButton.disabled = state.busy || !hasName || !isActive;
             restartButton.addEventListener("click", () => {
-                void restartVM(vm.name);
+                void restartVM(rawName);
             });
             actions.appendChild(restartButton);
             const shutdownButton = document.createElement("button");
@@ -195,9 +196,17 @@ function bootstrap() {
             shutdownButton.textContent = "Shutdown";
             shutdownButton.disabled = state.busy || !hasName || !isActive;
             shutdownButton.addEventListener("click", () => {
-                void shutdownVM(vm.name);
+                void shutdownVM(rawName);
             });
             actions.appendChild(shutdownButton);
+            const removeButton = document.createElement("button");
+            removeButton.type = "button";
+            removeButton.className = "vm-remove";
+            removeButton.textContent = "Remove";
+            removeButton.disabled = state.busy || !hasName;
+            removeButton.addEventListener("click", () => {
+                void removeVM(rawName);
+            });
             if (hasIPv4) {
                 if (vm.rdpHost) {
                     const download = document.createElement("a");
@@ -212,15 +221,6 @@ function bootstrap() {
                     disabled.textContent = "n/a";
                     actions.appendChild(disabled);
                 }
-                const removeButton = document.createElement("button");
-                removeButton.type = "button";
-                removeButton.className = "vm-remove";
-                removeButton.textContent = "Remove";
-                removeButton.disabled = state.busy || !hasName;
-                removeButton.addEventListener("click", () => {
-                    void removeVM(vm.name);
-                });
-                actions.appendChild(removeButton);
             }
             else {
                 const disabled = document.createElement("span");
@@ -228,6 +228,7 @@ function bootstrap() {
                 disabled.textContent = "Waiting for IP";
                 actions.appendChild(disabled);
             }
+            actions.appendChild(removeButton);
             actionCell.appendChild(actions);
             row.appendChild(actionCell);
             tbody.appendChild(row);

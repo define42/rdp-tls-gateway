@@ -16,14 +16,15 @@ import (
 const dashboardHTMLPath = "static/dashboard.html"
 
 type dashboardVM struct {
-	Name       string `json:"name"`
-	RDPConnect string `json:"rdpConnect"`
-	IP         string `json:"ip"`
-	RDPHost    string `json:"rdpHost"`
-	State      string `json:"state"`
-	MemoryMiB  int    `json:"memoryMiB"`
-	VCPU       int    `json:"vcpu"`
-	VolumeGB   int    `json:"volumeGB"`
+	Name        string `json:"name"`
+	DisplayName string `json:"displayName"`
+	RDPConnect  string `json:"rdpConnect"`
+	IP          string `json:"ip"`
+	RDPHost     string `json:"rdpHost"`
+	State       string `json:"state"`
+	MemoryMiB   int    `json:"memoryMiB"`
+	VCPU        int    `json:"vcpu"`
+	VolumeGB    int    `json:"volumeGB"`
 }
 
 type dashboardDataResponse struct {
@@ -70,16 +71,21 @@ func listDashboardVMs(settings *config.SettingsType) ([]dashboardVM, error) {
 
 	rows := make([]dashboardVM, 0, len(vmList))
 	for _, vm := range vmList {
+		displayName := vm.Name
+		if domain := strings.TrimSpace(settings.GetString(config.FRONT_DOMAIN)); domain != "" {
+			displayName = vm.Name + "." + domain
+		}
 		rdpHost := rdpTargetHost(vm.Name)
 		rows = append(rows, dashboardVM{
-			Name:       vm.Name + "." + settings.GetString(config.FRONT_DOMAIN),
-			RDPConnect: generateRDP(vm.Name+"."+settings.GetString(config.FRONT_DOMAIN), "testuser"),
-			IP:         vm.IP,
-			RDPHost:    rdpHost,
-			State:      vm.State,
-			MemoryMiB:  vm.MemoryMiB,
-			VCPU:       vm.VCPU,
-			VolumeGB:   vm.VolumeGB,
+			Name:        vm.Name,
+			DisplayName: displayName,
+			RDPConnect:  generateRDP(displayName, "testuser"),
+			IP:          vm.IP,
+			RDPHost:     rdpHost,
+			State:       vm.State,
+			MemoryMiB:   vm.MemoryMiB,
+			VCPU:        vm.VCPU,
+			VolumeGB:    vm.VolumeGB,
 		})
 	}
 	return rows, nil
