@@ -78,6 +78,7 @@ func rdpFileContent(gatewayHost, targetHost string, settings *config.SettingsTyp
 	write("gatewaycredentialssource:i:4")
 	write("gatewayprofileusagemethod:i:1")
 	write("promptcredentialonce:i:0")
+	write("enablecredsspsupport:i:0")
 	write("authentication level:i:2")
 	write("prompt for credentials:i:1")
 

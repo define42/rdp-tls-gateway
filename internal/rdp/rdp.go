@@ -63,6 +63,9 @@ func HandleRDP(raw net.Conn, frontTLS *tls.Config, routeForSNI func(string) stri
 	// Require that client offered TLS in RDP_NEG_REQ (practical for SNI routing).
 	reqProto, ok := findClientRequestedProtocols(crq)
 	log.Printf("rdp debug: client requested protocols ok=%v value=0x%08x", ok, reqProto)
+	if reqProto&(x224.PROTOCOL_HYBRID|x224.PROTOCOL_HYBRID_EX) != 0 {
+		log.Printf("rdp debug: client offered NLA (HYBRID/HYBRID_EX); gateway only supports TLS (PROTOCOL_SSL)")
+	}
 	if !ok || (reqProto&x224.PROTOCOL_SSL) == 0 {
 		log.Printf("client did not offer TLS (ok=%v requested=0x%08x) from %s", ok, reqProto, raw.RemoteAddr())
 		return

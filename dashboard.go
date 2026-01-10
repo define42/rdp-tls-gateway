@@ -58,6 +58,7 @@ func generateRDP(server, username string) string {
 		fmt.Sprintf("username:s:%s", username),
 		"prompt for credentials:i:1",
 		"administrative session:i:1",
+		"enablecredsspsupport:i:0",
 	}
 
 	rdp := strings.Join(lines, "\n") + "\n"
