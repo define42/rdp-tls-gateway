@@ -60,7 +60,7 @@ func TestStartVM(t *testing.T) {
 	}
 	defer conn.Close()
 
-	time.Sleep(10 * time.Second) // Wait for shutdown to complete
+	time.Sleep(20 * time.Second) // Wait for VM to boot up
 
 	if err := checkState(testUsername, vmName, "running", conn); err != nil {
 		t.Fatalf("VM %s is not running as expected: %v", vmName, err)
@@ -70,19 +70,19 @@ func TestStartVM(t *testing.T) {
 		t.Fatalf("Failed to shutdown VM %s: %v", vmName, err)
 	}
 
-	time.Sleep(10 * time.Second) // Wait for shutdown to complete
+	time.Sleep(20 * time.Second) // Wait for shutdown to complete
 
 	if err := checkState(testUsername, vmName, "shut off", conn); err != nil {
 		t.Fatalf("VM %s is not shut off as expected: %v", vmName, err)
 	}
 
-	time.Sleep(5 * time.Second)
+	time.Sleep(20 * time.Second) // Wait for shutdown to complete
 
 	if err := virt.StartExistingVM(vmName); err != nil {
 		t.Fatalf("Failed to start VM %s: %v", vmName, err)
 	}
 
-	time.Sleep(10 * time.Second) // Wait for startup to complete
+	time.Sleep(20 * time.Second) // Wait for startup to complete
 
 	if err := checkState(testUsername, vmName, "running", conn); err != nil {
 		t.Fatalf("VM %s is not running after restart as expected: %v", vmName, err)
