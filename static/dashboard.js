@@ -1,6 +1,8 @@
 "use strict";
 const DEFAULT_VM_ERROR = "Unable to load virtual machines right now.";
 const AUTO_REFRESH_INTERVAL_MS = 10000;
+const DEFAULT_VCPU = "4";
+const DEFAULT_MEMORY_MIB = "4096";
 const state = {
     vms: [],
     filename: "rdpgw.rdp",
@@ -50,6 +52,24 @@ function bootstrap() {
             <label for="vm-name">New VM Name</label>
             <input id="vm-name" name="vm_name" autocomplete="off" pattern="[A-Za-z0-9_-]+" maxlength="64" title="Letters, numbers, '-' or '_' only" required>
           </div>
+          <div class="field">
+            <label for="vm-cpu">vCPU</label>
+            <select id="vm-cpu" name="vm_vcpu" required>
+              <option value="1">1 vCPU</option>
+              <option value="2">2 vCPU</option>
+              <option value="4" selected>4 vCPU</option>
+              <option value="8">8 vCPU</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="vm-memory">Memory</label>
+            <select id="vm-memory" name="vm_memory_mib" required>
+              <option value="4096" selected>4 GB</option>
+              <option value="8192">8 GB</option>
+              <option value="16384">16 GB</option>
+              <option value="32768">32 GB</option>
+            </select>
+          </div>
           <button id="create-button" type="submit">Create VM</button>
         </form>
         <div id="action-area" aria-live="polite"></div>
@@ -59,14 +79,18 @@ function bootstrap() {
   `;
     const form = root.querySelector("#create-form");
     const input = root.querySelector("#vm-name");
+    const cpuSelect = root.querySelector("#vm-cpu");
+    const memorySelect = root.querySelector("#vm-memory");
     const createButton = root.querySelector("#create-button");
     const actionArea = root.querySelector("#action-area");
     const listArea = root.querySelector("#vm-list");
-    if (!form || !input || !createButton || !actionArea || !listArea) {
+    if (!form || !input || !cpuSelect || !memorySelect || !createButton || !actionArea || !listArea) {
         return;
     }
     const formEl = form;
     const inputEl = input;
+    const cpuSelectEl = cpuSelect;
+    const memorySelectEl = memorySelect;
     const createButtonEl = createButton;
     const actionAreaEl = actionArea;
     const listAreaEl = listArea;
@@ -219,6 +243,8 @@ function bootstrap() {
     function setBusy(isBusy) {
         state.busy = isBusy;
         inputEl.disabled = isBusy;
+        cpuSelectEl.disabled = isBusy;
+        memorySelectEl.disabled = isBusy;
         createButtonEl.disabled = isBusy;
         renderVMList();
     }
@@ -321,14 +347,18 @@ function bootstrap() {
             loadInFlight = false;
         }
     }
-    async function createVM(name) {
+    async function createVM(name, vcpu, memoryMiB) {
         if (state.busy) {
             return;
         }
         clearAction();
         setBusy(true);
         try {
-            const body = new URLSearchParams({ vm_name: name });
+            const body = new URLSearchParams({
+                vm_name: name,
+                vm_vcpu: vcpu,
+                vm_memory_mib: memoryMiB,
+            });
             const result = await requestJSON("/api/dashboard", {
                 method: "POST",
                 headers: {
@@ -349,6 +379,8 @@ function bootstrap() {
             }
             setActionMessage(result.data.message || "VM creation started.");
             inputEl.value = "";
+            cpuSelectEl.value = DEFAULT_VCPU;
+            memorySelectEl.value = DEFAULT_MEMORY_MIB;
             await loadVMs();
         }
         finally {
@@ -405,7 +437,7 @@ function bootstrap() {
         if (!formEl.reportValidity()) {
             return;
         }
-        void createVM(inputEl.value.trim());
+        void createVM(inputEl.value.trim(), cpuSelectEl.value, memorySelectEl.value);
     });
     applyInitialMessage();
     renderAction();

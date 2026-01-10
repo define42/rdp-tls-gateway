@@ -90,7 +90,8 @@ body {
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
-.vm-form input {
+.vm-form input,
+.vm-form select {
   width: 100%;
   box-sizing: border-box;
   background: #0b1224;

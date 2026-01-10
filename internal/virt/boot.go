@@ -23,14 +23,14 @@ const (
 
 // startVM starts a libvirt VM by name if it is not already running
 
-func StartVM(name, seedIso string) error {
+func StartVM(name, seedIso string, vcpu int, memoryMiB int) error {
 	conn, err := libvirt.NewConnect(LibvirtURI())
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 
-	dom, err := conn.DomainDefineXML(UbuntuDomain(name, seedIso))
+	dom, err := conn.DomainDefineXML(UbuntuDomain(name, seedIso, vcpu, memoryMiB))
 	if err != nil {
 		fmt.Println("whaat", err)
 		return err
@@ -273,9 +273,12 @@ func InitVirt(settings *config.SettingsType) error {
 	return nil
 }
 
-func BootNewVM(name string, user *types.User, settings *config.SettingsType) (vmName string, err error) {
+func BootNewVM(name string, user *types.User, settings *config.SettingsType, vcpu int, memoryMiB int) (vmName string, err error) {
 
 	vmName = user.GetName() + "-" + name
+	if vcpu <= 0 || memoryMiB <= 0 {
+		return vmName, fmt.Errorf("invalid resources (vcpu=%d memoryMiB=%d)", vcpu, memoryMiB)
+	}
 
 	seedIso := vmName + "_seed.iso"
 
@@ -310,7 +313,7 @@ func BootNewVM(name string, user *types.User, settings *config.SettingsType) (vm
 		return vmName, fmt.Errorf("Failed to create seed ISO: %v", err)
 	}
 
-	if err := StartVM(vmName, seedIso); err != nil {
+	if err := StartVM(vmName, seedIso, vcpu, memoryMiB); err != nil {
 		return vmName, fmt.Errorf("Failed to start VM: %v", err)
 	}
 

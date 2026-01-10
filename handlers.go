@@ -12,6 +12,7 @@ import (
 	"rdptlsgateway/internal/ldap"
 	"rdptlsgateway/internal/session"
 	"rdptlsgateway/internal/virt"
+	"strconv"
 	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -242,6 +243,24 @@ func registerAPI(api huma.API, sessionManager *session.Manager, settings *config
 					return
 				}
 
+				vcpu, err := parseDashboardVCPU(req.FormValue("vm_vcpu"))
+				if err != nil {
+					writeJSON(w, http.StatusBadRequest, dashboardActionResponse{
+						OK:    false,
+						Error: err.Error(),
+					})
+					return
+				}
+
+				memoryMiB, err := parseDashboardMemoryMiB(req.FormValue("vm_memory_mib"))
+				if err != nil {
+					writeJSON(w, http.StatusBadRequest, dashboardActionResponse{
+						OK:    false,
+						Error: err.Error(),
+					})
+					return
+				}
+
 				user, ok := sessionManager.UserFromContext(req.Context())
 				if !ok {
 					writeJSON(w, http.StatusUnauthorized, dashboardActionResponse{
@@ -251,7 +270,7 @@ func registerAPI(api huma.API, sessionManager *session.Manager, settings *config
 					return
 				}
 
-				if vmName, err := virt.BootNewVM(name, user, settings); err != nil {
+				if vmName, err := virt.BootNewVM(name, user, settings, vcpu, memoryMiB); err != nil {
 					log.Printf("boot new vm %q failed: %v", vmName, err)
 					writeJSON(w, http.StatusInternalServerError, dashboardActionResponse{
 						OK:    false,
@@ -421,6 +440,36 @@ func parseDashboardVMName(req *http.Request) (string, error) {
 	return name, nil
 }
 
+func parseDashboardVCPU(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, fmt.Errorf("CPU selection is required.")
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("CPU selection is invalid.")
+	}
+	if _, ok := allowedDashboardVCPU[value]; !ok {
+		return 0, fmt.Errorf("CPU selection is not supported.")
+	}
+	return value, nil
+}
+
+func parseDashboardMemoryMiB(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, fmt.Errorf("Memory selection is required.")
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("Memory selection is invalid.")
+	}
+	if _, ok := allowedDashboardMemoryMiB[value]; !ok {
+		return 0, fmt.Errorf("Memory selection is not supported.")
+	}
+	return value, nil
+}
+
 func handleDashboardFormError(w http.ResponseWriter, action string, err error) bool {
 	if err == nil {
 		return false
@@ -441,3 +490,17 @@ func handleDashboardFormError(w http.ResponseWriter, action string, err error) b
 }
 
 var errInvalidDashboardForm = errors.New("invalid form submission")
+
+var allowedDashboardVCPU = map[int]struct{}{
+	1: {},
+	2: {},
+	4: {},
+	8: {},
+}
+
+var allowedDashboardMemoryMiB = map[int]struct{}{
+	4096:  {},
+	8192:  {},
+	16384: {},
+	32768: {},
+}

@@ -4,13 +4,13 @@ import (
 	"fmt"
 )
 
-func UbuntuDomain(name, seedIso string) string {
+func UbuntuDomain(name, seedIso string, vcpu int, memoryMiB int) string {
 
 	return fmt.Sprintf(`<domain type='kvm'>
   <name>%s</name>
-  <memory unit='MiB'>4096</memory>
+  <memory unit='MiB'>%d</memory>
   <currentMemory unit='MiB'>%d</currentMemory>
-  <vcpu placement='static'>4</vcpu>
+  <vcpu placement='static'>%d</vcpu>
 
   <os>
     <type arch='x86_64' machine='q35'>hvm</type>
@@ -70,5 +70,5 @@ func UbuntuDomain(name, seedIso string) string {
       <backend model='random'>/dev/urandom</backend>
     </rng>
   </devices>
-</domain>`, name, 4096, name, seedIso)
+</domain>`, name, memoryMiB, memoryMiB, vcpu, name, seedIso)
 }
