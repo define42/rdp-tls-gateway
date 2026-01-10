@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -52,21 +53,18 @@ func renderDashboardPage(w http.ResponseWriter) {
 }
 
 func generateRDP(server, username string) string {
-	return fmt.Sprintf("rdp://%s", server)
-	/*
-		lines := []string{
-			fmt.Sprintf("full address:s:%s:443", server),
-			fmt.Sprintf("username:s:%s", username),
-			"prompt for credentials:i:1",
-			"administrative session:i:1",
-			"enablecredsspsupport:i:0",
-		}
+	lines := []string{
+		fmt.Sprintf("full address:s:%s:443", server),
+		fmt.Sprintf("username:s:%s", username),
+		"prompt for credentials:i:1",
+		"administrative session:i:1",
+		"enablecredsspsupport:i:0",
+	}
 
-		rdp := strings.Join(lines, "\n") + "\n"
-		encoded := base64.StdEncoding.EncodeToString([]byte(rdp))
+	rdp := strings.Join(lines, "\n") + "\n"
+	encoded := base64.StdEncoding.EncodeToString([]byte(rdp))
 
-		return "data:application/x-rdp;base64," + encoded
-	*/
+	return "data:application/x-rdp;base64," + encoded
 }
 
 func listDashboardVMs(settings *config.SettingsType) ([]dashboardVM, error) {
