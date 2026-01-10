@@ -49,15 +49,20 @@ func HandleRDP(raw net.Conn, frontTLS *tls.Config, routeForSNI func(string) stri
 		return
 	}
 
+	started := time.Now()
+	log.Printf("rdp debug: new connection remote=%s local=%s", raw.RemoteAddr(), raw.LocalAddr())
+
 	// 1) Read client Connection Request (TPKT)
 	crq, err := readTPKT(raw)
 	if err != nil {
 		log.Printf("read client CRQ: %v", err)
 		return
 	}
+	log.Printf("rdp debug: client CRQ len=%d", len(crq))
 
 	// Require that client offered TLS in RDP_NEG_REQ (practical for SNI routing).
 	reqProto, ok := findClientRequestedProtocols(crq)
+	log.Printf("rdp debug: client requested protocols ok=%v value=0x%08x", ok, reqProto)
 	if !ok || (reqProto&x224.PROTOCOL_SSL) == 0 {
 		log.Printf("client did not offer TLS (ok=%v requested=0x%08x) from %s", ok, reqProto, raw.RemoteAddr())
 		return
@@ -65,6 +70,7 @@ func HandleRDP(raw net.Conn, frontTLS *tls.Config, routeForSNI func(string) stri
 
 	// 2) Send server Connection Confirm selecting TLS
 	ccfPayload := buildServerCCFSelectTLS()
+	log.Printf("rdp debug: sending server CCF select TLS")
 	if err := writeTPKT(raw, ccfPayload); err != nil {
 		log.Printf("write CCF(TLS): %v", err)
 		return
@@ -76,20 +82,33 @@ func HandleRDP(raw net.Conn, frontTLS *tls.Config, routeForSNI func(string) stri
 		log.Printf("client tls handshake: %v", err)
 		return
 	}
-	sni := strings.ToLower(strings.TrimSpace(clientTLS.ConnectionState().ServerName))
+	clientState := clientTLS.ConnectionState()
+	sni := strings.ToLower(strings.TrimSpace(clientState.ServerName))
+	log.Printf(
+		"rdp debug: client TLS established version=%s cipher=0x%04x sni=%q elapsed=%s",
+		tlsVersionLabel(clientState.Version),
+		clientState.CipherSuite,
+		sni,
+		time.Since(started),
+	)
 
 	// check end of sni is setting.Get(config.FRONT_DOMAIN)
-	if settings.Get(config.FRONT_DOMAIN) != "" && !strings.HasSuffix(sni, settings.Get(config.FRONT_DOMAIN)) {
-		log.Printf("client SNI=%q does not match required domain %q from %s", sni, settings.Get(config.FRONT_DOMAIN), raw.RemoteAddr())
+	frontDomain := strings.TrimSpace(settings.Get(config.FRONT_DOMAIN))
+	if frontDomain != "" {
+		log.Printf("rdp debug: enforcing front domain %q", frontDomain)
+	}
+	if frontDomain != "" && !strings.HasSuffix(sni, frontDomain) {
+		log.Printf("client SNI=%q does not match required domain %q from %s", sni, frontDomain, raw.RemoteAddr())
 		_ = clientTLS.Close()
 		return
 	}
-	hostname, ok := getSubdomain(sni, settings.Get(config.FRONT_DOMAIN))
+	hostname, ok := getSubdomain(sni, frontDomain)
 	if !ok {
-		log.Printf("client SNI=%q does not have valid subdomain for domain %q from %s", sni, settings.Get(config.FRONT_DOMAIN), raw.RemoteAddr())
+		log.Printf("client SNI=%q does not have valid subdomain for domain %q from %s", sni, frontDomain, raw.RemoteAddr())
 		_ = clientTLS.Close()
 		return
 	}
+	log.Printf("rdp debug: resolved subdomain hostname=%q", hostname)
 
 	// get target from virt singleton worker
 
@@ -99,6 +118,7 @@ func HandleRDP(raw net.Conn, frontTLS *tls.Config, routeForSNI func(string) stri
 		_ = clientTLS.Close()
 		return
 	}
+	log.Printf("rdp debug: resolved VM %q to IP %q", hostname, backendAddr)
 
 	//backendAddr := routeForSNI(sni)
 	if backendAddr == "" {
@@ -111,6 +131,7 @@ func HandleRDP(raw net.Conn, frontTLS *tls.Config, routeForSNI func(string) stri
 
 	// 4) Dial backend TCP
 	d := net.Dialer{Timeout: settings.GetDuration(config.TIMEOUT)}
+	log.Printf("rdp debug: dialing backend %s", backendAddr)
 	backendRaw, err := d.Dial("tcp", backendAddr)
 	if err != nil {
 		log.Printf("dial backend %s: %v", backendAddr, err)
@@ -118,11 +139,13 @@ func HandleRDP(raw net.Conn, frontTLS *tls.Config, routeForSNI func(string) stri
 		return
 	}
 	defer backendRaw.Close()
+	log.Printf("rdp debug: backend TCP connected to %s", backendAddr)
 
 	_ = backendRaw.SetDeadline(time.Now().Add(settings.GetDuration(config.TIMEOUT)))
 
 	// 5) Send CRQ to backend (force TLS-only negotiation)
 	backendCRQ := buildClientCRQSelectTLS()
+	log.Printf("rdp debug: sending backend CRQ select TLS")
 	if err := writeTPKT(backendRaw, backendCRQ); err != nil {
 		log.Printf("write backend CRQ: %v", err)
 		_ = clientTLS.Close()
@@ -137,6 +160,7 @@ func HandleRDP(raw net.Conn, frontTLS *tls.Config, routeForSNI func(string) stri
 		return
 	}
 	sel, ok := findServerSelectedProtocol(ccfBackend)
+	log.Printf("rdp debug: backend selected protocol ok=%v value=0x%08x", ok, sel)
 	if !ok {
 		log.Printf("backend did not include RDP_NEG_RSP (cannot confirm TLS); backend=%s", backendAddr)
 		_ = clientTLS.Close()
@@ -166,12 +190,20 @@ func HandleRDP(raw net.Conn, frontTLS *tls.Config, routeForSNI func(string) stri
 		_ = clientTLS.Close()
 		return
 	}
+	backendState := backendTLS.ConnectionState()
+	log.Printf(
+		"rdp debug: backend TLS established version=%s cipher=0x%04x server_name=%q",
+		tlsVersionLabel(backendState.Version),
+		backendState.CipherSuite,
+		backendState.ServerName,
+	)
 
 	// Clear deadlines for steady-state proxying
 	_ = clientTLS.SetDeadline(time.Time{})
 	_ = backendTLS.SetDeadline(time.Time{})
 
 	// 8) Proxy both directions: clientTLS <-> backendTLS
+	log.Printf("rdp debug: starting bidirectional proxy")
 	proxyBidirectional(clientTLS, backendTLS)
 }
 
@@ -304,4 +336,19 @@ func writeTPKT(conn net.Conn, payload []byte) error {
 	t := &tpkt.TPKT{Conn: core.NewSocketLayer(conn)}
 	_, err := t.Write(payload)
 	return err
+}
+
+func tlsVersionLabel(version uint16) string {
+	switch version {
+	case tls.VersionTLS10:
+		return "TLS1.0"
+	case tls.VersionTLS11:
+		return "TLS1.1"
+	case tls.VersionTLS12:
+		return "TLS1.2"
+	case tls.VersionTLS13:
+		return "TLS1.3"
+	default:
+		return fmt.Sprintf("0x%04x", version)
+	}
 }
