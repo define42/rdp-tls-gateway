@@ -66,12 +66,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("tls setup: %v", err)
 	}
+	go listenServer(routes, mux, frontTLS, settings, ":3389")
+	listenServer(routes, mux, frontTLS, settings, settings.Get(config.LISTEN_ADDR))
 
-	ln, err := net.Listen("tcp", settings.Get(config.LISTEN_ADDR))
+}
+
+func listenServer(routes map[string]string, mux http.Handler, frontTLS *tls.Config, settings *config.SettingsType, listen string) {
+	ln, err := net.Listen("tcp", listen)
 	if err != nil {
 		log.Fatalf("listen: %v", err)
 	}
-	log.Printf("listening on %s", settings.Get(config.LISTEN_ADDR))
+	log.Printf("listening on %s", listen)
 	for {
 		c, err := ln.Accept()
 		if err != nil {
