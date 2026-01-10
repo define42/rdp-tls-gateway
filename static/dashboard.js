@@ -237,6 +237,9 @@ function bootstrap() {
             removeButton.textContent = "Remove";
             removeButton.disabled = state.busy || !hasName;
             removeButton.addEventListener("click", () => {
+                if (!confirmRemoval(rawName)) {
+                    return;
+                }
                 void removeVM(rawName);
             });
             actions.appendChild(removeButton);
@@ -270,6 +273,22 @@ function bootstrap() {
         state.actionError = "";
         state.actionMessage = "";
         renderAction();
+    }
+    function confirmRemoval(name) {
+        const trimmed = name.trim();
+        if (!trimmed) {
+            setActionError("Unable to remove VM: missing name.");
+            return false;
+        }
+        const response = window.prompt(`Type the VM name "${trimmed}" to confirm removal:`);
+        if (response === null) {
+            return false;
+        }
+        if (response.trim() !== trimmed) {
+            setActionError("Removal canceled: name did not match.");
+            return false;
+        }
+        return true;
     }
     function applyInitialMessage() {
         const params = new URLSearchParams(window.location.search);

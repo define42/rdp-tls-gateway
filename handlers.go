@@ -293,9 +293,26 @@ func registerAPI(api huma.API, sessionManager *session.Manager, settings *config
 		return &huma.StreamResponse{
 			Body: func(ctx huma.Context) {
 				req, w := humachi.Unwrap(ctx)
+				user, ok := sessionManager.UserFromContext(req.Context())
+				if !ok {
+					writeJSON(w, http.StatusUnauthorized, dashboardActionResponse{
+						OK:    false,
+						Error: "Login required.",
+					})
+					return
+				}
 
 				name, err := parseDashboardVMName(req)
 				if handleDashboardFormError(w, "dashboard remove", err) {
+					return
+				}
+
+				if !strings.HasPrefix(name, user.GetName()+"-") {
+					log.Printf("user %q attempted to remove vm %q not owned by them", user.GetName(), name)
+					writeJSON(w, http.StatusForbidden, dashboardActionResponse{
+						OK:    false,
+						Error: "You do not have permission to remove this VM.",
+					})
 					return
 				}
 
