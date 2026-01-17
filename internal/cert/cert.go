@@ -47,7 +47,14 @@ func (tm *TLSManager) worker() {
 func (tm *TLSManager) updateDomains() {
 	vmNames := virt.GetInstance().GetVMnames()
 	frontPageDomain := tm.settings.Get(config.FRONT_DOMAIN)
-	vmNames = append(vmNames, frontPageDomain)
+
+	var domains []string
+	domains = append(domains, frontPageDomain)
+
+	for _, name := range vmNames {
+		domains = append(domains, name+"."+frontPageDomain)
+	}
+
 	if sameElements(tm.domains, vmNames) {
 		return
 	}
