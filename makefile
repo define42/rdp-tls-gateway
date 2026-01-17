@@ -1,4 +1,4 @@
-all:
+all: ui
 	docker compose build
 
 lint:
@@ -8,9 +8,11 @@ gosec:
 test:
 	 go test ./...  -coverpkg=./...
 
-run:
+run: 
 	docker compose stop
 	docker compose build
 	docker compose up
 
+ui:
+	tsc -p tsconfig.json
 

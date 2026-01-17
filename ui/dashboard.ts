@@ -1,11 +1,56 @@
-"use strict";
+// Source for the dashboard UI. Run "tsc -p tsconfig.json" to update static/dashboard.js.
+
 const DEFAULT_VM_ERROR = "Unable to load virtual machines right now.";
 const AUTO_REFRESH_INTERVAL_MS = 10000;
 const DEFAULT_VCPU = "4";
 const DEFAULT_MEMORY_MIB = "4096";
 const VCPU_OPTIONS = ["1", "2", "4", "8"];
 const MEMORY_OPTIONS = ["4096", "8192", "16384", "32768"];
-const state = {
+
+type DashboardVM = {
+    name: string;
+    displayName: string;
+    rdpConnect: string;
+    ip: string;
+    state: string;
+    memoryMiB: number;
+    vcpu: number;
+    volumeGB: number;
+};
+
+type DashboardDataResponse = {
+    filename?: string;
+    vms?: DashboardVM[];
+    error?: string;
+};
+
+type DashboardActionResponse = {
+    ok?: boolean;
+    message?: string;
+    error?: string;
+};
+
+type DashboardState = {
+    vms: DashboardVM[];
+    filename: string;
+    vmError: string;
+    actionMessage: string;
+    actionError: string;
+    loading: boolean;
+    busy: boolean;
+};
+
+type RequestResult<T> = {
+    ok: boolean;
+    data?: T;
+    error?: string;
+};
+
+type LoadVMOptions = {
+    showLoading?: boolean;
+};
+
+const state: DashboardState = {
     vms: [],
     filename: "rdpgw.rdp",
     vmError: "",
@@ -14,8 +59,10 @@ const state = {
     loading: true,
     busy: false,
 };
+
 let loadInFlight = false;
-function isValidIPv4(value) {
+
+function isValidIPv4(value: string): boolean {
     const trimmed = value.trim();
     if (!trimmed) {
         return false;
@@ -32,23 +79,30 @@ function isValidIPv4(value) {
         return num >= 0 && num <= 255;
     });
 }
-function isActiveState(state) {
-    const normalized = state.trim().toLowerCase();
+
+function isActiveState(vmState: string): boolean {
+    const normalized = vmState.trim().toLowerCase();
     return normalized === "running" || normalized === "paused" || normalized === "suspended";
 }
-function formatMemoryGB(memoryMiB) {
+
+function formatMemoryGB(memoryMiB?: number | string | null): string {
     if (!memoryMiB) {
         return "n/a";
     }
-    const gb = memoryMiB / 1024;
+    const gb = Number(memoryMiB) / 1024;
     const formatted = Number.isInteger(gb) ? gb.toFixed(0) : gb.toFixed(1);
     return `${formatted} GB`;
 }
-function buildSelect(options, selectedValue, labelFn) {
+
+function buildSelect<T extends string | number>(
+    options: readonly T[],
+    selectedValue: string | number,
+    labelFn: (value: T) => string,
+): HTMLSelectElement {
     const select = document.createElement("select");
     for (const value of options) {
         const option = document.createElement("option");
-        option.value = value;
+        option.value = String(value);
         option.textContent = labelFn(value);
         if (String(value) === String(selectedValue)) {
             option.selected = true;
@@ -57,11 +111,13 @@ function buildSelect(options, selectedValue, labelFn) {
     }
     return select;
 }
-function bootstrap() {
+
+function bootstrap(): void {
     const root = document.getElementById("app");
     if (!root) {
         return;
     }
+
     root.innerHTML = `
     <main class="card">
       <section class="vm-panel">
@@ -100,16 +156,19 @@ function bootstrap() {
       </section>
     </main>
   `;
-    const form = root.querySelector("#create-form");
-    const input = root.querySelector("#vm-name");
-    const cpuSelect = root.querySelector("#vm-cpu");
-    const memorySelect = root.querySelector("#vm-memory");
-    const createButton = root.querySelector("#create-button");
-    const actionArea = root.querySelector("#action-area");
-    const listArea = root.querySelector("#vm-list");
+
+    const form = root.querySelector<HTMLFormElement>("#create-form");
+    const input = root.querySelector<HTMLInputElement>("#vm-name");
+    const cpuSelect = root.querySelector<HTMLSelectElement>("#vm-cpu");
+    const memorySelect = root.querySelector<HTMLSelectElement>("#vm-memory");
+    const createButton = root.querySelector<HTMLButtonElement>("#create-button");
+    const actionArea = root.querySelector<HTMLDivElement>("#action-area");
+    const listArea = root.querySelector<HTMLDivElement>("#vm-list");
+
     if (!form || !input || !cpuSelect || !memorySelect || !createButton || !actionArea || !listArea) {
         return;
     }
+
     const formEl = form;
     const inputEl = input;
     const cpuSelectEl = cpuSelect;
@@ -117,7 +176,8 @@ function bootstrap() {
     const createButtonEl = createButton;
     const actionAreaEl = actionArea;
     const listAreaEl = listArea;
-    function renderAction() {
+
+    function renderAction(): void {
         actionAreaEl.innerHTML = "";
         if (state.actionError) {
             const error = document.createElement("p");
@@ -133,7 +193,8 @@ function bootstrap() {
             actionAreaEl.appendChild(message);
         }
     }
-    function renderVMList() {
+
+    function renderVMList(): void {
         listAreaEl.innerHTML = "";
         if (state.loading) {
             const loading = document.createElement("p");
@@ -156,6 +217,7 @@ function bootstrap() {
             listAreaEl.appendChild(empty);
             return;
         }
+
         const wrap = document.createElement("div");
         wrap.className = "vm-table-wrap";
         const table = document.createElement("table");
@@ -178,6 +240,7 @@ function bootstrap() {
         }
         thead.appendChild(headRow);
         table.appendChild(thead);
+
         const tbody = document.createElement("tbody");
         for (const vm of state.vms) {
             const row = document.createElement("tr");
@@ -192,33 +255,40 @@ function bootstrap() {
                 link.textContent = displayName;
                 link.setAttribute("download", state.filename);
                 nameCell.appendChild(link);
-            }
-            else {
+            } else {
                 nameCell.textContent = displayName || "n/a";
             }
             row.appendChild(nameCell);
+
             const ipCell = document.createElement("td");
             ipCell.textContent = vm.ip || "n/a";
             row.appendChild(ipCell);
+
             const stateCell = document.createElement("td");
             stateCell.className = "vm-state";
             stateCell.textContent = vm.state || "n/a";
             row.appendChild(stateCell);
+
             const memoryCell = document.createElement("td");
             memoryCell.textContent = formatMemoryGB(vm.memoryMiB);
             row.appendChild(memoryCell);
+
             const vcpuCell = document.createElement("td");
             vcpuCell.textContent = vm.vcpu ? `${vm.vcpu}` : "n/a";
             row.appendChild(vcpuCell);
+
             const diskCell = document.createElement("td");
             diskCell.textContent = vm.volumeGB ? `${vm.volumeGB} GB` : "n/a";
             row.appendChild(diskCell);
+
             const hasIPv4 = vm.ip ? isValidIPv4(vm.ip) : false;
             const hasName = rawName.trim() !== "";
             const isActive = isActiveState(vm.state || "");
+
             const actionCell = document.createElement("td");
             const actions = document.createElement("div");
             actions.className = "vm-actions";
+
             const startButton = document.createElement("button");
             startButton.type = "button";
             startButton.className = "vm-power vm-start";
@@ -228,6 +298,7 @@ function bootstrap() {
                 void startVM(rawName);
             });
             actions.appendChild(startButton);
+
             const restartButton = document.createElement("button");
             restartButton.type = "button";
             restartButton.className = "vm-power vm-restart";
@@ -237,6 +308,7 @@ function bootstrap() {
                 void restartVM(rawName);
             });
             actions.appendChild(restartButton);
+
             const shutdownButton = document.createElement("button");
             shutdownButton.type = "button";
             shutdownButton.className = "vm-power vm-shutdown";
@@ -246,6 +318,7 @@ function bootstrap() {
                 void shutdownVM(rawName);
             });
             actions.appendChild(shutdownButton);
+
             const removeButton = document.createElement("button");
             removeButton.type = "button";
             removeButton.className = "vm-remove";
@@ -258,6 +331,7 @@ function bootstrap() {
                 void removeVM(rawName);
             });
             actions.appendChild(removeButton);
+
             actionCell.appendChild(actions);
             if (hasName && !isActive) {
                 const resourceRow = document.createElement("div");
@@ -265,7 +339,11 @@ function bootstrap() {
                 const vcpuSelect = buildSelect(VCPU_OPTIONS, vm.vcpu || DEFAULT_VCPU, (value) => `${value} vCPU`);
                 vcpuSelect.className = "vm-resource-select";
                 vcpuSelect.disabled = state.busy;
-                const memorySelect = buildSelect(MEMORY_OPTIONS, vm.memoryMiB || DEFAULT_MEMORY_MIB, (value) => formatMemoryGB(value));
+                const memorySelect = buildSelect(
+                    MEMORY_OPTIONS,
+                    vm.memoryMiB || DEFAULT_MEMORY_MIB,
+                    (value) => formatMemoryGB(value),
+                );
                 memorySelect.className = "vm-resource-select";
                 memorySelect.disabled = state.busy;
                 const applyButton = document.createElement("button");
@@ -280,13 +358,13 @@ function bootstrap() {
                 resourceRow.appendChild(memorySelect);
                 resourceRow.appendChild(applyButton);
                 actionCell.appendChild(resourceRow);
-            }
-            else if (hasName && isActive) {
+            } else if (hasName && isActive) {
                 const note = document.createElement("div");
                 note.className = "vm-disabled";
                 note.textContent = "Stop VM to edit resources.";
                 actionCell.appendChild(note);
             }
+
             row.appendChild(actionCell);
             tbody.appendChild(row);
         }
@@ -294,7 +372,8 @@ function bootstrap() {
         wrap.appendChild(table);
         listAreaEl.appendChild(wrap);
     }
-    function setBusy(isBusy) {
+
+    function setBusy(isBusy: boolean): void {
         state.busy = isBusy;
         inputEl.disabled = isBusy;
         cpuSelectEl.disabled = isBusy;
@@ -302,22 +381,26 @@ function bootstrap() {
         createButtonEl.disabled = isBusy;
         renderVMList();
     }
-    function setActionError(message) {
+
+    function setActionError(message: string): void {
         state.actionError = message;
         state.actionMessage = "";
         renderAction();
     }
-    function setActionMessage(message) {
+
+    function setActionMessage(message: string): void {
         state.actionMessage = message;
         state.actionError = "";
         renderAction();
     }
-    function clearAction() {
+
+    function clearAction(): void {
         state.actionError = "";
         state.actionMessage = "";
         renderAction();
     }
-    function confirmRemoval(name) {
+
+    function confirmRemoval(name: string): boolean {
         const trimmed = name.trim();
         if (!trimmed) {
             setActionError("Unable to remove VM: missing name.");
@@ -333,13 +416,13 @@ function bootstrap() {
         }
         return true;
     }
-    function applyInitialMessage() {
+
+    function applyInitialMessage(): void {
         const params = new URLSearchParams(window.location.search);
         if (params.has("removed")) {
             setActionMessage("VM removed.");
             params.delete("removed");
-        }
-        else if (params.has("created")) {
+        } else if (params.has("created")) {
             setActionMessage("VM creation started.");
             params.delete("created");
         }
@@ -349,7 +432,8 @@ function bootstrap() {
             window.history.replaceState({}, "", next);
         }
     }
-    async function requestJSON(url, init = {}) {
+
+    async function requestJSON<T>(url: string, init: RequestInit = {}): Promise<RequestResult<T> | null> {
         const headers = new Headers(init.headers);
         headers.set("Accept", "application/json");
         const response = await fetch(url, {
@@ -364,11 +448,10 @@ function bootstrap() {
                 return null;
             }
         }
-        let payload = null;
+        let payload: any = null;
         try {
             payload = await response.json();
-        }
-        catch {
+        } catch {
             payload = null;
         }
         if (!response.ok) {
@@ -377,22 +460,22 @@ function bootstrap() {
                 : "Request failed.";
             return { ok: false, error: errorMessage };
         }
-        return { ok: true, data: payload };
+        return { ok: true, data: payload as T };
     }
-    async function loadVMs(options = {}) {
-        var _a;
+
+    async function loadVMs(options: LoadVMOptions = {}): Promise<void> {
         if (loadInFlight) {
             return;
         }
         loadInFlight = true;
-        const showLoading = (_a = options.showLoading) !== null && _a !== void 0 ? _a : state.vms.length === 0;
+        const showLoading = options.showLoading ?? state.vms.length === 0;
         if (showLoading) {
             state.loading = true;
             state.vmError = "";
             renderVMList();
         }
         try {
-            const result = await requestJSON("/api/dashboard/data");
+            const result = await requestJSON<DashboardDataResponse>("/api/dashboard/data");
             if (!result) {
                 return;
             }
@@ -406,18 +489,17 @@ function bootstrap() {
             }
             if (result.data.error) {
                 state.vmError = result.data.error;
-            }
-            else {
+            } else {
                 state.vmError = "";
             }
-        }
-        finally {
+        } finally {
             state.loading = false;
             renderVMList();
             loadInFlight = false;
         }
     }
-    async function createVM(name, vcpu, memoryMiB) {
+
+    async function createVM(name: string, vcpu: string, memoryMiB: string): Promise<void> {
         if (state.busy) {
             return;
         }
@@ -429,7 +511,7 @@ function bootstrap() {
                 vm_vcpu: vcpu,
                 vm_memory_mib: memoryMiB,
             });
-            const result = await requestJSON("/api/dashboard", {
+            const result = await requestJSON<DashboardActionResponse>("/api/dashboard", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/x-www-form-urlencoded",
@@ -452,12 +534,17 @@ function bootstrap() {
             cpuSelectEl.value = DEFAULT_VCPU;
             memorySelectEl.value = DEFAULT_MEMORY_MIB;
             await loadVMs();
-        }
-        finally {
+        } finally {
             setBusy(false);
         }
     }
-    async function actionVM(name, url, successMessage, failureMessage) {
+
+    async function actionVM(
+        name: string,
+        url: string,
+        successMessage: string,
+        failureMessage: string,
+    ): Promise<void> {
         if (state.busy) {
             return;
         }
@@ -465,7 +552,7 @@ function bootstrap() {
         setBusy(true);
         try {
             const body = new URLSearchParams({ vm_name: name });
-            const result = await requestJSON(url, {
+            const result = await requestJSON<DashboardActionResponse>(url, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/x-www-form-urlencoded",
@@ -485,12 +572,12 @@ function bootstrap() {
             }
             setActionMessage(result.data.message || successMessage);
             await loadVMs();
-        }
-        finally {
+        } finally {
             setBusy(false);
         }
     }
-    async function updateVMResources(name, vcpu, memoryMiB) {
+
+    async function updateVMResources(name: string, vcpu: string, memoryMiB: string): Promise<void> {
         if (state.busy) {
             return;
         }
@@ -502,7 +589,7 @@ function bootstrap() {
                 vm_vcpu: vcpu,
                 vm_memory_mib: memoryMiB,
             });
-            const result = await requestJSON("/api/dashboard/resources", {
+            const result = await requestJSON<DashboardActionResponse>("/api/dashboard/resources", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/x-www-form-urlencoded",
@@ -522,23 +609,27 @@ function bootstrap() {
             }
             setActionMessage(result.data.message || "VM resources updated.");
             await loadVMs();
-        }
-        finally {
+        } finally {
             setBusy(false);
         }
     }
-    async function removeVM(name) {
+
+    async function removeVM(name: string): Promise<void> {
         await actionVM(name, "/api/dashboard/remove", "VM removed.", "Failed to remove VM.");
     }
-    async function startVM(name) {
+
+    async function startVM(name: string): Promise<void> {
         await actionVM(name, "/api/dashboard/start", "VM start requested.", "Failed to start VM.");
     }
-    async function restartVM(name) {
+
+    async function restartVM(name: string): Promise<void> {
         await actionVM(name, "/api/dashboard/restart", "VM restart requested.", "Failed to restart VM.");
     }
-    async function shutdownVM(name) {
+
+    async function shutdownVM(name: string): Promise<void> {
         await actionVM(name, "/api/dashboard/shutdown", "VM shutdown requested.", "Failed to shutdown VM.");
     }
+
     formEl.addEventListener("submit", (event) => {
         event.preventDefault();
         if (!formEl.reportValidity()) {
@@ -546,23 +637,28 @@ function bootstrap() {
         }
         void createVM(inputEl.value.trim(), cpuSelectEl.value, memorySelectEl.value);
     });
+
     applyInitialMessage();
     renderAction();
     renderVMList();
     void loadVMs();
+
     const refreshHandle = window.setInterval(() => {
         if (document.hidden || state.busy) {
             return;
         }
         void loadVMs({ showLoading: false });
     }, AUTO_REFRESH_INTERVAL_MS);
+
     document.addEventListener("visibilitychange", () => {
         if (!document.hidden) {
             void loadVMs({ showLoading: false });
         }
     });
+
     window.addEventListener("beforeunload", () => {
         window.clearInterval(refreshHandle);
     });
 }
+
 bootstrap();

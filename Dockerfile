@@ -8,6 +8,8 @@ RUN apk add --no-cache \
     pkgconf libvirt-dev nmap \
     nodejs npm
 
+RUN npm install -g typescript@5.5.4
+
 # Enable static binary
 ENV CGO_ENABLED=0 \
     GOOS=linux \
@@ -24,6 +26,10 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 COPY *.go ./
 COPY internal internal
 COPY static static
+COPY ui ui
+COPY tsconfig.json ./
+
+RUN tsc -p tsconfig.json
 # Build
 RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=1 go build -o remotegateway
