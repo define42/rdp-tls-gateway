@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"rdptlsgateway/internal/cert"
 	"rdptlsgateway/internal/config"
 	"rdptlsgateway/internal/virt"
 	"strings"
@@ -43,7 +44,7 @@ func getSubdomain(host, root string) (string, bool) {
 }
 
 // HandleRDP handles a single RDP connection over TLS.
-func HandleRDP(raw net.Conn, frontTLS *tls.Config, settings *config.SettingsType) {
+func HandleRDP(raw net.Conn, frontTLS *cert.TLSManager, settings *config.SettingsType) {
 
 	started := time.Now()
 	log.Printf("rdp debug: new connection remote=%s local=%s", raw.RemoteAddr(), raw.LocalAddr())
@@ -76,7 +77,7 @@ func HandleRDP(raw net.Conn, frontTLS *tls.Config, settings *config.SettingsType
 	}
 
 	// 3) TLS handshake with client; get SNI
-	clientTLS := tls.Server(raw, frontTLS)
+	clientTLS := tls.Server(raw, frontTLS.GetTLSConfig())
 	if err := clientTLS.Handshake(); err != nil {
 		log.Printf("client tls handshake: %v", err)
 		return

@@ -52,12 +52,7 @@ func main() {
 
 	mux := getRemoteGatewayRotuer(sessionManager, settings)
 
-	cert2, err := cert.LoadOrGenerateCert(settings)
-	if err != nil {
-		log.Fatalf("cert setup: %v", err)
-	}
-
-	frontTLS, err := cert.BuildFrontTLS(settings, cert2, settings.IsTrue(config.MIN_TLS12), settings.Get(config.FRONT_DOMAIN))
+	frontTLS, err := cert.NewTLSManager(settings)
 	if err != nil {
 		log.Fatalf("tls setup: %v", err)
 	}
@@ -66,7 +61,7 @@ func main() {
 
 }
 
-func listenServer(mux http.Handler, frontTLS *tls.Config, settings *config.SettingsType, listen string) {
+func listenServer(mux http.Handler, frontTLS *cert.TLSManager, settings *config.SettingsType, listen string) {
 	ln, err := net.Listen("tcp", listen)
 	if err != nil {
 		log.Fatalf("listen: %v", err)
@@ -82,7 +77,7 @@ func listenServer(mux http.Handler, frontTLS *tls.Config, settings *config.Setti
 	}
 }
 
-func handleSharedConn(raw net.Conn, frontTLS *tls.Config, mux http.Handler, settings *config.SettingsType) {
+func handleSharedConn(raw net.Conn, frontTLS *cert.TLSManager, mux http.Handler, settings *config.SettingsType) {
 	defer raw.Close()
 
 	br := bufio.NewReader(raw)
@@ -111,9 +106,9 @@ func (c *bufferedConn) Read(p []byte) (int, error) {
 	return c.r.Read(p)
 }
 
-func handleHTTPS(raw net.Conn, frontTLS *tls.Config, mux http.Handler, settings *config.SettingsType) {
+func handleHTTPS(raw net.Conn, frontTLS *cert.TLSManager, mux http.Handler, settings *config.SettingsType) {
 	// TLS handshake with client; get SNI
-	clientTLS := tls.Server(raw, frontTLS)
+	clientTLS := tls.Server(raw, frontTLS.GetTLSConfig())
 	if err := clientTLS.Handshake(); err != nil {
 		log.Printf("client tls handshake: %v", err)
 		return

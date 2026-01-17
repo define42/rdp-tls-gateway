@@ -169,6 +169,13 @@ type SingletonWorker struct {
 func (s *SingletonWorker) GetVMs() []vmInfo {
 	return s.vms
 }
+func (s *SingletonWorker) GetVMnames() []string {
+	var names []string
+	for _, vm := range s.vms {
+		names = append(names, vm.Name)
+	}
+	return names
+}
 
 func (s *SingletonWorker) GetIpOfVm(vmName string) (string, error) {
 	for _, vm := range s.vms {
