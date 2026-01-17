@@ -62,7 +62,7 @@ func (tm *TLSManager) updateDomains() {
 		log.Printf("acme: error updating managed domains: %v", err)
 		return
 	}
-	tm.domains = vmNames
+	tm.domains = domains
 	log.Printf("acme: updated managed domains: %s", strings.Join(tm.domains, ", "))
 }
 
