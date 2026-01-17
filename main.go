@@ -57,11 +57,12 @@ func main() {
 		log.Fatalf("tls setup: %v", err)
 	}
 	//go listenServer(routes, mux, frontTLS, settings, ":3389")
-	listenServer(mux, frontTLS, settings, settings.Get(config.LISTEN_ADDR))
+	listenServer(mux, frontTLS, settings)
 
 }
 
-func listenServer(mux http.Handler, frontTLS *cert.TLSManager, settings *config.SettingsType, listen string) {
+func listenServer(mux http.Handler, frontTLS *cert.TLSManager, settings *config.SettingsType) {
+	listen := settings.Get(config.LISTEN_ADDR)
 	ln, err := net.Listen("tcp", listen)
 	if err != nil {
 		log.Fatalf("listen: %v", err)
