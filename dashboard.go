@@ -67,7 +67,7 @@ func generateRDP(server, username string) string {
 }
 
 func listDashboardVMs(settings *config.SettingsType, user string) ([]dashboardVM, error) {
-	vmList := virt.GetInstance().GetVMs()
+	vmList := virt.GetInstance().GetVMs(user)
 
 	rows := make([]dashboardVM, 0, len(vmList))
 	for _, vm := range vmList {

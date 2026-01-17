@@ -166,8 +166,15 @@ type SingletonWorker struct {
 	vms    []vmInfo
 }
 
-func (s *SingletonWorker) GetVMs() []vmInfo {
-	return s.vms
+func (s *SingletonWorker) GetVMs(user string) []vmInfo {
+
+	var filteredVMs []vmInfo
+	for _, vm := range s.vms {
+		if user == "" || strings.HasPrefix(vm.Name, user+"-") {
+			filteredVMs = append(filteredVMs, vm)
+		}
+	}
+	return filteredVMs
 }
 func (s *SingletonWorker) GetVMnames() []string {
 	var names []string
