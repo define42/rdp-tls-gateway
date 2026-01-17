@@ -85,7 +85,7 @@ func NewTLSManager(settings *config.SettingsType) (*TLSManager, error) {
 			Certificates: []tls.Certificate{fallback},
 		}
 
-		frontTLS.MinVersion = tls.VersionTLS13
+		frontTLS.MinVersion = tls.VersionTLS10
 
 		return &TLSManager{
 			tlsConfig: frontTLS,
@@ -124,7 +124,7 @@ func NewTLSManager(settings *config.SettingsType) (*TLSManager, error) {
 	tlsCfg := magic.TLSConfig()
 	tlsCfg.NextProtos = append([]string{"http/1.1"}, tlsCfg.NextProtos...)
 	tlsCfg.GetCertificate = acmeGetCertificate(magic, fallback)
-	tlsCfg.MinVersion = tls.VersionTLS13
+	tlsCfg.MinVersion = tls.VersionTLS10 // RDP backend compatibility
 
 	tm := TLSManager{
 		magic:     magic,
