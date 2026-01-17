@@ -194,6 +194,8 @@ function bootstrap(): void {
         }
     }
 
+    let hasRenderedTable = false;
+
     function renderVMList(): void {
         listAreaEl.innerHTML = "";
         if (state.loading) {
@@ -222,6 +224,9 @@ function bootstrap(): void {
         wrap.className = "vm-table-wrap";
         const table = document.createElement("table");
         table.className = "vm-table";
+        if (!hasRenderedTable) {
+            table.classList.add("vm-table-animate");
+        }
         const thead = document.createElement("thead");
         const headRow = document.createElement("tr");
         const columns = [
@@ -242,8 +247,12 @@ function bootstrap(): void {
         table.appendChild(thead);
 
         const tbody = document.createElement("tbody");
+        let rowIndex = 0;
         for (const vm of state.vms) {
             const row = document.createElement("tr");
+            row.style.setProperty("--row", String(rowIndex));
+            row.dataset.state = (vm.state || "").trim().toLowerCase();
+            rowIndex += 1;
             const rawName = vm.name || "";
             const displayName = vm.displayName || rawName;
             const nameCell = document.createElement("td");
@@ -371,6 +380,7 @@ function bootstrap(): void {
         table.appendChild(tbody);
         wrap.appendChild(table);
         listAreaEl.appendChild(wrap);
+        hasRenderedTable = true;
     }
 
     function setBusy(isBusy: boolean): void {
