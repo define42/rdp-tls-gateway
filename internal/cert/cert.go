@@ -55,10 +55,10 @@ func (tm *TLSManager) updateDomains() {
 		domains = append(domains, name+"."+frontPageDomain)
 	}
 
-	if sameElements(tm.domains, vmNames) {
+	if sameElements(tm.domains, domains) {
 		return
 	}
-	if err := tm.magic.ManageSync(context.Background(), vmNames); err != nil {
+	if err := tm.magic.ManageSync(context.Background(), domains); err != nil {
 		log.Printf("acme: error updating managed domains: %v", err)
 		return
 	}
@@ -143,6 +143,7 @@ func NewTLSManager(settings *config.SettingsType) (*TLSManager, error) {
 	return &tm, nil
 }
 
+/*
 func (tm *TLSManager) RemoveDomain(domain []string) error {
 	tm.domains = removeStrings(tm.domains, domain)
 
@@ -165,7 +166,7 @@ func (tm *TLSManager) AddDomain(domain []string) error {
 
 	return nil
 }
-
+*/
 /*
 func buildFrontTLS(settings *config.SettingsType) (*tls.Config, error) {
 
@@ -312,23 +313,24 @@ func generateSelfSignedCert() (tls.Certificate, error) {
 	return tls.X509KeyPair(certPEM, keyPEM)
 }
 
-func removeStrings(all []string, remove []string) []string {
-	// Build lookup set
-	toRemove := make(map[string]struct{}, len(remove))
-	for _, s := range remove {
-		toRemove[s] = struct{}{}
-	}
-
-	// Filter in-place
-	result := all[:0]
-	for _, s := range all {
-		if _, found := toRemove[s]; !found {
-			result = append(result, s)
+/*
+	func removeStrings(all []string, remove []string) []string {
+		// Build lookup set
+		toRemove := make(map[string]struct{}, len(remove))
+		for _, s := range remove {
+			toRemove[s] = struct{}{}
 		}
-	}
-	return result
-}
 
+		// Filter in-place
+		result := all[:0]
+		for _, s := range all {
+			if _, found := toRemove[s]; !found {
+				result = append(result, s)
+			}
+		}
+		return result
+	}
+*/
 func sameElements(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
