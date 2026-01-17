@@ -86,6 +86,7 @@ func NewTLSManager(settings *config.SettingsType) (*TLSManager, error) {
 		}
 
 		frontTLS.MinVersion = tls.VersionTLS10
+		frontTLS.CipherSuites = allCipherSuiteIDs()
 
 		return &TLSManager{
 			tlsConfig: frontTLS,
@@ -125,6 +126,7 @@ func NewTLSManager(settings *config.SettingsType) (*TLSManager, error) {
 	tlsCfg.NextProtos = append([]string{"http/1.1"}, tlsCfg.NextProtos...)
 	tlsCfg.GetCertificate = acmeGetCertificate(magic, fallback)
 	tlsCfg.MinVersion = tls.VersionTLS10 // RDP backend compatibility
+	tlsCfg.CipherSuites = allCipherSuiteIDs()
 
 	tm := TLSManager{
 		magic:     magic,
@@ -342,4 +344,15 @@ func sameElements(a, b []string) bool {
 	}
 
 	return true
+}
+
+func allCipherSuiteIDs() []uint16 {
+	suites := make([]uint16, 0, len(tls.CipherSuites())+len(tls.InsecureCipherSuites()))
+	for _, suite := range tls.CipherSuites() {
+		suites = append(suites, suite.ID)
+	}
+	for _, suite := range tls.InsecureCipherSuites() {
+		suites = append(suites, suite.ID)
+	}
+	return suites
 }
