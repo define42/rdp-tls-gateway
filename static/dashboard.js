@@ -66,13 +66,13 @@ function bootstrap() {
     <main class="card">
       <section class="vm-panel">
         <div class="vm-header">
-          <h2>Available VMs</h2>
+          <h2>Available DevBoxes</h2>
           <a class="logout-button" href="/logout">Logout</a>
         </div>
         <p class="vm-subtitle">Live inventory from libvirt.</p>
         <form class="vm-form" id="create-form">
           <div class="field">
-            <label for="vm-name">New VM Name</label>
+            <label for="vm-name">New DevBox Name</label>
             <input id="vm-name" name="vm_name" autocomplete="off" pattern="[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?" maxlength="63" title="Lowercase letters, numbers, and hyphens only. Must start/end with a letter or number. Max 63 characters." autocapitalize="none" spellcheck="false" required>
           </div>
           <div class="field">
@@ -93,7 +93,7 @@ function bootstrap() {
               <option value="32768">32 GB</option>
             </select>
           </div>
-          <button id="create-button" type="submit">Create VM</button>
+          <button id="create-button" type="submit">Create DevBox</button>
         </form>
         <div id="action-area" aria-live="polite"></div>
         <div id="vm-list"></div>

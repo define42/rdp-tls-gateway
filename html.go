@@ -5,7 +5,7 @@ const loginHTML = `<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>RemoteGateway</title>
+  <title>DevBoxGateway</title>
   <style>
     :root { --bg:#0b1224; --panel:#0f172a; --accent:#38bdf8; --muted:#94a3b8; --line:rgba(255,255,255,0.1); }
     body { margin:0; font-family: "Space Grotesk", "Segoe UI", sans-serif; background:
@@ -26,8 +26,8 @@ const loginHTML = `<!doctype html>
 </head>
 <body>
   <div class="card">
-    <h1>RemoteGateway</h1>
-    <p>Sign in to see your allowed namespaces and browse repository contents.</p>
+    <h1>DevBoxGateway</h1>
+    <p>Sign in to DevBoxGateway</p>
     {{ERROR}}
     <form method="post" action="/login">
       <div class="field">
