@@ -39,7 +39,10 @@ import (
 )
 
 func main() {
+	bootGateway()
+}
 
+func bootGateway() {
 	virt.GetInstance()
 
 	rdp.InitLogging()
