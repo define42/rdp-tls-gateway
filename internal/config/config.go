@@ -58,7 +58,6 @@ func NewSettingType(print bool) *SettingsType {
 	// Duration-typed setting
 	s.SetDuration(TIMEOUT, "handshake/dial/read timeout for setup", 10*time.Second)
 
-	s.SetBool(MIN_TLS12, "force TLS 1.2+ on both sides", true)
 	s.SetBool(ACME_ENABLE, "enable ACME certificate management with certmagic for front TLS", false)
 	s.SetString(ACME_EMAIL, "ACME account email (recommended)", "")
 	s.SetString(ACME_CA, "ACME CA directory URL or 'staging'", "")
@@ -271,7 +270,6 @@ const (
 	LDAP_STARTTLS        = "LDAP_STARTTLS"
 	LDAP_SKIP_TLS_VERIFY = "LDAP_SKIP_TLS_VERIFY"
 	LISTEN_ADDR          = "LISTEN_ADDR"
-	MIN_TLS12            = "MIN_TLS12"
 	VDI_IMAGE_DIR        = "VDI_IMAGE_DIR"
 	BASE_IMAGE_URL       = "BASE_IMAGE_URL"
 	TIMEOUT              = "TIMEOUT"

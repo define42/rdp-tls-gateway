@@ -68,7 +68,6 @@ func (tm *TLSManager) updateDomains() {
 
 func NewTLSManager(settings *config.SettingsType) (*TLSManager, error) {
 
-	minTLS12 := settings.IsTrue(config.MIN_TLS12)
 	frontPageDomain := settings.Get(config.FRONT_DOMAIN)
 
 	fallback, err := LoadOrGenerateCert(settings)
@@ -85,9 +84,9 @@ func NewTLSManager(settings *config.SettingsType) (*TLSManager, error) {
 		frontTLS := &tls.Config{
 			Certificates: []tls.Certificate{fallback},
 		}
-		if minTLS12 {
-			frontTLS.MinVersion = tls.VersionTLS12
-		}
+
+		frontTLS.MinVersion = tls.VersionTLS13
+
 		return &TLSManager{
 			tlsConfig: frontTLS,
 			settings:  settings,
@@ -125,13 +124,7 @@ func NewTLSManager(settings *config.SettingsType) (*TLSManager, error) {
 	tlsCfg := magic.TLSConfig()
 	tlsCfg.NextProtos = append([]string{"http/1.1"}, tlsCfg.NextProtos...)
 	tlsCfg.GetCertificate = acmeGetCertificate(magic, fallback)
-	if minTLS12 {
-		tlsCfg.MinVersion = tls.VersionTLS12
-	} else {
-		tlsCfg.MinVersion = 0
-		tlsCfg.CipherSuites = nil
-		tlsCfg.CurvePreferences = nil
-	}
+	tlsCfg.MinVersion = tls.VersionTLS13
 
 	tm := TLSManager{
 		magic:     magic,

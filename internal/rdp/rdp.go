@@ -175,9 +175,9 @@ func HandleRDP(raw net.Conn, frontTLS *cert.TLSManager, settings *config.Setting
 	backendTLSCfg := &tls.Config{
 		InsecureSkipVerify: true, // ignore backend cert chain + hostname
 	}
-	if settings.IsTrue(config.MIN_TLS12) {
-		backendTLSCfg.MinVersion = tls.VersionTLS12
-	}
+
+	backendTLSCfg.MinVersion = tls.VersionTLS10
+
 	// Still send SNI to backend if we have it (helps if backend uses SNI-based cert selection)
 	if sni != "" && sni != "*" {
 		backendTLSCfg.ServerName = sni
