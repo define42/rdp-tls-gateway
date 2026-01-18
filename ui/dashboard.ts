@@ -107,7 +107,7 @@ function bootstrap(): void {
           <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4">
             <div>
               <h1 class="h4 mb-1">Available DevBoxes</h1>
-              <p class="text-body-secondary mb-0">Live inventory from libvirt.</p>
+              <p class="text-body-secondary mb-0">Live inventory.</p>
             </div>
             <a class="btn btn-outline-secondary btn-sm" href="/logout">Logout</a>
           </div>
@@ -247,6 +247,8 @@ function bootstrap(): void {
             const rawName = vm.name || "";
             const displayName = vm.displayName || rawName;
             const normalizedState = (vm.state || "").trim().toLowerCase();
+            const ipValue = (vm.ip || "").trim();
+            const hasIP = ipValue !== "" && ipValue.toLowerCase() !== "n/a";
 
             const nameCell = document.createElement("td");
             nameCell.className = "fw-semibold";
@@ -256,9 +258,9 @@ function bootstrap(): void {
             const connectCell = document.createElement("td");
             if (vm.rdpConnect && displayName.trim() !== "") {
                 const connectButton = document.createElement("a");
-                connectButton.className = "btn btn-sm btn-success";
+                connectButton.className = hasIP ? "btn btn-sm btn-success" : "btn btn-sm btn-danger";
                 connectButton.href = vm.rdpConnect;
-                connectButton.textContent = "Connect";
+                connectButton.textContent = hasIP ? "Connect" : "Offline";
                 connectButton.setAttribute("download", state.filename);
                 connectCell.appendChild(connectButton);
             } else {
@@ -268,7 +270,7 @@ function bootstrap(): void {
             row.appendChild(connectCell);
 
             const ipCell = document.createElement("td");
-            ipCell.textContent = vm.ip || "n/a";
+            ipCell.textContent = hasIP ? ipValue : "n/a";
             row.appendChild(ipCell);
 
             const stateCell = document.createElement("td");
