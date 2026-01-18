@@ -177,8 +177,7 @@ function bootstrap(): void {
         }
         if (state.actionMessage) {
             const message = document.createElement("div");
-            message.className = "alert alert-success mb-0";
-            message.setAttribute("role", "alert");
+            message.className = "btn btn-outline-success text-start w-100 disabled";
             message.textContent = state.actionMessage;
             actionAreaEl.appendChild(message);
         }
