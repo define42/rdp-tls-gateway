@@ -361,9 +361,9 @@ function bootstrap(): void {
             actionStack.appendChild(actions);
             if (hasName && !isActive) {
                 const resourceRow = document.createElement("div");
-                resourceRow.className = "d-flex flex-wrap gap-2 align-items-center";
+                resourceRow.className = "d-flex flex-nowrap gap-2 align-items-center";
                 const vcpuSelect = buildSelect(VCPU_OPTIONS, vm.vcpu || DEFAULT_VCPU, (value) => `${value} vCPU`);
-                vcpuSelect.className = "form-select form-select-sm vm-resource-select";
+                vcpuSelect.className = "form-select form-select-sm vm-resource-select w-auto";
                 vcpuSelect.setAttribute("aria-label", "vCPU");
                 vcpuSelect.disabled = state.busy;
                 const memorySelect = buildSelect(
@@ -371,12 +371,12 @@ function bootstrap(): void {
                     vm.memoryMiB || DEFAULT_MEMORY_MIB,
                     (value) => formatMemoryGB(value),
                 );
-                memorySelect.className = "form-select form-select-sm vm-resource-select";
+                memorySelect.className = "form-select form-select-sm vm-resource-select w-auto";
                 memorySelect.setAttribute("aria-label", "Memory");
                 memorySelect.disabled = state.busy;
                 const applyButton = document.createElement("button");
                 applyButton.type = "button";
-                applyButton.className = "btn btn-sm btn-outline-info";
+                applyButton.className = "btn btn-sm btn-outline-info w-auto";
                 applyButton.textContent = "Apply";
                 applyButton.disabled = state.busy;
                 applyButton.addEventListener("click", () => {
