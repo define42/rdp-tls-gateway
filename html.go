@@ -26,7 +26,7 @@ const loginHTML = `<!doctype html>
                 <label class="form-label" for="password">Password</label>
                 <input class="form-control" id="password" name="password" type="password" autocomplete="current-password" required>
               </div>
-              <button class="btn btn-primary w-100" type="submit">Continue</button>
+              <button class="btn btn-outline-primary w-100" type="submit">Continue</button>
             </form>
           </div>
         </div>

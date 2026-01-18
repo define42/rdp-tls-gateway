@@ -135,7 +135,7 @@ function bootstrap(): void {
               </select>
             </div>
             <div class="col-12 col-md-12 col-lg-3 d-grid">
-              <button class="btn btn-primary" id="create-button" type="submit">Create DevBox</button>
+              <button class="btn btn-outline-primary" id="create-button" type="submit">Create DevBox</button>
             </div>
           </form>
           <div id="action-area" class="mt-3" aria-live="polite"></div>
@@ -257,12 +257,20 @@ function bootstrap(): void {
 
             const connectCell = document.createElement("td");
             if (vm.rdpConnect && displayName.trim() !== "") {
-                const connectButton = document.createElement("a");
-                connectButton.className = hasIP ? "btn btn-sm btn-success" : "btn btn-sm btn-danger";
-                connectButton.href = vm.rdpConnect;
-                connectButton.textContent = hasIP ? "Connect" : "Offline";
-                connectButton.setAttribute("download", state.filename);
-                connectCell.appendChild(connectButton);
+                if (hasIP) {
+                    const connectButton = document.createElement("a");
+                    connectButton.className = "btn btn-sm btn-success";
+                    connectButton.href = vm.rdpConnect;
+                    connectButton.textContent = "Connect";
+                    connectButton.setAttribute("download", state.filename);
+                    connectCell.appendChild(connectButton);
+                } else {
+                    const offlineBadge = document.createElement("span");
+                    offlineBadge.className = "btn btn-sm btn-outline-danger disabled";
+                    offlineBadge.textContent = "Offline";
+                    offlineBadge.setAttribute("aria-disabled", "true");
+                    connectCell.appendChild(offlineBadge);
+                }
             } else {
                 connectCell.textContent = "n/a";
                 connectCell.className = "text-body-secondary";
@@ -317,7 +325,7 @@ function bootstrap(): void {
 
             const startButton = document.createElement("button");
             startButton.type = "button";
-            startButton.className = "btn btn-sm btn-success";
+            startButton.className = "btn btn-sm btn-outline-success";
             startButton.textContent = "Start";
             startButton.disabled = state.busy || !hasName || isActive;
             startButton.addEventListener("click", () => {
@@ -327,7 +335,7 @@ function bootstrap(): void {
 
             const restartButton = document.createElement("button");
             restartButton.type = "button";
-            restartButton.className = "btn btn-sm btn-warning";
+            restartButton.className = "btn btn-sm btn-outline-secondary";
             restartButton.textContent = "Restart";
             restartButton.disabled = state.busy || !hasName || !isActive;
             restartButton.addEventListener("click", () => {
@@ -338,7 +346,7 @@ function bootstrap(): void {
             const shutdownButton = document.createElement("button");
             shutdownButton.type = "button";
             shutdownButton.className = "btn btn-sm btn-outline-warning";
-            shutdownButton.textContent = "Shutdown";
+            shutdownButton.textContent = "Stop";
             shutdownButton.disabled = state.busy || !hasName || !isActive;
             shutdownButton.addEventListener("click", () => {
                 void shutdownVM(rawName);
@@ -347,7 +355,7 @@ function bootstrap(): void {
 
             const removeButton = document.createElement("button");
             removeButton.type = "button";
-            removeButton.className = "btn btn-sm btn-danger";
+            removeButton.className = "btn btn-sm btn-outline-danger";
             removeButton.textContent = "Remove";
             removeButton.disabled = state.busy || !hasName;
             removeButton.addEventListener("click", () => {
@@ -376,7 +384,7 @@ function bootstrap(): void {
                 memorySelect.disabled = state.busy;
                 const applyButton = document.createElement("button");
                 applyButton.type = "button";
-                applyButton.className = "btn btn-sm btn-outline-info w-auto";
+                applyButton.className = "btn btn-sm btn-outline-primary w-auto";
                 applyButton.textContent = "Apply";
                 applyButton.disabled = state.busy;
                 applyButton.addEventListener("click", () => {
@@ -657,7 +665,7 @@ function bootstrap(): void {
     }
 
     async function shutdownVM(name: string): Promise<void> {
-        await actionVM(name, "/api/dashboard/shutdown", "VM shutdown requested.", "Failed to shutdown VM.");
+        await actionVM(name, "/api/dashboard/shutdown", "VM stop requested.", "Failed to stop VM.");
     }
 
     formEl.addEventListener("submit", (event) => {
