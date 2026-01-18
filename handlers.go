@@ -75,7 +75,7 @@ func serveLogin(w http.ResponseWriter, message string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	errorHTML := ""
 	if message != "" {
-		errorHTML = `<div class="error">` + html.EscapeString(message) + `</div>`
+		errorHTML = `<div class="alert alert-danger mb-3" role="alert">` + html.EscapeString(message) + `</div>`
 	}
 	fmt.Fprint(w, strings.Replace(loginHTML, "{{ERROR}}", errorHTML, 1))
 }

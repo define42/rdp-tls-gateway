@@ -62,24 +62,6 @@ const state: DashboardState = {
 
 let loadInFlight = false;
 
-function isValidIPv4(value: string): boolean {
-    const trimmed = value.trim();
-    if (!trimmed) {
-        return false;
-    }
-    const parts = trimmed.split(".");
-    if (parts.length !== 4) {
-        return false;
-    }
-    return parts.every((part) => {
-        if (!/^\d{1,3}$/.test(part)) {
-            return false;
-        }
-        const num = Number(part);
-        return num >= 0 && num <= 255;
-    });
-}
-
 function isActiveState(vmState: string): boolean {
     const normalized = vmState.trim().toLowerCase();
     return normalized === "running" || normalized === "paused" || normalized === "suspended";
@@ -119,41 +101,47 @@ function bootstrap(): void {
     }
 
     root.innerHTML = `
-    <main class="card">
-      <section class="vm-panel">
-        <div class="vm-header">
-          <h2>Available DevBoxes</h2>
-          <a class="logout-button" href="/logout">Logout</a>
+    <main class="container py-4">
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4">
+            <div>
+              <h1 class="h4 mb-1">Available DevBoxes</h1>
+              <p class="text-body-secondary mb-0">Live inventory from libvirt.</p>
+            </div>
+            <a class="btn btn-outline-secondary btn-sm" href="/logout">Logout</a>
+          </div>
+          <form class="row g-3 align-items-end" id="create-form">
+            <div class="col-12 col-md-6 col-lg-5">
+              <label class="form-label" for="vm-name">New DevBox Name</label>
+              <input class="form-control" id="vm-name" name="vm_name" autocomplete="off" pattern="[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?" maxlength="63" title="Lowercase letters, numbers, and hyphens only. Must start/end with a letter or number. Max 63 characters." autocapitalize="none" spellcheck="false" required>
+            </div>
+            <div class="col-6 col-md-3 col-lg-2">
+              <label class="form-label" for="vm-cpu">vCPU</label>
+              <select class="form-select" id="vm-cpu" name="vm_vcpu" required>
+                <option value="1">1 vCPU</option>
+                <option value="2">2 vCPU</option>
+                <option value="4" selected>4 vCPU</option>
+                <option value="8">8 vCPU</option>
+              </select>
+            </div>
+            <div class="col-6 col-md-3 col-lg-2">
+              <label class="form-label" for="vm-memory">Memory</label>
+              <select class="form-select" id="vm-memory" name="vm_memory_mib" required>
+                <option value="4096" selected>4 GB</option>
+                <option value="8192">8 GB</option>
+                <option value="16384">16 GB</option>
+                <option value="32768">32 GB</option>
+              </select>
+            </div>
+            <div class="col-12 col-md-12 col-lg-3 d-grid">
+              <button class="btn btn-primary" id="create-button" type="submit">Create DevBox</button>
+            </div>
+          </form>
+          <div id="action-area" class="mt-3" aria-live="polite"></div>
+          <div id="vm-list" class="mt-3"></div>
         </div>
-        <p class="vm-subtitle">Live inventory from libvirt.</p>
-        <form class="vm-form" id="create-form">
-          <div class="field">
-            <label for="vm-name">New DevBox Name</label>
-            <input id="vm-name" name="vm_name" autocomplete="off" pattern="[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?" maxlength="63" title="Lowercase letters, numbers, and hyphens only. Must start/end with a letter or number. Max 63 characters." autocapitalize="none" spellcheck="false" required>
-          </div>
-          <div class="field">
-            <label for="vm-cpu">vCPU</label>
-            <select id="vm-cpu" name="vm_vcpu" required>
-              <option value="1">1 vCPU</option>
-              <option value="2">2 vCPU</option>
-              <option value="4" selected>4 vCPU</option>
-              <option value="8">8 vCPU</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="vm-memory">Memory</label>
-            <select id="vm-memory" name="vm_memory_mib" required>
-              <option value="4096" selected>4 GB</option>
-              <option value="8192">8 GB</option>
-              <option value="16384">16 GB</option>
-              <option value="32768">32 GB</option>
-            </select>
-          </div>
-          <button id="create-button" type="submit">Create DevBox</button>
-        </form>
-        <div id="action-area" aria-live="polite"></div>
-        <div id="vm-list"></div>
-      </section>
+      </div>
     </main>
   `;
 
@@ -180,57 +168,63 @@ function bootstrap(): void {
     function renderAction(): void {
         actionAreaEl.innerHTML = "";
         if (state.actionError) {
-            const error = document.createElement("p");
-            error.className = "vm-error";
+            const error = document.createElement("div");
+            error.className = "alert alert-danger mb-0";
+            error.setAttribute("role", "alert");
             error.textContent = state.actionError;
             actionAreaEl.appendChild(error);
             return;
         }
         if (state.actionMessage) {
-            const message = document.createElement("p");
-            message.className = "vm-success";
+            const message = document.createElement("div");
+            message.className = "alert alert-success mb-0";
+            message.setAttribute("role", "alert");
             message.textContent = state.actionMessage;
             actionAreaEl.appendChild(message);
         }
     }
 
-    let hasRenderedTable = false;
-
     function renderVMList(): void {
         listAreaEl.innerHTML = "";
         if (state.loading) {
-            const loading = document.createElement("p");
-            loading.className = "vm-loading";
-            loading.textContent = "Loading virtual machines...";
+            const loading = document.createElement("div");
+            loading.className = "d-flex align-items-center gap-2 text-body-secondary";
+            const spinner = document.createElement("div");
+            spinner.className = "spinner-border spinner-border-sm";
+            spinner.setAttribute("role", "status");
+            spinner.setAttribute("aria-hidden", "true");
+            const text = document.createElement("span");
+            text.textContent = "Loading virtual machines...";
+            loading.appendChild(spinner);
+            loading.appendChild(text);
             listAreaEl.appendChild(loading);
             return;
         }
         if (state.vmError) {
-            const error = document.createElement("p");
-            error.className = "vm-error";
+            const error = document.createElement("div");
+            error.className = "alert alert-danger mb-0";
+            error.setAttribute("role", "alert");
             error.textContent = state.vmError;
             listAreaEl.appendChild(error);
             return;
         }
         if (state.vms.length === 0) {
-            const empty = document.createElement("p");
-            empty.className = "vm-empty";
+            const empty = document.createElement("div");
+            empty.className = "text-body-secondary";
             empty.textContent = "No virtual machines found.";
             listAreaEl.appendChild(empty);
             return;
         }
 
         const wrap = document.createElement("div");
-        wrap.className = "vm-table-wrap";
+        wrap.className = "table-responsive";
         const table = document.createElement("table");
-        table.className = "vm-table";
-        if (!hasRenderedTable) {
-            table.classList.add("vm-table-animate");
-        }
+        table.className = "table table-dark table-hover align-middle mb-0";
         const thead = document.createElement("thead");
         const headRow = document.createElement("tr");
         const columns = [
             "Name",
+            "Connect",
             "IP Address",
             "State",
             "Memory (GB)",
@@ -240,6 +234,7 @@ function bootstrap(): void {
         ];
         for (const label of columns) {
             const th = document.createElement("th");
+            th.scope = "col";
             th.textContent = label;
             headRow.appendChild(th);
         }
@@ -247,35 +242,52 @@ function bootstrap(): void {
         table.appendChild(thead);
 
         const tbody = document.createElement("tbody");
-        let rowIndex = 0;
         for (const vm of state.vms) {
             const row = document.createElement("tr");
-            row.style.setProperty("--row", String(rowIndex));
-            row.dataset.state = (vm.state || "").trim().toLowerCase();
-            rowIndex += 1;
             const rawName = vm.name || "";
             const displayName = vm.displayName || rawName;
+            const normalizedState = (vm.state || "").trim().toLowerCase();
+
             const nameCell = document.createElement("td");
-            nameCell.className = "vm-name";
-            if (vm.rdpConnect && displayName.trim() !== "") {
-                const link = document.createElement("a");
-                link.className = "vm-name-link";
-                link.href = vm.rdpConnect;
-                link.textContent = displayName;
-                link.setAttribute("download", state.filename);
-                nameCell.appendChild(link);
-            } else {
-                nameCell.textContent = displayName || "n/a";
-            }
+            nameCell.className = "fw-semibold";
+            nameCell.textContent = displayName || "n/a";
             row.appendChild(nameCell);
+
+            const connectCell = document.createElement("td");
+            if (vm.rdpConnect && displayName.trim() !== "") {
+                const connectButton = document.createElement("a");
+                connectButton.className = "btn btn-sm btn-success";
+                connectButton.href = vm.rdpConnect;
+                connectButton.textContent = "Connect";
+                connectButton.setAttribute("download", state.filename);
+                connectCell.appendChild(connectButton);
+            } else {
+                connectCell.textContent = "n/a";
+                connectCell.className = "text-body-secondary";
+            }
+            row.appendChild(connectCell);
 
             const ipCell = document.createElement("td");
             ipCell.textContent = vm.ip || "n/a";
             row.appendChild(ipCell);
 
             const stateCell = document.createElement("td");
-            stateCell.className = "vm-state";
-            stateCell.textContent = vm.state || "n/a";
+            const stateBadge = document.createElement("span");
+            let stateClass = "text-bg-secondary";
+            if (normalizedState === "running") {
+                stateClass = "text-bg-success";
+            } else if (normalizedState === "paused") {
+                stateClass = "text-bg-warning";
+            } else if (normalizedState === "suspended") {
+                stateClass = "text-bg-danger";
+            }
+            const stateText = normalizedState ? (vm.state || "").trim() : "n/a";
+            stateBadge.className = `badge ${stateClass}`;
+            if (normalizedState) {
+                stateBadge.classList.add("text-capitalize");
+            }
+            stateBadge.textContent = stateText;
+            stateCell.appendChild(stateBadge);
             row.appendChild(stateCell);
 
             const memoryCell = document.createElement("td");
@@ -290,17 +302,20 @@ function bootstrap(): void {
             diskCell.textContent = vm.volumeGB ? `${vm.volumeGB} GB` : "n/a";
             row.appendChild(diskCell);
 
-            const hasIPv4 = vm.ip ? isValidIPv4(vm.ip) : false;
             const hasName = rawName.trim() !== "";
-            const isActive = isActiveState(vm.state || "");
+            const isActive = isActiveState(normalizedState);
 
             const actionCell = document.createElement("td");
+            actionCell.className = "align-top";
+            const actionStack = document.createElement("div");
+            actionStack.className = "d-flex flex-column gap-2";
+
             const actions = document.createElement("div");
-            actions.className = "vm-actions";
+            actions.className = "d-flex flex-wrap gap-2";
 
             const startButton = document.createElement("button");
             startButton.type = "button";
-            startButton.className = "vm-power vm-start";
+            startButton.className = "btn btn-sm btn-success";
             startButton.textContent = "Start";
             startButton.disabled = state.busy || !hasName || isActive;
             startButton.addEventListener("click", () => {
@@ -310,7 +325,7 @@ function bootstrap(): void {
 
             const restartButton = document.createElement("button");
             restartButton.type = "button";
-            restartButton.className = "vm-power vm-restart";
+            restartButton.className = "btn btn-sm btn-warning";
             restartButton.textContent = "Restart";
             restartButton.disabled = state.busy || !hasName || !isActive;
             restartButton.addEventListener("click", () => {
@@ -320,7 +335,7 @@ function bootstrap(): void {
 
             const shutdownButton = document.createElement("button");
             shutdownButton.type = "button";
-            shutdownButton.className = "vm-power vm-shutdown";
+            shutdownButton.className = "btn btn-sm btn-outline-warning";
             shutdownButton.textContent = "Shutdown";
             shutdownButton.disabled = state.busy || !hasName || !isActive;
             shutdownButton.addEventListener("click", () => {
@@ -330,7 +345,7 @@ function bootstrap(): void {
 
             const removeButton = document.createElement("button");
             removeButton.type = "button";
-            removeButton.className = "vm-remove";
+            removeButton.className = "btn btn-sm btn-danger";
             removeButton.textContent = "Remove";
             removeButton.disabled = state.busy || !hasName;
             removeButton.addEventListener("click", () => {
@@ -341,23 +356,25 @@ function bootstrap(): void {
             });
             actions.appendChild(removeButton);
 
-            actionCell.appendChild(actions);
+            actionStack.appendChild(actions);
             if (hasName && !isActive) {
                 const resourceRow = document.createElement("div");
-                resourceRow.className = "vm-resources";
+                resourceRow.className = "d-flex flex-wrap gap-2 align-items-center";
                 const vcpuSelect = buildSelect(VCPU_OPTIONS, vm.vcpu || DEFAULT_VCPU, (value) => `${value} vCPU`);
-                vcpuSelect.className = "vm-resource-select";
+                vcpuSelect.className = "form-select form-select-sm vm-resource-select";
+                vcpuSelect.setAttribute("aria-label", "vCPU");
                 vcpuSelect.disabled = state.busy;
                 const memorySelect = buildSelect(
                     MEMORY_OPTIONS,
                     vm.memoryMiB || DEFAULT_MEMORY_MIB,
                     (value) => formatMemoryGB(value),
                 );
-                memorySelect.className = "vm-resource-select";
+                memorySelect.className = "form-select form-select-sm vm-resource-select";
+                memorySelect.setAttribute("aria-label", "Memory");
                 memorySelect.disabled = state.busy;
                 const applyButton = document.createElement("button");
                 applyButton.type = "button";
-                applyButton.className = "vm-resource-apply";
+                applyButton.className = "btn btn-sm btn-outline-info";
                 applyButton.textContent = "Apply";
                 applyButton.disabled = state.busy;
                 applyButton.addEventListener("click", () => {
@@ -366,13 +383,15 @@ function bootstrap(): void {
                 resourceRow.appendChild(vcpuSelect);
                 resourceRow.appendChild(memorySelect);
                 resourceRow.appendChild(applyButton);
-                actionCell.appendChild(resourceRow);
+                actionStack.appendChild(resourceRow);
             } else if (hasName && isActive) {
                 const note = document.createElement("div");
-                note.className = "vm-disabled";
+                note.className = "text-body-secondary small";
                 note.textContent = "Stop VM to edit resources.";
-                actionCell.appendChild(note);
+                actionStack.appendChild(note);
             }
+
+            actionCell.appendChild(actionStack);
 
             row.appendChild(actionCell);
             tbody.appendChild(row);
@@ -380,7 +399,6 @@ function bootstrap(): void {
         table.appendChild(tbody);
         wrap.appendChild(table);
         listAreaEl.appendChild(wrap);
-        hasRenderedTable = true;
     }
 
     function setBusy(isBusy: boolean): void {
