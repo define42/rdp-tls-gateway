@@ -11,3 +11,4 @@ tsc -p tsconfig.json
 ```
 
 The compiled output is `static/dashboard.js`.
+
