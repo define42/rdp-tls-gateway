@@ -35,12 +35,20 @@ type SettingsType struct {
 	m map[string]*Setting
 }
 
+const (
+	DefaultVDIImageDir         = "/data/vdiimage/"
+	DefaultVirtStoragePoolName = "storage-ppol"
+	DefaultVirtStoragePoolPath = DefaultVDIImageDir
+)
+
 func NewSettingType(print bool) *SettingsType {
 	s := &SettingsType{m: make(map[string]*Setting)}
 
 	s.SetString(ACME_DATA_DIR, "ACME data directory", "/data/acme/")
 
-	s.SetString(VDI_IMAGE_DIR, "Directory for VDI images", "/data/vdiimage/")
+	s.SetString(VDI_IMAGE_DIR, "Directory for VDI images", DefaultVDIImageDir)
+	s.SetString(VIRT_STORAGE_POOL_NAME, "Libvirt storage pool name for VM volumes", DefaultVirtStoragePoolName)
+	s.SetString(VIRT_STORAGE_POOL_PATH, "Filesystem path for the libvirt storage pool", DefaultVirtStoragePoolPath)
 	s.SetString(LDAP_URL, "LDAP server url", "ldaps://ldap:389")
 	s.SetString(LDAP_BASE_DN, "LDAP base DN", "dc=glauth,dc=com")
 	s.SetString(LDAP_USER_FILTER, "LDAP user filter", "(mail=%s)")
@@ -256,23 +264,25 @@ func (s *SettingsType) GetDuration(id string) time.Duration {
 // ---- Keys ----
 
 const (
-	ACME_DATA_DIR        = "ACME_DATA_DIR"
-	ACME_EMAIL           = "ACME_EMAIL"
-	ACME_CA              = "ACME_CA"
-	ACME_ENABLE          = "ACME_ENABLE"
-	CERT_FILE            = "CERT_FILE"
-	FRONT_DOMAIN         = "FRONT_DOMAIN"
-	KEY_FILE             = "KEY_FILE"
-	LDAP_URL             = "LDAP_URL"
-	LDAP_BASE_DN         = "LDAP_BASE_DN"
-	LDAP_USER_FILTER     = "LDAP_USER_FILTER"
-	LDAP_USER_DOMAIN     = "LDAP_USER_DOMAIN"
-	LDAP_STARTTLS        = "LDAP_STARTTLS"
-	LDAP_SKIP_TLS_VERIFY = "LDAP_SKIP_TLS_VERIFY"
-	LISTEN_ADDR          = "LISTEN_ADDR"
-	VDI_IMAGE_DIR        = "VDI_IMAGE_DIR"
-	BASE_IMAGE_URL       = "BASE_IMAGE_URL"
-	TIMEOUT              = "TIMEOUT"
+	ACME_DATA_DIR          = "ACME_DATA_DIR"
+	ACME_EMAIL             = "ACME_EMAIL"
+	ACME_CA                = "ACME_CA"
+	ACME_ENABLE            = "ACME_ENABLE"
+	CERT_FILE              = "CERT_FILE"
+	FRONT_DOMAIN           = "FRONT_DOMAIN"
+	KEY_FILE               = "KEY_FILE"
+	LDAP_URL               = "LDAP_URL"
+	LDAP_BASE_DN           = "LDAP_BASE_DN"
+	LDAP_USER_FILTER       = "LDAP_USER_FILTER"
+	LDAP_USER_DOMAIN       = "LDAP_USER_DOMAIN"
+	LDAP_STARTTLS          = "LDAP_STARTTLS"
+	LDAP_SKIP_TLS_VERIFY   = "LDAP_SKIP_TLS_VERIFY"
+	LISTEN_ADDR            = "LISTEN_ADDR"
+	VDI_IMAGE_DIR          = "VDI_IMAGE_DIR"
+	VIRT_STORAGE_POOL_NAME = "VIRT_STORAGE_POOL_NAME"
+	VIRT_STORAGE_POOL_PATH = "VIRT_STORAGE_POOL_PATH"
+	BASE_IMAGE_URL         = "BASE_IMAGE_URL"
+	TIMEOUT                = "TIMEOUT"
 )
 
 // NOTE: prints at init-time (like your original). Consider false in libraries.

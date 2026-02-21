@@ -336,7 +336,7 @@ func registerAPI(api huma.API, sessionManager *session.Manager, settings *config
 					return
 				}
 
-				if err := virt.RemoveVM(name); err != nil {
+				if err := virt.RemoveVM(name, settings); err != nil {
 					log.Printf("remove vm %q failed: %v", name, err)
 					writeJSON(w, http.StatusInternalServerError, dashboardActionResponse{
 						OK:    false,

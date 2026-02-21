@@ -89,7 +89,7 @@ func TestStartVM(t *testing.T) {
 	if err := virt.ShutdownVM(vmName); err != nil {
 		t.Fatalf("Failed to shutdown VM %s: %v", vmName, err)
 	}
-	time.Sleep(20 * time.Second) // Wait for shutdown to complete
+	time.Sleep(10 * time.Second) // Wait for shutdown to complete
 	if err := checkState(testUsername, vmName, "shut off", conn); err != nil {
 		t.Fatalf("VM %s is not shut off as expected: %v", vmName, err)
 	}
@@ -117,7 +117,7 @@ func TestStartVM(t *testing.T) {
 
 	// Cleanup: Destroy the VM after test
 	// (In a real test, consider using defer to ensure cleanup)
-	err = virt.RemoveVM(vmName)
+	err = virt.RemoveVM(vmName, settings)
 	if err != nil {
 		t.Fatalf("Failed to destroy VM %s: %v", vmName, err)
 	}

@@ -4,7 +4,7 @@ import (
 	"fmt"
 )
 
-func UbuntuDomain(name, seedIso string, vcpu int, memoryMiB int) string {
+func UbuntuDomain(name, seedIso, storagePoolName string, vcpu int, memoryMiB int) string {
 
 	return fmt.Sprintf(`<domain type='kvm'>
   <name>%s</name>
@@ -31,14 +31,14 @@ func UbuntuDomain(name, seedIso string, vcpu int, memoryMiB int) string {
     <!-- Main disk -->
     <disk type='volume' device='disk'>
       <driver name='qemu' type='qcow2'/>
-      <source pool='default' volume='%s'/>
+      <source pool='%s' volume='%s'/>
       <target dev='vda' bus='virtio'/>
     </disk>
 
     <!-- cloud-init seed ISO -->
     <disk type='volume' device='disk'>
       <driver name='qemu' type='raw'/>
-      <source pool='default' volume='%s'/>
+      <source pool='%s' volume='%s'/>
       <target dev='vdb' bus='virtio'/>
       <readonly/>
     </disk>
@@ -70,5 +70,5 @@ func UbuntuDomain(name, seedIso string, vcpu int, memoryMiB int) string {
       <backend model='random'>/dev/urandom</backend>
     </rng>
   </devices>
-</domain>`, name, memoryMiB, memoryMiB, vcpu, name, seedIso)
+</domain>`, name, memoryMiB, memoryMiB, vcpu, storagePoolName, name, storagePoolName, seedIso)
 }
