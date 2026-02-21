@@ -11,6 +11,7 @@ import (
 
 func CreateUbuntuSeedISOToPool(
 	conn *libvirt.Connect,
+	storagePoolName string,
 	volumeName string,
 	username string,
 	cloudInitPasswordHash string,
@@ -75,7 +76,7 @@ network:
 	}
 
 	// 4. Lookup storage pool
-	pool, err := conn.LookupStoragePoolByName(DEFAULT_VIRT_STORAGE)
+	pool, err := conn.LookupStoragePoolByName(storagePoolName)
 	if err != nil {
 		return err
 	}

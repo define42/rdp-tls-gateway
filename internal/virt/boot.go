@@ -1,36 +1,31 @@
 package virt
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"rdptlsgateway/internal/config"
 	"rdptlsgateway/internal/types"
+	"strings"
 
 	"libvirt.org/go/libvirt"
 )
 
-const (
-	// LibvirtURI is the URI used to connect to libvirt
-	DEFAULT_VIRT_STORAGE = "default"
-	//BASE_IMAGE           = "noble-desktop-cloudimg-amd64.img"
-
-	//BASE_IMAGE_URL = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
-)
-
 // startVM starts a libvirt VM by name if it is not already running
 
-func StartVM(name, seedIso string, vcpu int, memoryMiB int) error {
+func StartVM(name, seedIso, storagePoolName string, vcpu int, memoryMiB int) error {
 	conn, err := libvirt.NewConnect(LibvirtURI())
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 
-	dom, err := conn.DomainDefineXML(UbuntuDomain(name, seedIso, vcpu, memoryMiB))
+	dom, err := conn.DomainDefineXML(UbuntuDomain(name, seedIso, storagePoolName, vcpu, memoryMiB))
 	if err != nil {
 		fmt.Println("whaat", err)
 		return err
@@ -48,10 +43,10 @@ func StartVM(name, seedIso string, vcpu int, memoryMiB int) error {
 
 }
 
-func RemoveVolumes(conn *libvirt.Connect, volumeNames ...string) error {
-	pool, err := conn.LookupStoragePoolByName(DEFAULT_VIRT_STORAGE)
+func RemoveVolumes(conn *libvirt.Connect, storagePoolName string, volumeNames ...string) error {
+	pool, err := conn.LookupStoragePoolByName(storagePoolName)
 	if err != nil {
-		return fmt.Errorf("lookup storage pool: %w", err)
+		return fmt.Errorf("lookup storage pool %s: %w", storagePoolName, err)
 	}
 	defer func() {
 		if err := pool.Free(); err != nil {
@@ -79,15 +74,16 @@ func RemoveVolumes(conn *libvirt.Connect, volumeNames ...string) error {
 
 func CopyAndResizeVolume(
 	conn *libvirt.Connect,
+	storagePoolName string,
 	volumeName string,
 	sourceImagePath string,
 	capacityBytes uint64,
 ) error {
 
 	// Lookup storage pool
-	pool, err := conn.LookupStoragePoolByName(DEFAULT_VIRT_STORAGE)
+	pool, err := conn.LookupStoragePoolByName(storagePoolName)
 	if err != nil {
-		return fmt.Errorf("lookup pool: %w", err)
+		return fmt.Errorf("lookup pool %s: %w", storagePoolName, err)
 	}
 	defer func() {
 		if err := pool.Free(); err != nil {
@@ -221,6 +217,92 @@ func DestroyExistingDomain(conn *libvirt.Connect, vmName string) error {
 	return nil
 }
 
+func storagePoolConfig(settings *config.SettingsType) (poolName string, poolPath string) {
+	poolName = config.DefaultVirtStoragePoolName
+	poolPath = config.DefaultVirtStoragePoolPath
+	if settings == nil {
+		return poolName, filepath.Clean(poolPath)
+	}
+
+	if configuredPoolName := strings.TrimSpace(settings.Get(config.VIRT_STORAGE_POOL_NAME)); configuredPoolName != "" {
+		poolName = configuredPoolName
+	}
+
+	if configuredPoolPath := strings.TrimSpace(settings.Get(config.VIRT_STORAGE_POOL_PATH)); configuredPoolPath != "" {
+		poolPath = configuredPoolPath
+	} else if imageDir := strings.TrimSpace(settings.Get(config.VDI_IMAGE_DIR)); imageDir != "" {
+		poolPath = imageDir
+	}
+
+	return poolName, filepath.Clean(poolPath)
+}
+
+func ensureStoragePool(conn *libvirt.Connect, storagePoolName, storagePoolPath string) (*libvirt.StoragePool, error) {
+	storagePoolName = strings.TrimSpace(storagePoolName)
+	if storagePoolName == "" {
+		return nil, fmt.Errorf("storage pool name cannot be empty")
+	}
+
+	storagePoolPath = filepath.Clean(strings.TrimSpace(storagePoolPath))
+	if storagePoolPath == "." {
+		return nil, fmt.Errorf("storage pool path cannot be empty")
+	}
+
+	if err := os.MkdirAll(storagePoolPath, 0o755); err != nil {
+		return nil, fmt.Errorf("create storage pool path %s: %w", storagePoolPath, err)
+	}
+
+	pool, err := conn.LookupStoragePoolByName(storagePoolName)
+	if err != nil {
+		var libErr libvirt.Error
+		if !errors.As(err, &libErr) || libErr.Code != libvirt.ERR_NO_STORAGE_POOL {
+			return nil, fmt.Errorf("lookup storage pool %s: %w", storagePoolName, err)
+		}
+
+		poolXML := fmt.Sprintf(`
+<pool type='dir'>
+  <name>%s</name>
+  <target>
+    <path>%s</path>
+  </target>
+</pool>`, storagePoolName, storagePoolPath)
+
+		pool, err = conn.StoragePoolDefineXML(poolXML, 0)
+		if err != nil {
+			return nil, fmt.Errorf("define storage pool %s at %s: %w", storagePoolName, storagePoolPath, err)
+		}
+		log.Printf("Storage pool %s defined at %s", storagePoolName, storagePoolPath)
+	}
+
+	active, err := pool.IsActive()
+	if err != nil {
+		_ = pool.Free()
+		return nil, fmt.Errorf("check if storage pool %s is active: %w", storagePoolName, err)
+	}
+	if !active {
+		if err := pool.Create(0); err != nil {
+			_ = pool.Free()
+			return nil, fmt.Errorf("start storage pool %s: %w", storagePoolName, err)
+		}
+		log.Printf("Storage pool %s started", storagePoolName)
+	}
+
+	autostart, err := pool.GetAutostart()
+	if err == nil && !autostart {
+		if err := pool.SetAutostart(true); err != nil {
+			log.Printf("Failed to set autostart for storage pool %s: %v", storagePoolName, err)
+		}
+	}
+
+	if targetPath, err := storagePoolTargetPath(pool); err == nil {
+		if filepath.Clean(targetPath) != storagePoolPath {
+			log.Printf("Storage pool %s target path is %s (configured %s)", storagePoolName, targetPath, storagePoolPath)
+		}
+	}
+
+	return pool, nil
+}
+
 func InitVirt(settings *config.SettingsType) error {
 	conn, err := libvirt.NewConnect(LibvirtURI())
 	if err != nil {
@@ -236,31 +318,21 @@ func InitVirt(settings *config.SettingsType) error {
 	}
 	base_image := path.Base(u.Path)
 
-	pool, err := conn.LookupStoragePoolByName(DEFAULT_VIRT_STORAGE)
+	poolName, poolPath := storagePoolConfig(settings)
+	pool, err := ensureStoragePool(conn, poolName, poolPath)
 	if err != nil {
-		return fmt.Errorf("Failed to lookup storage pool %s: %v", DEFAULT_VIRT_STORAGE, err)
+		return fmt.Errorf("Failed to ensure storage pool %s: %v", poolName, err)
 	}
 	defer func() {
 		_ = pool.Free()
 	}()
 
-	active, err := pool.IsActive()
-	if err != nil {
-		return fmt.Errorf("Failed to check if storage pool %s is active: %v", DEFAULT_VIRT_STORAGE, err)
-	}
-	if !active {
-		if err := pool.Create(0); err != nil {
-			return fmt.Errorf("Failed to create storage pool %s: %v", DEFAULT_VIRT_STORAGE, err)
-		}
-		log.Printf("Storage pool %s started", DEFAULT_VIRT_STORAGE)
-	}
-
-	baseImage := settings.Get(config.VDI_IMAGE_DIR) + "/" + base_image
+	baseImage := filepath.Join(settings.Get(config.VDI_IMAGE_DIR), base_image)
 
 	// check image exists
 	if _, err := os.Stat(baseImage); os.IsNotExist(err) {
 
-		if err := os.MkdirAll(settings.Get(config.VDI_IMAGE_DIR), 0755); err != nil {
+		if err := os.MkdirAll(settings.Get(config.VDI_IMAGE_DIR), 0o755); err != nil {
 			return fmt.Errorf("Failed to create image directory: %v", err)
 		}
 
@@ -290,7 +362,8 @@ func BootNewVM(name string, user *types.User, settings *config.SettingsType, vcp
 	}
 	base_image := path.Base(u.Path)
 
-	baseImage := settings.Get(config.VDI_IMAGE_DIR) + "/" + base_image
+	baseImage := filepath.Join(settings.Get(config.VDI_IMAGE_DIR), base_image)
+	poolName, poolPath := storagePoolConfig(settings)
 
 	conn, err := libvirt.NewConnect(LibvirtURI())
 	if err != nil {
@@ -298,40 +371,48 @@ func BootNewVM(name string, user *types.User, settings *config.SettingsType, vcp
 	}
 	defer conn.Close()
 
+	pool, err := ensureStoragePool(conn, poolName, poolPath)
+	if err != nil {
+		return vmName, fmt.Errorf("Failed to ensure storage pool %s: %v", poolName, err)
+	}
+	_ = pool.Free()
+
 	if err := DestroyExistingDomain(conn, vmName); err != nil {
 		return vmName, fmt.Errorf("Failed to destroy existing domain: %v", err)
 	}
-	if err := RemoveVolumes(conn, vmName, seedIso); err != nil {
+	if err := RemoveVolumes(conn, poolName, vmName, seedIso); err != nil {
 		return vmName, fmt.Errorf("Failed to remove existing volumes: %v", err)
 	}
 
-	if err := CopyAndResizeVolume(conn, vmName, baseImage, 40*1024*1024*1024); err != nil {
+	if err := CopyAndResizeVolume(conn, poolName, vmName, baseImage, 40*1024*1024*1024); err != nil {
 		return vmName, fmt.Errorf("Failed to copy and resize base image: %v", err)
 	}
 
-	if err := CreateUbuntuSeedISOToPool(conn, seedIso, user.GetName(), user.GetCloudInitPasswordHash(), vmName); err != nil {
+	if err := CreateUbuntuSeedISOToPool(conn, poolName, seedIso, user.GetName(), user.GetCloudInitPasswordHash(), vmName); err != nil {
 		return vmName, fmt.Errorf("Failed to create seed ISO: %v", err)
 	}
 
-	if err := StartVM(vmName, seedIso, vcpu, memoryMiB); err != nil {
+	if err := StartVM(vmName, seedIso, poolName, vcpu, memoryMiB); err != nil {
 		return vmName, fmt.Errorf("Failed to start VM: %v", err)
 	}
 
 	return vmName, nil
 }
 
-func RemoveVM(name string) error {
+func RemoveVM(name string, settings *config.SettingsType) error {
 	conn, err := libvirt.NewConnect(LibvirtURI())
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 
+	poolName, _ := storagePoolConfig(settings)
+
 	if err := DestroyExistingDomain(conn, name); err != nil {
 		return err
 	}
 	seedIso := name + "_seed.iso"
-	if err := RemoveVolumes(conn, name, seedIso); err != nil {
+	if err := RemoveVolumes(conn, poolName, name, seedIso); err != nil {
 		return err
 	}
 	return nil

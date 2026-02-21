@@ -56,8 +56,8 @@ func ShutdownVM(name string) error {
 	if !active {
 		return nil
 	}
-	if err := dom.Shutdown(); err != nil {
-		return fmt.Errorf("shutdown domain %s: %w", name, err)
+	if err := dom.Destroy(); err != nil {
+		return fmt.Errorf("force shutdown domain %s: %w", name, err)
 	}
 	return nil
 }
