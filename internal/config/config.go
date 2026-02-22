@@ -36,8 +36,8 @@ type SettingsType struct {
 }
 
 const (
-	DefaultVDIImageDir         = "/var/lib/libvirt/images"
-	DefaultVirtStoragePoolName = "default"
+	DefaultVDIImageDir         = "/data/desktop/"
+	DefaultVirtStoragePoolName = "desktop"
 	DefaultVirtStoragePoolPath = DefaultVDIImageDir
 )
 
@@ -57,7 +57,7 @@ func NewSettingType(print bool) *SettingsType {
 	s.SetBool(LDAP_SKIP_TLS_VERIFY, "Skip TLS verification when connecting to LDAP", true)
 
 	s.SetString(BASE_IMAGE_URL, "URL to download base VDI image if not found locally",
-		"https://github.com/define42/ubuntu-desktop-cloud-image/releases/download/v0.0.28/noble-desktop-cloudimg-amd64-v0.0.28.img")
+		"https://github.com/define42/ubuntu-resolute-desktop-cloud-image/releases/download/v0.0.1/resolute-desktop-cloudimg-amd64-v0.0.1.img")
 
 	s.SetString(LISTEN_ADDR, "listen address", ":443")
 	s.SetString(CERT_FILE, "TLS certificate PEM for clients (front side)", "")

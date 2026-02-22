@@ -45,6 +45,7 @@ func downloadWithProgress(url, path string) error {
 	}
 	defer resp.Body.Close()
 
+	fmt.Println("write file to:", path)
 	out, err := os.Create(path)
 	if err != nil {
 		return err
