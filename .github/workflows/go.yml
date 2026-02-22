@@ -39,6 +39,7 @@ jobs:
           sudo systemctl enable --now libvirtd
           sudo systemctl start libvirtd
           sudo chmod 777 /var/run/libvirt/libvirt-sock
+          sudo chmod 777 /var/lib/libvirt/images/
           sudo virsh -c qemu:///system pool-info default || \
             sudo virsh -c qemu:///system pool-define-as default dir --target /var/lib/libvirt/images
           sudo virsh -c qemu:///system pool-start default
@@ -69,6 +70,7 @@ jobs:
           export LIBVIRT_VOLUME_GROUP=$(id -g libvirt-qemu 2>/dev/null || echo 0)
           sudo mkdir /data/
           sudo chmod 777 /data/
+          sudo chmod 777 /var/lib/libvirt/images/
           go test ./... -coverprofile=coverage.out -coverpkg=./...
 
       - name: Show coverage in job summary
