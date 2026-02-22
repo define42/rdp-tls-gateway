@@ -163,13 +163,15 @@ type SingletonWorker struct {
 	ticker *time.Ticker
 	ctx    context.Context
 	cancel context.CancelFunc
+	mu     sync.RWMutex
 	vms    []vmInfo
 }
 
 func (s *SingletonWorker) GetVMs(user string) []vmInfo {
+	snapshot := s.snapshotVMs()
 
 	var filteredVMs []vmInfo
-	for _, vm := range s.vms {
+	for _, vm := range snapshot {
 		if user == "" || strings.HasPrefix(vm.Name, user+"-") {
 			filteredVMs = append(filteredVMs, vm)
 		}
@@ -177,20 +179,49 @@ func (s *SingletonWorker) GetVMs(user string) []vmInfo {
 	return filteredVMs
 }
 func (s *SingletonWorker) GetVMnames() []string {
+	snapshot := s.snapshotVMs()
+
 	var names []string
-	for _, vm := range s.vms {
+	for _, vm := range snapshot {
 		names = append(names, vm.Name)
 	}
 	return names
 }
 
 func (s *SingletonWorker) GetIpOfVm(vmName string) (string, error) {
-	for _, vm := range s.vms {
+	for _, vm := range s.snapshotVMs() {
 		if vm.Name == vmName {
 			return vm.PrimaryIP, nil
 		}
 	}
 	return "", fmt.Errorf("VM %s not found", vmName)
+}
+
+func (s *SingletonWorker) snapshotVMs() []vmInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if len(s.vms) == 0 {
+		return nil
+	}
+
+	snapshot := make([]vmInfo, len(s.vms))
+	copy(snapshot, s.vms)
+	return snapshot
+}
+
+func (s *SingletonWorker) setVMs(vms []vmInfo) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if len(vms) == 0 {
+		s.vms = nil
+		return
+	}
+
+	next := make([]vmInfo, len(vms))
+	copy(next, vms)
+	s.vms = next
 }
 
 var (
@@ -258,7 +289,7 @@ func (s *SingletonWorker) doWork(conn *libvirt.Connect) error {
 	if err != nil {
 		return err
 	}
-	s.vms = vms
+	s.setVMs(vms)
 	return nil
 }
 
