@@ -217,16 +217,30 @@ func GetInstance() *SingletonWorker {
 func (s *SingletonWorker) run() {
 	log.Println("singleton worker started")
 
-	conn, err := libvirt.NewConnect(LibvirtURI())
-	if err != nil {
-		log.Printf("list vms connect: %v", err)
-	}
-	defer conn.Close()
+	var conn *libvirt.Connect
+	defer func() {
+		if conn != nil {
+			_, _ = conn.Close()
+		}
+	}()
 
 	for {
 		select {
 		case <-s.ticker.C:
-			s.doWork(conn)
+			if conn == nil {
+				var err error
+				conn, err = libvirt.NewConnect(LibvirtURI())
+				if err != nil {
+					log.Printf("list vms connect: %v", err)
+					continue
+				}
+			}
+
+			if err := s.doWork(conn); err != nil {
+				log.Printf("singleton worker list vms: %v", err)
+				_, _ = conn.Close()
+				conn = nil
+			}
 		case <-s.ctx.Done():
 			log.Println("singleton worker stopped")
 			return
@@ -234,13 +248,18 @@ func (s *SingletonWorker) run() {
 	}
 }
 
-func (s *SingletonWorker) doWork(conn *libvirt.Connect) {
+func (s *SingletonWorker) doWork(conn *libvirt.Connect) error {
 	log.Println("doing work every 2 seconds")
-	var err error
-	s.vms, err = ListVMs("", conn)
-	if err != nil {
-		log.Printf("singleton worker list vms: %v", err)
+	if conn == nil {
+		return fmt.Errorf("libvirt connection is nil")
 	}
+
+	vms, err := ListVMs("", conn)
+	if err != nil {
+		return err
+	}
+	s.vms = vms
+	return nil
 }
 
 func (s *SingletonWorker) Stop() {
