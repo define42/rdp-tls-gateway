@@ -36,8 +36,8 @@ type SettingsType struct {
 }
 
 const (
-	DefaultVDIImageDir         = "/data/vdiimage/"
-	DefaultVirtStoragePoolName = "storage-ppol"
+	DefaultVDIImageDir         = "/var/lib/libvirt/images"
+	DefaultVirtStoragePoolName = "default"
 	DefaultVirtStoragePoolPath = DefaultVDIImageDir
 )
 

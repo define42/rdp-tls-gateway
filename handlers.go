@@ -275,8 +275,8 @@ func registerAPI(api huma.API, sessionManager *session.Manager, settings *config
 			Body: func(ctx huma.Context) {
 				req, w := humachi.Unwrap(ctx)
 
-				name, err := parseDashboardVMName(req)
-				if handleDashboardFormError(w, "dashboard resources", err) {
+				name, ok := authorizeDashboardVMAction(req, w, sessionManager, "dashboard resources", "update")
+				if !ok {
 					return
 				}
 
@@ -313,26 +313,8 @@ func registerAPI(api huma.API, sessionManager *session.Manager, settings *config
 		return &huma.StreamResponse{
 			Body: func(ctx huma.Context) {
 				req, w := humachi.Unwrap(ctx)
-				user, ok := sessionManager.UserFromContext(req.Context())
+				name, ok := authorizeDashboardVMAction(req, w, sessionManager, "dashboard remove", "remove")
 				if !ok {
-					writeJSON(w, http.StatusUnauthorized, dashboardActionResponse{
-						OK:    false,
-						Error: "Login required.",
-					})
-					return
-				}
-
-				name, err := parseDashboardVMName(req)
-				if handleDashboardFormError(w, "dashboard remove", err) {
-					return
-				}
-
-				if !strings.HasPrefix(name, user.GetName()+"-") {
-					log.Printf("user %q attempted to remove vm %q not owned by them", user.GetName(), name)
-					writeJSON(w, http.StatusForbidden, dashboardActionResponse{
-						OK:    false,
-						Error: "You do not have permission to remove this VM.",
-					})
 					return
 				}
 
@@ -360,8 +342,8 @@ func registerAPI(api huma.API, sessionManager *session.Manager, settings *config
 			Body: func(ctx huma.Context) {
 				req, w := humachi.Unwrap(ctx)
 
-				name, err := parseDashboardVMName(req)
-				if handleDashboardFormError(w, "dashboard start", err) {
+				name, ok := authorizeDashboardVMAction(req, w, sessionManager, "dashboard start", "start")
+				if !ok {
 					return
 				}
 
@@ -389,8 +371,8 @@ func registerAPI(api huma.API, sessionManager *session.Manager, settings *config
 			Body: func(ctx huma.Context) {
 				req, w := humachi.Unwrap(ctx)
 
-				name, err := parseDashboardVMName(req)
-				if handleDashboardFormError(w, "dashboard restart", err) {
+				name, ok := authorizeDashboardVMAction(req, w, sessionManager, "dashboard restart", "restart")
+				if !ok {
 					return
 				}
 
@@ -418,8 +400,8 @@ func registerAPI(api huma.API, sessionManager *session.Manager, settings *config
 			Body: func(ctx huma.Context) {
 				req, w := humachi.Unwrap(ctx)
 
-				name, err := parseDashboardVMName(req)
-				if handleDashboardFormError(w, "dashboard shutdown", err) {
+				name, ok := authorizeDashboardVMAction(req, w, sessionManager, "dashboard shutdown", "shutdown")
+				if !ok {
 					return
 				}
 
@@ -441,6 +423,33 @@ func registerAPI(api huma.API, sessionManager *session.Manager, settings *config
 	}, func(op *huma.Operation) {
 		op.Hidden = true
 	})
+}
+
+func authorizeDashboardVMAction(req *http.Request, w http.ResponseWriter, sessionManager *session.Manager, dashboardAction string, verb string) (string, bool) {
+	user, ok := sessionManager.UserFromContext(req.Context())
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, dashboardActionResponse{
+			OK:    false,
+			Error: "Login required.",
+		})
+		return "", false
+	}
+
+	name, err := parseDashboardVMName(req)
+	if handleDashboardFormError(w, dashboardAction, err) {
+		return "", false
+	}
+
+	if !strings.HasPrefix(name, user.GetName()+"-") {
+		log.Printf("user %q attempted to %s vm %q not owned by them", user.GetName(), verb, name)
+		writeJSON(w, http.StatusForbidden, dashboardActionResponse{
+			OK:    false,
+			Error: fmt.Sprintf("You do not have permission to %s this VM.", verb),
+		})
+		return "", false
+	}
+
+	return name, true
 }
 
 func validateVMName(name string) (string, error) {
