@@ -73,6 +73,7 @@ func NewTLSManager(settings *config.SettingsType) (*TLSManager, error) {
 	fallback, err := LoadOrGenerateCert(settings)
 	if err != nil {
 		log.Fatalf("cert setup: %v", err)
+		return nil, err
 	}
 
 	acmeEnabled := settings.IsTrue(config.ACME_ENABLE)
