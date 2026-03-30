@@ -4,7 +4,7 @@ import (
 	"fmt"
 )
 
-func UbuntuDomain(name, seedIso, storagePoolName, serialSocketPath string, vcpu int, memoryMiB int) string {
+func UbuntuDomain(name, seedIso, storagePoolName, serialSocketPath, vncSocketPath string, vcpu int, memoryMiB int) string {
 	return fmt.Sprintf(`<domain type='kvm'>
   <name>%s</name>
   <memory unit='MiB'>%d</memory>
@@ -49,8 +49,8 @@ func UbuntuDomain(name, seedIso, storagePoolName, serialSocketPath string, vcpu 
 </interface>
 
     <!-- Graphics -->
-    <graphics type="vnc" autoport="no">
-    <listen type="none"/>
+    <graphics type='vnc' autoport='no' socket='%s'>
+      <listen type='socket' socket='%s'/>
     </graphics>
 
     <!-- Video -->
@@ -72,5 +72,5 @@ func UbuntuDomain(name, seedIso, storagePoolName, serialSocketPath string, vcpu 
       <backend model='random'>/dev/urandom</backend>
     </rng>
   </devices>
-</domain>`, name, memoryMiB, memoryMiB, vcpu, storagePoolName, name, storagePoolName, seedIso, serialSocketPath)
+</domain>`, name, memoryMiB, memoryMiB, vcpu, storagePoolName, name, storagePoolName, seedIso, vncSocketPath, vncSocketPath, serialSocketPath)
 }

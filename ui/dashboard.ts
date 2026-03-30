@@ -51,6 +51,7 @@ type DashboardVM = {
     vcpu: number;
     volumeGB: number;
     ttyReady: boolean;
+    vncReady: boolean;
 };
 
 type DashboardDataResponse = {
@@ -73,6 +74,13 @@ type DashboardTerminalState = {
     error: string;
 };
 
+type DashboardVNCState = {
+    open: boolean;
+    vmName: string;
+    vmDisplayName: string;
+    src: string;
+};
+
 type DashboardState = {
     vms: DashboardVM[];
     filename: string;
@@ -82,6 +90,7 @@ type DashboardState = {
     loading: boolean;
     busy: boolean;
     terminal: DashboardTerminalState;
+    vnc: DashboardVNCState;
 };
 
 type RequestResult<T> = {
@@ -108,6 +117,12 @@ const state: DashboardState = {
         vmDisplayName: "",
         status: "",
         error: "",
+    },
+    vnc: {
+        open: false,
+        vmName: "",
+        vmDisplayName: "",
+        src: "",
     },
 };
 
@@ -148,6 +163,19 @@ function buildSelect<T extends string | number>(
 function terminalWebSocketURL(name: string): string {
     const scheme = window.location.protocol === "https:" ? "wss" : "ws";
     return `${scheme}://${window.location.host}/api/dashboard/console/${encodeURIComponent(name)}/ws`;
+}
+
+function vncFrameURL(name: string): string {
+    const params = new URLSearchParams({
+        autoconnect: "1",
+        path: `api/dashboard/vnc/${name}/ws`,
+        reconnect: "1",
+        reconnect_delay: "1500",
+        resize: "remote",
+        shared: "1",
+        ts: `${Date.now()}`,
+    });
+    return `/static/novnc/vnc.html?${params.toString()}`;
 }
 
 function bootstrap(): void {
@@ -201,18 +229,39 @@ function bootstrap(): void {
     </main>
     <div id="terminal-modal" class="terminal-modal" hidden aria-hidden="true">
       <div class="terminal-modal__backdrop" id="terminal-backdrop"></div>
-      <div class="terminal-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="terminal-title">
+      <div id="terminal-dialog" class="terminal-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="terminal-title">
         <div class="terminal-modal__body">
           <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
             <div>
               <h2 class="h5 mb-1" id="terminal-title">Serial Terminal</h2>
               <p class="text-body-secondary mb-0" id="terminal-subtitle"></p>
             </div>
-            <button class="btn btn-outline-secondary btn-sm" id="terminal-close" type="button">Close</button>
+            <div class="d-flex flex-wrap gap-2">
+              <button class="btn btn-outline-secondary btn-sm" id="terminal-fullscreen" type="button">Fullscreen</button>
+              <button class="btn btn-outline-secondary btn-sm" id="terminal-close" type="button">Close</button>
+            </div>
           </div>
           <div class="terminal-hint mb-2" id="terminal-status" aria-live="polite"></div>
           <div class="alert alert-danger mb-3 d-none" id="terminal-error" role="alert"></div>
           <div class="terminal-modal__surface" id="terminal-surface"></div>
+        </div>
+      </div>
+    </div>
+    <div id="vnc-modal" class="terminal-modal" hidden aria-hidden="true">
+      <div class="terminal-modal__backdrop" id="vnc-backdrop"></div>
+      <div id="vnc-dialog" class="terminal-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="vnc-title">
+        <div class="terminal-modal__body">
+          <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
+            <div>
+              <h2 class="h5 mb-1" id="vnc-title">NoVNC</h2>
+              <p class="text-body-secondary mb-0" id="vnc-subtitle"></p>
+            </div>
+            <button class="btn btn-outline-secondary btn-sm" id="vnc-close" type="button">Close</button>
+          </div>
+          <div class="terminal-hint mb-2">Browser display via the VM's QEMU VNC socket. Drag the lower-right corner to resize, and use noVNC's own fullscreen control inside the viewer.</div>
+          <div class="terminal-modal__surface terminal-modal__surface--iframe">
+            <iframe id="vnc-frame" class="vnc-modal__frame" title="NoVNC session" loading="lazy" allowfullscreen></iframe>
+          </div>
         </div>
       </div>
     </div>
@@ -227,11 +276,19 @@ function bootstrap(): void {
     const listArea = root.querySelector<HTMLDivElement>("#vm-list");
     const terminalModal = root.querySelector<HTMLDivElement>("#terminal-modal");
     const terminalBackdrop = root.querySelector<HTMLDivElement>("#terminal-backdrop");
+    const terminalDialog = root.querySelector<HTMLDivElement>("#terminal-dialog");
     const terminalSubtitle = root.querySelector<HTMLParagraphElement>("#terminal-subtitle");
     const terminalStatus = root.querySelector<HTMLDivElement>("#terminal-status");
     const terminalError = root.querySelector<HTMLDivElement>("#terminal-error");
     const terminalSurface = root.querySelector<HTMLDivElement>("#terminal-surface");
+    const terminalFullscreen = root.querySelector<HTMLButtonElement>("#terminal-fullscreen");
     const terminalClose = root.querySelector<HTMLButtonElement>("#terminal-close");
+    const vncModal = root.querySelector<HTMLDivElement>("#vnc-modal");
+    const vncBackdrop = root.querySelector<HTMLDivElement>("#vnc-backdrop");
+    const vncDialog = root.querySelector<HTMLDivElement>("#vnc-dialog");
+    const vncSubtitle = root.querySelector<HTMLParagraphElement>("#vnc-subtitle");
+    const vncFrame = root.querySelector<HTMLIFrameElement>("#vnc-frame");
+    const vncClose = root.querySelector<HTMLButtonElement>("#vnc-close");
 
     if (
         !form ||
@@ -243,11 +300,19 @@ function bootstrap(): void {
         !listArea ||
         !terminalModal ||
         !terminalBackdrop ||
+        !terminalDialog ||
         !terminalSubtitle ||
         !terminalStatus ||
         !terminalError ||
         !terminalSurface ||
-        !terminalClose
+        !terminalFullscreen ||
+        !terminalClose ||
+        !vncModal ||
+        !vncBackdrop ||
+        !vncDialog ||
+        !vncSubtitle ||
+        !vncFrame ||
+        !vncClose
     ) {
         return;
     }
@@ -261,17 +326,77 @@ function bootstrap(): void {
     const listAreaEl = listArea;
     const terminalModalEl = terminalModal;
     const terminalBackdropEl = terminalBackdrop;
+    const terminalDialogEl = terminalDialog;
     const terminalSubtitleEl = terminalSubtitle;
     const terminalStatusEl = terminalStatus;
     const terminalErrorEl = terminalError;
     const terminalSurfaceEl = terminalSurface;
+    const terminalFullscreenEl = terminalFullscreen;
     const terminalCloseEl = terminalClose;
+    const vncModalEl = vncModal;
+    const vncBackdropEl = vncBackdrop;
+    const vncDialogEl = vncDialog;
+    const vncSubtitleEl = vncSubtitle;
+    const vncFrameEl = vncFrame;
+    const vncCloseEl = vncClose;
 
     let terminalSocket: WebSocket | null = null;
     let terminalInstance: XTermTerminal | null = null;
     let terminalFitAddon: XTermFitAddon | null = null;
     let terminalInputDisposable: Disposable | null = null;
     let terminalClosing = false;
+    let terminalResizeFrame = 0;
+
+    const terminalResizeObserver = new ResizeObserver(() => {
+        requestTerminalFit();
+    });
+    terminalResizeObserver.observe(terminalDialogEl);
+    terminalResizeObserver.observe(terminalSurfaceEl);
+
+    function isFullscreenTarget(element: HTMLElement): boolean {
+        return document.fullscreenElement === element;
+    }
+
+    async function toggleFullscreen(element: HTMLElement): Promise<void> {
+        try {
+            if (isFullscreenTarget(element)) {
+                await document.exitFullscreen();
+                return;
+            }
+            await element.requestFullscreen();
+        } catch (error) {
+            console.error("fullscreen toggle failed", error);
+        }
+    }
+
+    function exitFullscreenIfNeeded(element: HTMLElement): void {
+        if (isFullscreenTarget(element)) {
+            void document.exitFullscreen();
+        }
+    }
+
+    function requestTerminalFit(): void {
+        if (!state.terminal.open || !terminalFitAddon) {
+            return;
+        }
+        if (terminalResizeFrame) {
+            window.cancelAnimationFrame(terminalResizeFrame);
+        }
+        terminalResizeFrame = window.requestAnimationFrame(() => {
+            terminalResizeFrame = 0;
+            if (!state.terminal.open || !terminalFitAddon) {
+                return;
+            }
+            try {
+                terminalFitAddon.fit();
+            } catch (error) {
+                console.error("terminal fit failed", error);
+            }
+            if (terminalInstance) {
+                terminalInstance.focus();
+            }
+        });
+    }
 
     function renderAction(): void {
         actionAreaEl.innerHTML = "";
@@ -296,6 +421,7 @@ function bootstrap(): void {
         terminalModalEl.setAttribute("aria-hidden", state.terminal.open ? "false" : "true");
         terminalSubtitleEl.textContent = state.terminal.vmDisplayName || state.terminal.vmName;
         terminalStatusEl.textContent = state.terminal.status;
+        terminalFullscreenEl.textContent = isFullscreenTarget(terminalDialogEl) ? "Exit Fullscreen" : "Fullscreen";
         if (state.terminal.error) {
             terminalErrorEl.textContent = state.terminal.error;
             terminalErrorEl.classList.remove("d-none");
@@ -308,8 +434,25 @@ function bootstrap(): void {
         }
     }
 
+    function renderVNC(): void {
+        vncModalEl.hidden = !state.vnc.open;
+        vncModalEl.setAttribute("aria-hidden", state.vnc.open ? "false" : "true");
+        vncSubtitleEl.textContent = state.vnc.vmDisplayName || state.vnc.vmName;
+        if (state.vnc.open) {
+            if (vncFrameEl.getAttribute("src") !== state.vnc.src) {
+                vncFrameEl.setAttribute("src", state.vnc.src);
+            }
+        } else {
+            vncFrameEl.removeAttribute("src");
+        }
+    }
+
     function teardownTerminalRuntime(): void {
         terminalClosing = true;
+        if (terminalResizeFrame) {
+            window.cancelAnimationFrame(terminalResizeFrame);
+            terminalResizeFrame = 0;
+        }
         if (terminalInputDisposable) {
             terminalInputDisposable.dispose();
             terminalInputDisposable = null;
@@ -330,7 +473,16 @@ function bootstrap(): void {
         terminalSurfaceEl.innerHTML = "";
     }
 
+    function closeVNC(): void {
+        state.vnc.open = false;
+        state.vnc.vmName = "";
+        state.vnc.vmDisplayName = "";
+        state.vnc.src = "";
+        renderVNC();
+    }
+
     function closeTerminal(): void {
+        exitFullscreenIfNeeded(terminalDialogEl);
         teardownTerminalRuntime();
         state.terminal.open = false;
         state.terminal.vmName = "";
@@ -362,6 +514,7 @@ function bootstrap(): void {
     }
 
     function openTerminal(vm: DashboardVM): void {
+        closeVNC();
         teardownTerminalRuntime();
 
         state.terminal.open = true;
@@ -393,7 +546,7 @@ function bootstrap(): void {
         terminalFitAddon = new FitAddon.FitAddon();
         terminalInstance.loadAddon(terminalFitAddon);
         terminalInstance.open(terminalSurfaceEl);
-        terminalFitAddon.fit();
+        requestTerminalFit();
         terminalInstance.focus();
 
         const socket = new WebSocket(terminalWebSocketURL(vm.name));
@@ -416,14 +569,7 @@ function bootstrap(): void {
             state.terminal.status = "Connected to guest serial console.";
             state.terminal.error = "";
             renderTerminal();
-            window.requestAnimationFrame(() => {
-                if (terminalFitAddon) {
-                    terminalFitAddon.fit();
-                }
-                if (terminalInstance) {
-                    terminalInstance.focus();
-                }
-            });
+            requestTerminalFit();
         };
 
         socket.onmessage = (event: MessageEvent) => {
@@ -460,6 +606,15 @@ function bootstrap(): void {
             }
             renderTerminal();
         };
+    }
+
+    function openVNC(vm: DashboardVM): void {
+        closeTerminal();
+        state.vnc.open = true;
+        state.vnc.vmName = vm.name;
+        state.vnc.vmDisplayName = vm.displayName || vm.name;
+        state.vnc.src = vncFrameURL(vm.name);
+        renderVNC();
     }
 
     function renderVMList(): void {
@@ -528,6 +683,7 @@ function bootstrap(): void {
             const ipValue = (vm.ip || "").trim();
             const hasIP = ipValue !== "" && ipValue.toLowerCase() !== "n/a";
             const ttyReady = Boolean(vm.ttyReady);
+            const vncReady = Boolean(vm.vncReady);
 
             const nameCell = document.createElement("td");
             nameCell.className = "fw-semibold";
@@ -611,6 +767,16 @@ function bootstrap(): void {
                 openTerminal(vm);
             });
             actions.appendChild(terminalButton);
+
+            const vncButton = document.createElement("button");
+            vncButton.type = "button";
+            vncButton.className = "btn btn-sm btn-outline-primary";
+            vncButton.textContent = "NoVNC";
+            vncButton.disabled = state.busy || !hasName || !vncReady || !isActive;
+            vncButton.addEventListener("click", () => {
+                openVNC(vm);
+            });
+            actions.appendChild(vncButton);
 
             const startButton = document.createElement("button");
             startButton.type = "button";
@@ -704,6 +870,20 @@ function bootstrap(): void {
                 const note = document.createElement("div");
                 note.className = "text-body-secondary small";
                 note.textContent = "TTY available only for newly created VMs.";
+                actionStack.appendChild(note);
+            }
+
+            if (hasName && vncReady && !isActive) {
+                const note = document.createElement("div");
+                note.className = "text-body-secondary small";
+                note.textContent = "Start VM to open NoVNC.";
+                actionStack.appendChild(note);
+            }
+
+            if (hasName && !vncReady) {
+                const note = document.createElement("div");
+                note.className = "text-body-secondary small";
+                note.textContent = "NoVNC available only for newly created VMs.";
                 actionStack.appendChild(note);
             }
 
@@ -989,22 +1169,42 @@ function bootstrap(): void {
         closeTerminal();
     });
 
+    terminalFullscreenEl.addEventListener("click", () => {
+        void toggleFullscreen(terminalDialogEl);
+    });
+
+    vncBackdropEl.addEventListener("click", () => {
+        closeVNC();
+    });
+
+    vncCloseEl.addEventListener("click", () => {
+        closeVNC();
+    });
+
     document.addEventListener("keydown", (event) => {
         if (event.key === "Escape" && state.terminal.open) {
             closeTerminal();
+            return;
+        }
+        if (event.key === "Escape" && state.vnc.open) {
+            closeVNC();
         }
     });
 
     window.addEventListener("resize", () => {
-        if (state.terminal.open && terminalFitAddon) {
-            terminalFitAddon.fit();
-        }
+        requestTerminalFit();
+    });
+
+    document.addEventListener("fullscreenchange", () => {
+        renderTerminal();
+        requestTerminalFit();
     });
 
     applyInitialMessage();
     renderAction();
     renderVMList();
     renderTerminal();
+    renderVNC();
     void loadVMs();
 
     const refreshHandle = window.setInterval(() => {
@@ -1022,7 +1222,9 @@ function bootstrap(): void {
 
     window.addEventListener("beforeunload", () => {
         window.clearInterval(refreshHandle);
+        terminalResizeObserver.disconnect();
         teardownTerminalRuntime();
+        closeVNC();
     });
 }
 

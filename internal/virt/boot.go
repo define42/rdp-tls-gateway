@@ -18,18 +18,21 @@ import (
 
 // startVM starts a libvirt VM by name if it is not already running
 
-func StartVM(name, seedIso, storagePoolName, serialSocketPath string, vcpu int, memoryMiB int) error {
+func StartVM(name, seedIso, storagePoolName, serialSocketPath, vncSocketPath string, vcpu int, memoryMiB int) error {
 	conn, err := libvirt.NewConnect(LibvirtURI())
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 
-	if err := removeSerialSocketPath(serialSocketPath); err != nil {
+	if err := removeSocketPath(serialSocketPath, "serial"); err != nil {
+		return err
+	}
+	if err := removeSocketPath(vncSocketPath, "vnc"); err != nil {
 		return err
 	}
 
-	dom, err := conn.DomainDefineXML(UbuntuDomain(name, seedIso, storagePoolName, serialSocketPath, vcpu, memoryMiB))
+	dom, err := conn.DomainDefineXML(UbuntuDomain(name, seedIso, storagePoolName, serialSocketPath, vncSocketPath, vcpu, memoryMiB))
 	if err != nil {
 		fmt.Println("whaat", err)
 		return err
@@ -43,18 +46,6 @@ func StartVM(name, seedIso, storagePoolName, serialSocketPath string, vcpu int, 
 	}
 
 	//fmt.Printf("VM %s started (ID %d)\n", name, dom.GetID())
-	return nil
-
-}
-
-func removeSerialSocketPath(socketPath string) error {
-	socketPath = filepath.Clean(strings.TrimSpace(socketPath))
-	if socketPath == "" || socketPath == "." {
-		return nil
-	}
-	if err := os.Remove(socketPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("remove serial socket %s: %w", socketPath, err)
-	}
 	return nil
 }
 
@@ -382,7 +373,11 @@ func BootNewVM(name string, user *types.User, settings *config.SettingsType, vcp
 	if _, err := ensureSerialSocketDir(settings); err != nil {
 		return vmName, fmt.Errorf("Failed to ensure serial socket directory: %v", err)
 	}
+	if _, err := ensureVNCSocketDir(settings); err != nil {
+		return vmName, fmt.Errorf("Failed to ensure VNC socket directory: %v", err)
+	}
 	vmSerialSocketPath := serialSocketPath(settings, vmName)
+	vmVNCSocketPath := vncSocketPath(settings, vmName)
 
 	conn, err := libvirt.NewConnect(LibvirtURI())
 	if err != nil {
@@ -405,6 +400,9 @@ func BootNewVM(name string, user *types.User, settings *config.SettingsType, vcp
 	if err := removeSerialSocket(settings, vmName); err != nil {
 		return vmName, fmt.Errorf("Failed to remove existing serial socket: %v", err)
 	}
+	if err := removeVNCSocket(settings, vmName); err != nil {
+		return vmName, fmt.Errorf("Failed to remove existing VNC socket: %v", err)
+	}
 
 	if err := CopyAndResizeVolume(conn, poolName, vmName, baseImage, 40*1024*1024*1024); err != nil {
 		return vmName, fmt.Errorf("Failed to copy and resize base image: %v", err)
@@ -414,7 +412,7 @@ func BootNewVM(name string, user *types.User, settings *config.SettingsType, vcp
 		return vmName, fmt.Errorf("Failed to create seed ISO: %v", err)
 	}
 
-	if err := StartVM(vmName, seedIso, poolName, vmSerialSocketPath, vcpu, memoryMiB); err != nil {
+	if err := StartVM(vmName, seedIso, poolName, vmSerialSocketPath, vmVNCSocketPath, vcpu, memoryMiB); err != nil {
 		return vmName, fmt.Errorf("Failed to start VM: %v", err)
 	}
 
@@ -438,6 +436,9 @@ func RemoveVM(name string, settings *config.SettingsType) error {
 		return err
 	}
 	if err := removeSerialSocket(settings, name); err != nil {
+		return err
+	}
+	if err := removeVNCSocket(settings, name); err != nil {
 		return err
 	}
 	return nil

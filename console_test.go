@@ -124,3 +124,96 @@ func TestDashboardConsoleRoutePropagatesSerialAvailabilityErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestDashboardVNCRejectsNonOwnerVM(t *testing.T) {
+	sessionManager := session.NewManager()
+	settings := config.NewSettingType(false)
+	router := getRemoteGatewayRotuer(sessionManager, settings)
+	cookie := issueSessionCookie(t, sessionManager, "alice")
+
+	originalDial := dialDashboardVNCSocket
+	dialDashboardVNCSocket = func(name string, timeout time.Duration) (net.Conn, error) {
+		t.Fatalf("dialDashboardVNCSocket should not be called for non-owner VM %q", name)
+		return nil, nil
+	}
+	defer func() {
+		dialDashboardVNCSocket = originalDial
+	}()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/vnc/bob-devbox/ws", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected %d, got %d with body %s", http.StatusForbidden, rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "You do not have permission to access this VM VNC session.") {
+		t.Fatalf("unexpected body: %q", rec.Body.String())
+	}
+}
+
+func TestDashboardVNCPropagatesAvailabilityErrors(t *testing.T) {
+	sessionManager := session.NewManager()
+	settings := config.NewSettingType(false)
+	router := getRemoteGatewayRotuer(sessionManager, settings)
+	cookie := issueSessionCookie(t, sessionManager, "alice")
+
+	tests := []struct {
+		name     string
+		err      error
+		wantCode int
+		wantBody string
+	}{
+		{
+			name:     "not running",
+			err:      virt.ErrVNCNotRunning,
+			wantCode: http.StatusConflict,
+			wantBody: "VM must be running for VNC access.",
+		},
+		{
+			name:     "not configured",
+			err:      virt.ErrVNCNotConfigured,
+			wantCode: http.StatusConflict,
+			wantBody: "VNC is not available for this VM.",
+		},
+		{
+			name:     "not ready",
+			err:      virt.ErrVNCNotReady,
+			wantCode: http.StatusConflict,
+			wantBody: "VNC is not ready yet.",
+		},
+		{
+			name:     "unexpected",
+			err:      errors.New("boom"),
+			wantCode: http.StatusInternalServerError,
+			wantBody: "Failed to open VNC session.",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			originalDial := dialDashboardVNCSocket
+			dialDashboardVNCSocket = func(name string, timeout time.Duration) (net.Conn, error) {
+				return nil, tc.err
+			}
+			defer func() {
+				dialDashboardVNCSocket = originalDial
+			}()
+
+			req := httptest.NewRequest(http.MethodGet, "/api/dashboard/vnc/alice-devbox/ws", nil)
+			req.AddCookie(cookie)
+			rec := httptest.NewRecorder()
+
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != tc.wantCode {
+				t.Fatalf("expected %d, got %d with body %s", tc.wantCode, rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), tc.wantBody) {
+				t.Fatalf("expected body to contain %q, got %q", tc.wantBody, rec.Body.String())
+			}
+		})
+	}
+}

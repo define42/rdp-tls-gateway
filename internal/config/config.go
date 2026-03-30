@@ -50,6 +50,7 @@ func NewSettingType(print bool) *SettingsType {
 	s.SetString(VIRT_STORAGE_POOL_NAME, "Libvirt storage pool name for VM volumes", DefaultVirtStoragePoolName)
 	s.SetString(VIRT_STORAGE_POOL_PATH, "Filesystem path for the libvirt storage pool", DefaultVirtStoragePoolPath)
 	s.SetString(VIRT_SERIAL_SOCKET_DIR, "Filesystem path for VM serial UNIX sockets (defaults to <storage pool path>/serial when empty)", "")
+	s.SetString(VIRT_VNC_SOCKET_DIR, "Filesystem path for VM VNC UNIX sockets (defaults to <storage pool path>/vnc when empty)", "")
 	s.SetString(LDAP_URL, "LDAP server url", "ldaps://ldap:389")
 	s.SetString(LDAP_BASE_DN, "LDAP base DN", "dc=glauth,dc=com")
 	s.SetString(LDAP_USER_FILTER, "LDAP user filter", "(mail=%s)")
@@ -283,6 +284,7 @@ const (
 	VIRT_STORAGE_POOL_NAME = "VIRT_STORAGE_POOL_NAME"
 	VIRT_STORAGE_POOL_PATH = "VIRT_STORAGE_POOL_PATH"
 	VIRT_SERIAL_SOCKET_DIR = "VIRT_SERIAL_SOCKET_DIR"
+	VIRT_VNC_SOCKET_DIR    = "VIRT_VNC_SOCKET_DIR"
 	BASE_IMAGE_URL         = "BASE_IMAGE_URL"
 	TIMEOUT                = "TIMEOUT"
 )

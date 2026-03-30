@@ -104,7 +104,7 @@ func getRemoteGatewayRotuer(sessionManager *session.Manager, settings *config.Se
 	router := chi.NewRouter()
 	router.Use(sessionManager.LoadAndSave)
 
-	router.Handle("/static/*", http.FileServer(http.FS(staticFiles)))
+	router.Handle("/static/*", noCacheStaticFileServer())
 	router.Post("/login", handleLoginPost(sessionManager, settings))
 	router.Get("/login", handleLoginGet)
 	router.HandleFunc("/logout", handleLogout(sessionManager))
@@ -123,11 +123,20 @@ func getRemoteGatewayRotuer(sessionManager *session.Manager, settings *config.Se
 	api := humachi.New(router, apiCfg)
 	registerAPI(api, sessionManager, settings)
 	router.Get("/api/dashboard/console/{name}/ws", handleDashboardConsoleWS(sessionManager, settings))
+	router.Get("/api/dashboard/vnc/{name}/ws", handleDashboardVNCWS(sessionManager, settings))
 
 	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 	})
 	return router
+}
+
+func noCacheStaticFileServer() http.Handler {
+	fileServer := http.FileServer(http.FS(staticFiles))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		setNoCacheHeaders(w)
+		fileServer.ServeHTTP(w, r)
+	})
 }
 
 func registerAPI(api huma.API, sessionManager *session.Manager, settings *config.SettingsType) {

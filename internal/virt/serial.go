@@ -81,11 +81,7 @@ func ensureSerialSocketDir(settings *config.SettingsType) (string, error) {
 }
 
 func removeSerialSocket(settings *config.SettingsType, name string) error {
-	socketPath := serialSocketPath(settings, name)
-	if err := os.Remove(socketPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("remove serial socket %s: %w", socketPath, err)
-	}
-	return nil
+	return removeSocketPath(serialSocketPath(settings, name), "serial")
 }
 
 func cleanupDomainSerialSocket(dom *libvirt.Domain) error {
@@ -96,10 +92,7 @@ func cleanupDomainSerialSocket(dom *libvirt.Domain) error {
 	if !ok {
 		return nil
 	}
-	if err := os.Remove(socketPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("remove serial socket %s: %w", socketPath, err)
-	}
-	return nil
+	return removeSocketPath(socketPath, "serial")
 }
 
 func serialSocketPathFromDomainXML(xmlDesc string) (string, bool, error) {
@@ -207,4 +200,15 @@ func parseSocketOwnershipEnv(envVar string) (int, bool, error) {
 		return 0, false, fmt.Errorf("invalid %s %q: %w", envVar, raw, err)
 	}
 	return value, true, nil
+}
+
+func removeSocketPath(socketPath, socketLabel string) error {
+	socketPath = filepath.Clean(strings.TrimSpace(socketPath))
+	if socketPath == "" || socketPath == "." {
+		return nil
+	}
+	if err := os.Remove(socketPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove %s socket %s: %w", socketLabel, socketPath, err)
+	}
+	return nil
 }

@@ -1,0 +1,180 @@
+package virt
+
+import (
+	"encoding/xml"
+	"errors"
+	"fmt"
+	"net"
+	"os"
+	"path/filepath"
+	"rdptlsgateway/internal/config"
+	"strings"
+	"time"
+
+	"libvirt.org/go/libvirt"
+)
+
+const (
+	vncSocketSubdir = "vnc"
+	vncSocketSuffix = ".vnc.sock"
+)
+
+var (
+	ErrVNCNotConfigured = errors.New("vnc not configured")
+	ErrVNCNotRunning    = errors.New("vnc not running")
+	ErrVNCNotReady      = errors.New("vnc not ready")
+)
+
+type domainGraphicsXML struct {
+	Devices struct {
+		Graphics []domainGraphicsDeviceXML `xml:"graphics"`
+	} `xml:"devices"`
+}
+
+type domainGraphicsDeviceXML struct {
+	Type   string `xml:"type,attr"`
+	Socket string `xml:"socket,attr"`
+	Listen struct {
+		Type   string `xml:"type,attr"`
+		Socket string `xml:"socket,attr"`
+	} `xml:"listen"`
+}
+
+func vncSocketDir(settings *config.SettingsType) string {
+	if settings != nil {
+		if configured := filepath.Clean(strings.TrimSpace(settings.Get(config.VIRT_VNC_SOCKET_DIR))); configured != "" && configured != "." {
+			return configured
+		}
+	}
+
+	_, poolPath := storagePoolConfig(settings)
+	return filepath.Join(poolPath, vncSocketSubdir)
+}
+
+func vncSocketPath(settings *config.SettingsType, name string) string {
+	return filepath.Join(vncSocketDir(settings), name+vncSocketSuffix)
+}
+
+func ensureVNCSocketDir(settings *config.SettingsType) (string, error) {
+	dir := filepath.Clean(strings.TrimSpace(vncSocketDir(settings)))
+	if dir == "" || dir == "." {
+		return "", fmt.Errorf("vnc socket directory cannot be empty")
+	}
+
+	if err := os.MkdirAll(dir, 0o777); err != nil {
+		return "", fmt.Errorf("create vnc socket directory %s: %w", dir, err)
+	}
+	if err := os.Chmod(dir, 0o777); err != nil {
+		return "", fmt.Errorf("chmod vnc socket directory %s: %w", dir, err)
+	}
+
+	owner, group, hasOwnership, err := serialSocketOwnership()
+	if err != nil {
+		return "", err
+	}
+	if hasOwnership {
+		if err := os.Chown(dir, owner, group); err != nil {
+			return "", fmt.Errorf("chown vnc socket directory %s: %w", dir, err)
+		}
+	}
+
+	return dir, nil
+}
+
+func removeVNCSocket(settings *config.SettingsType, name string) error {
+	return removeSocketPath(vncSocketPath(settings, name), "vnc")
+}
+
+func cleanupDomainVNCSocket(dom *libvirt.Domain) error {
+	socketPath, ok, err := domainVNCSocketPath(dom)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+	return removeSocketPath(socketPath, "vnc")
+}
+
+func vncSocketPathFromDomainXML(xmlDesc string) (string, bool, error) {
+	var parsed domainGraphicsXML
+	if err := xml.Unmarshal([]byte(xmlDesc), &parsed); err != nil {
+		return "", false, fmt.Errorf("parse domain xml: %w", err)
+	}
+
+	for _, graphics := range parsed.Devices.Graphics {
+		if strings.TrimSpace(graphics.Type) != "vnc" {
+			continue
+		}
+		if socketPath := cleanGraphicsSocketPath(graphics.Socket); socketPath != "" {
+			return socketPath, true, nil
+		}
+		if strings.TrimSpace(graphics.Listen.Type) == "socket" {
+			if socketPath := cleanGraphicsSocketPath(graphics.Listen.Socket); socketPath != "" {
+				return socketPath, true, nil
+			}
+		}
+	}
+
+	return "", false, nil
+}
+
+func domainVNCSocketPath(dom *libvirt.Domain) (string, bool, error) {
+	if dom == nil {
+		return "", false, fmt.Errorf("domain is nil")
+	}
+	xmlDesc, err := dom.GetXMLDesc(0)
+	if err != nil {
+		return "", false, fmt.Errorf("get domain xml: %w", err)
+	}
+	return vncSocketPathFromDomainXML(xmlDesc)
+}
+
+func DialVNCSocket(name string, timeout time.Duration) (net.Conn, error) {
+	conn, err := libvirt.NewConnect(LibvirtURI())
+	if err != nil {
+		return nil, fmt.Errorf("connect libvirt: %w", err)
+	}
+	defer conn.Close()
+
+	dom, err := conn.LookupDomainByName(name)
+	if err != nil {
+		return nil, fmt.Errorf("lookup domain %s: %w", name, err)
+	}
+	defer func() {
+		_ = dom.Free()
+	}()
+
+	active, err := dom.IsActive()
+	if err != nil {
+		return nil, fmt.Errorf("check domain active %s: %w", name, err)
+	}
+	if !active {
+		return nil, ErrVNCNotRunning
+	}
+
+	socketPath, ok, err := domainVNCSocketPath(dom)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrVNCNotConfigured
+	}
+
+	vncConn, err := net.DialTimeout("unix", socketPath, timeout)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, ErrVNCNotReady
+		}
+		return nil, fmt.Errorf("dial vnc socket %s: %w", socketPath, err)
+	}
+	return vncConn, nil
+}
+
+func cleanGraphicsSocketPath(path string) string {
+	path = filepath.Clean(strings.TrimSpace(path))
+	if path == "" || path == "." {
+		return ""
+	}
+	return path
+}
