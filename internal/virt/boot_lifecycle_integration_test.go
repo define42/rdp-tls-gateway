@@ -174,17 +174,17 @@ func TestStartVMAndRemoveVMManageArtifacts(t *testing.T) {
 	waitForDomainState(t, conn, vmName, true, bootLifecycleTimeout)
 	owner, hasOwner, err := VMOwner(vmName)
 	if err != nil {
-		t.Fatalf("VMOwner legacy owner: %v", err)
+		t.Fatalf("VMOwner without metadata: %v", err)
 	}
-	if !hasOwner || owner != "bootuser" {
-		t.Fatalf("expected legacy VM owner %q, got owner=%q hasOwner=%v", "bootuser", owner, hasOwner)
+	if hasOwner || owner != "" {
+		t.Fatalf("expected StartVM without metadata owner to report none, got owner=%q hasOwner=%v", owner, hasOwner)
 	}
 	owned, err := UserOwnsVM(vmName, "bootuser")
 	if err != nil {
-		t.Fatalf("UserOwnsVM legacy owner: %v", err)
+		t.Fatalf("UserOwnsVM without metadata: %v", err)
 	}
-	if !owned {
-		t.Fatalf("expected legacy VM %q to resolve owner from seed ISO", vmName)
+	if owned {
+		t.Fatalf("did not expect %q to own StartVM-created VM %q without metadata", "bootuser", vmName)
 	}
 	if info, err := os.Lstat(serialPath); err == nil && info.Mode().IsRegular() {
 		t.Fatal("expected stale serial placeholder file to be replaced or removed before VM start")

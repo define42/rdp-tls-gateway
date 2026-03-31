@@ -3,6 +3,7 @@ package rdp
 import (
 	"crypto/tls"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -11,13 +12,9 @@ import (
 	"rdptlsgateway/internal/config"
 	"rdptlsgateway/internal/session"
 	"rdptlsgateway/internal/types"
-	"rdptlsgateway/internal/virt"
-	"reflect"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
-	"unsafe"
 
 	"github.com/tomatome/grdp/protocol/x224"
 )
@@ -81,6 +78,22 @@ func stubVMOwners(t *testing.T, owners map[string]string) {
 	})
 }
 
+func stubVMIPs(t *testing.T, entries map[string]string) {
+	t.Helper()
+
+	originalLookup := vmIPAddressLookup
+	vmIPAddressLookup = func(name string) (string, error) {
+		ip, ok := entries[name]
+		if !ok {
+			return "", fmt.Errorf("VM %s not found", name)
+		}
+		return ip, nil
+	}
+	t.Cleanup(func() {
+		vmIPAddressLookup = originalLookup
+	})
+}
+
 func startBackendDialTracker(t *testing.T, host string) func() bool {
 	t.Helper()
 
@@ -110,41 +123,6 @@ func startBackendDialTracker(t *testing.T, host string) func() bool {
 		}
 		return accepted.Load()
 	}
-}
-
-func setVMInventoryForTest(t *testing.T, entries map[string]string) {
-	t.Helper()
-
-	instance := virt.GetInstance()
-	rv := reflect.ValueOf(instance).Elem()
-
-	muField := rv.FieldByName("mu")
-	mu := reflect.NewAt(muField.Type(), unsafe.Pointer(muField.UnsafeAddr())).Elem().Addr().Interface().(*sync.RWMutex)
-
-	vmsField := rv.FieldByName("vms")
-	settableVMs := reflect.NewAt(vmsField.Type(), unsafe.Pointer(vmsField.UnsafeAddr())).Elem()
-
-	mu.Lock()
-	old := reflect.MakeSlice(settableVMs.Type(), settableVMs.Len(), settableVMs.Len())
-	reflect.Copy(old, settableVMs)
-
-	next := reflect.MakeSlice(settableVMs.Type(), 0, len(entries))
-	for name, ip := range entries {
-		elem := reflect.New(settableVMs.Type().Elem()).Elem()
-		elem.FieldByName("Name").SetString(name)
-		elem.FieldByName("PrimaryIP").SetString(ip)
-		elem.FieldByName("IP").SetString(ip)
-		elem.FieldByName("State").SetString("running")
-		next = reflect.Append(next, elem)
-	}
-	settableVMs.Set(next)
-	mu.Unlock()
-
-	t.Cleanup(func() {
-		mu.Lock()
-		settableVMs.Set(old)
-		mu.Unlock()
-	})
 }
 
 func buildServerCCFForProtocol(protocol uint32) []byte {
@@ -263,7 +241,7 @@ func TestHandleRDPSuccessfulProxy(t *testing.T) {
 	InitLogging()
 
 	backendHost := "127.0.0.42"
-	setVMInventoryForTest(t, map[string]string{"vm1": backendHost})
+	stubVMIPs(t, map[string]string{"vm1": backendHost})
 	stubVMOwners(t, map[string]string{"vm1": "alice"})
 
 	stopBackend := startBackendServer(t, backendHost, func(raw net.Conn) {
@@ -366,7 +344,7 @@ func TestHandleRDPRejectsMissingSubdomain(t *testing.T) {
 func TestHandleRDPRejectsMissingRoute(t *testing.T) {
 	InitLogging()
 
-	setVMInventoryForTest(t, map[string]string{})
+	stubVMIPs(t, map[string]string{})
 	stubVMOwners(t, map[string]string{"missing": "alice"})
 	frontTLS, settings := newFrontTLSManager(t, "example.test")
 	sessionManager := session.NewManager()
@@ -394,7 +372,7 @@ func TestHandleRDPRejectsMissingRoute(t *testing.T) {
 func TestHandleRDPBackendDialFailure(t *testing.T) {
 	InitLogging()
 
-	setVMInventoryForTest(t, map[string]string{"vmdial": "127.0.0.43"})
+	stubVMIPs(t, map[string]string{"vmdial": "127.0.0.43"})
 	stubVMOwners(t, map[string]string{"vmdial": "alice"})
 	frontTLS, settings := newFrontTLSManager(t, "example.test")
 	sessionManager := session.NewManager()
@@ -423,7 +401,7 @@ func TestHandleRDPRejectsBackendWithoutTLS(t *testing.T) {
 	InitLogging()
 
 	backendHost := "127.0.0.44"
-	setVMInventoryForTest(t, map[string]string{"vmbad": backendHost})
+	stubVMIPs(t, map[string]string{"vmbad": backendHost})
 	stubVMOwners(t, map[string]string{"vmbad": "alice"})
 
 	stopBackend := startBackendServer(t, backendHost, func(raw net.Conn) {
@@ -464,7 +442,7 @@ func TestHandleRDPRejectsWithoutOwnerSessionBeforeDial(t *testing.T) {
 	InitLogging()
 
 	backendHost := "127.0.0.45"
-	setVMInventoryForTest(t, map[string]string{"vmnosession": backendHost})
+	stubVMIPs(t, map[string]string{"vmnosession": backendHost})
 	stubVMOwners(t, map[string]string{"vmnosession": "alice"})
 
 	stopTracker := startBackendDialTracker(t, backendHost)
@@ -499,7 +477,7 @@ func TestHandleRDPRejectsDifferentOwnerSessionIPBeforeDial(t *testing.T) {
 	InitLogging()
 
 	backendHost := "127.0.0.46"
-	setVMInventoryForTest(t, map[string]string{"vmdiffip": backendHost})
+	stubVMIPs(t, map[string]string{"vmdiffip": backendHost})
 	stubVMOwners(t, map[string]string{"vmdiffip": "alice"})
 
 	stopTracker := startBackendDialTracker(t, backendHost)
@@ -535,7 +513,7 @@ func TestHandleRDPRejectsOtherUserSessionFromSameIPBeforeDial(t *testing.T) {
 	InitLogging()
 
 	backendHost := "127.0.0.47"
-	setVMInventoryForTest(t, map[string]string{"vmotheruser": backendHost})
+	stubVMIPs(t, map[string]string{"vmotheruser": backendHost})
 	stubVMOwners(t, map[string]string{"vmotheruser": "alice"})
 
 	stopTracker := startBackendDialTracker(t, backendHost)
@@ -571,7 +549,7 @@ func TestHandleRDPAllowsAnyMatchingOwnerSessionIP(t *testing.T) {
 	InitLogging()
 
 	backendHost := "127.0.0.48"
-	setVMInventoryForTest(t, map[string]string{"vmmulti": backendHost})
+	stubVMIPs(t, map[string]string{"vmmulti": backendHost})
 	stubVMOwners(t, map[string]string{"vmmulti": "alice"})
 
 	stopBackend := startBackendServer(t, backendHost, func(raw net.Conn) {
