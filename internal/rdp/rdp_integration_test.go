@@ -328,21 +328,11 @@ func performFrontHandshake(t *testing.T, client net.Conn, serverName string) *tl
 	return tlsClient
 }
 
-func TestHandleRDPSuccessfulProxy(t *testing.T) {
-	InitLogging()
+func startTLSServingBackend(t *testing.T, host string, handler func(*tls.Conn)) func() {
+	t.Helper()
 
-	backendHost := "127.0.0.42"
-	stubVMIPs(t, map[string]string{"vm1": backendHost})
-	defineOwnedRDPTestDomains(t, map[string]string{"vm1": "alice"})
-
-	stopBackend := startBackendServer(t, backendHost, func(raw net.Conn) {
-		req, err := readTPKT(raw)
-		if err != nil {
-			t.Errorf("backend read CRQ: %v", err)
-			return
-		}
-		if proto, ok := findClientRequestedProtocols(req); !ok || proto != x224.PROTOCOL_SSL {
-			t.Errorf("backend expected TLS-only CRQ, got ok=%v proto=0x%08x", ok, proto)
+	return startBackendServer(t, host, func(raw net.Conn) {
+		if !expectTLSOnlyBackendCRQ(t, raw) {
 			return
 		}
 		if err := writeTPKT(raw, buildServerCCFForProtocol(x224.PROTOCOL_SSL)); err != nil {
@@ -360,6 +350,52 @@ func TestHandleRDPSuccessfulProxy(t *testing.T) {
 		}
 		defer func() { _ = tlsConn.Close() }()
 
+		handler(tlsConn)
+	})
+}
+
+func expectTLSOnlyBackendCRQ(t *testing.T, raw net.Conn) bool {
+	t.Helper()
+
+	req, err := readTPKT(raw)
+	if err != nil {
+		t.Errorf("backend read CRQ: %v", err)
+		return false
+	}
+	if proto, ok := findClientRequestedProtocols(req); !ok || proto != x224.PROTOCOL_SSL {
+		t.Errorf("backend expected TLS-only CRQ, got ok=%v proto=0x%08x", ok, proto)
+		return false
+	}
+	return true
+}
+
+func startHandleRDPTestConnection(t *testing.T, frontTLS *cert.TLSManager, sessionManager *session.Manager, settings *config.SettingsType, remoteIP string) (net.Conn, <-chan struct{}) {
+	t.Helper()
+
+	client, server := net.Pipe()
+	t.Cleanup(func() {
+		_ = client.Close()
+		_ = server.Close()
+	})
+	server = newServerConnWithRemoteIP(server, remoteIP)
+
+	done := make(chan struct{})
+	go func() {
+		HandleRDP(server, frontTLS, sessionManager, settings)
+		close(done)
+	}()
+
+	return client, done
+}
+
+func TestHandleRDPSuccessfulProxy(t *testing.T) {
+	InitLogging()
+
+	backendHost := "127.0.0.42"
+	stubVMIPs(t, map[string]string{"vm1": backendHost})
+	defineOwnedRDPTestDomains(t, map[string]string{"vm1": "alice"})
+
+	stopBackend := startTLSServingBackend(t, backendHost, func(tlsConn *tls.Conn) {
 		buf := make([]byte, 4)
 		if _, err := io.ReadFull(tlsConn, buf); err != nil {
 			t.Errorf("backend read proxied bytes: %v", err)
@@ -379,17 +415,7 @@ func TestHandleRDPSuccessfulProxy(t *testing.T) {
 	sessionManager := session.NewManager()
 	issueUserSession(t, sessionManager, "alice", "192.0.2.100:5000")
 
-	client, server := net.Pipe()
-	defer func() { _ = client.Close() }()
-	defer func() { _ = server.Close() }()
-	server = newServerConnWithRemoteIP(server, "192.0.2.100")
-
-	done := make(chan struct{})
-	go func() {
-		HandleRDP(server, frontTLS, sessionManager, settings)
-		close(done)
-	}()
-
+	client, done := startHandleRDPTestConnection(t, frontTLS, sessionManager, settings, "192.0.2.100")
 	tlsClient := performFrontHandshake(t, client, "vm1.example.test")
 	defer func() { _ = tlsClient.Close() }()
 
@@ -643,31 +669,7 @@ func TestHandleRDPAllowsAnyMatchingOwnerSessionIP(t *testing.T) {
 	stubVMIPs(t, map[string]string{"vmmulti": backendHost})
 	defineOwnedRDPTestDomains(t, map[string]string{"vmmulti": "alice"})
 
-	stopBackend := startBackendServer(t, backendHost, func(raw net.Conn) {
-		req, err := readTPKT(raw)
-		if err != nil {
-			t.Errorf("backend read CRQ: %v", err)
-			return
-		}
-		if proto, ok := findClientRequestedProtocols(req); !ok || proto != x224.PROTOCOL_SSL {
-			t.Errorf("backend expected TLS-only CRQ, got ok=%v proto=0x%08x", ok, proto)
-			return
-		}
-		if err := writeTPKT(raw, buildServerCCFForProtocol(x224.PROTOCOL_SSL)); err != nil {
-			t.Errorf("backend write CCF: %v", err)
-			return
-		}
-
-		tlsConn := tls.Server(raw, &tls.Config{
-			Certificates: []tls.Certificate{backendTLSCert(t)},
-			MinVersion:   tls.VersionTLS10,
-		})
-		if err := tlsConn.Handshake(); err != nil {
-			t.Errorf("backend TLS handshake: %v", err)
-			return
-		}
-		defer func() { _ = tlsConn.Close() }()
-
+	stopBackend := startTLSServingBackend(t, backendHost, func(tlsConn *tls.Conn) {
 		if _, err := tlsConn.Write([]byte("ok")); err != nil {
 			t.Errorf("backend write proxied bytes: %v", err)
 		}
@@ -679,17 +681,7 @@ func TestHandleRDPAllowsAnyMatchingOwnerSessionIP(t *testing.T) {
 	issueUserSession(t, sessionManager, "alice", "192.0.2.201:5000")
 	issueUserSession(t, sessionManager, "alice", "192.0.2.107:5001")
 
-	client, server := net.Pipe()
-	defer func() { _ = client.Close() }()
-	defer func() { _ = server.Close() }()
-	server = newServerConnWithRemoteIP(server, "192.0.2.107")
-
-	done := make(chan struct{})
-	go func() {
-		HandleRDP(server, frontTLS, sessionManager, settings)
-		close(done)
-	}()
-
+	client, done := startHandleRDPTestConnection(t, frontTLS, sessionManager, settings, "192.0.2.107")
 	tlsClient := performFrontHandshake(t, client, "vmmulti.example.test")
 	defer func() { _ = tlsClient.Close() }()
 

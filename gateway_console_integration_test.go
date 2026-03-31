@@ -6,12 +6,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	"rdptlsgateway/internal/config"
 	"rdptlsgateway/internal/virt"
 
 	"github.com/gorilla/websocket"
@@ -106,6 +104,36 @@ func closeGatewayWebsocket(t *testing.T, conn *websocket.Conn) {
 	_ = conn.Close()
 }
 
+func assertGatewayConsoleAndVNCAuthChecks(t *testing.T, server gatewayTestServer, plainClient *http.Client) {
+	t.Helper()
+
+	assertGatewayStatusContains(t, plainClient, http.MethodGet, server.baseURL+"/api/dashboard/console/johndoe-console/ws", nil, http.StatusUnauthorized, "Login required.")
+	assertGatewayStatus(t, server.client, http.MethodGet, server.baseURL+"/api/dashboard/console/testuser-devbox/ws", nil, http.StatusForbidden)
+	assertGatewayStatus(t, server.client, http.MethodGet, server.baseURL+"/api/dashboard/console/%20%20%20/ws", nil, http.StatusBadRequest)
+	assertGatewayStatus(t, server.client, http.MethodGet, server.baseURL+"/api/dashboard/vnc/testuser-devbox/ws", nil, http.StatusForbidden)
+	assertGatewayStatus(t, server.client, http.MethodGet, server.baseURL+"/api/dashboard/vnc/%20%20%20/ws", nil, http.StatusBadRequest)
+}
+
+func assertGatewayWebsocketDialOrPreparation(t *testing.T, server gatewayTestServer, path, failureMessage string) {
+	t.Helper()
+
+	if ws, resp, body, err := tryGatewayWebsocketDial(t, server, path); err == nil {
+		closeGatewayWebsocket(t, ws)
+		return
+	} else if resp == nil {
+		t.Fatalf("dial websocket %s: %v", path, err)
+	} else {
+		expectGatewayWebsocketPreparationResult(t, resp, body, failureMessage)
+	}
+}
+
+func assertGatewayStoppedConsoleAndVNC(t *testing.T, server gatewayTestServer, fullName string) {
+	t.Helper()
+
+	assertGatewayStatusContains(t, server.client, http.MethodGet, server.baseURL+"/api/dashboard/console/"+fullName+"/ws", nil, http.StatusConflict, "VM must be running for terminal access.")
+	assertGatewayStatusContains(t, server.client, http.MethodGet, server.baseURL+"/api/dashboard/vnc/"+fullName+"/ws", nil, http.StatusConflict, "VM must be running for VNC access.")
+}
+
 func TestGatewayConsoleAndVNCFlows(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -113,112 +141,32 @@ func TestGatewayConsoleAndVNCFlows(t *testing.T) {
 	ldapURL, cleanupLDAP := startGlauth(ctx, t, "")
 	defer cleanupLDAP()
 
-	t.Setenv(config.LDAP_URL, ldapURL)
-	t.Setenv(config.LDAP_SKIP_TLS_VERIFY, "true")
-	t.Setenv(config.LDAP_STARTTLS, "false")
-	t.Setenv(config.LDAP_USER_DOMAIN, "@example.com")
-	t.Setenv(config.FRONT_DOMAIN, "gateway.test")
-	t.Setenv(config.VIRT_SERIAL_SOCKET_DIR, t.TempDir())
-	t.Setenv(config.VIRT_VNC_SOCKET_DIR, t.TempDir())
-
-	settings := config.NewSettingType(false)
+	settings := newGatewayIntegrationSettings(t, ldapURL)
 	server := startGatewayTestServer(t, settings)
 	loginGatewayUser(t, server, "johndoe", "dogood")
 
 	plainClient := newInsecureHTTPClient()
-	shortName := "console" + strconv.FormatInt(time.Now().UnixNano()%1_000_000, 10)
+	shortName := uniqueGatewayVMShortName("console")
 	fullName := "johndoe-" + shortName
 	t.Cleanup(func() {
 		_ = virt.RemoveVM(fullName, settings)
 	})
 
-	resp, body := gatewayRequest(t, plainClient, http.MethodGet, server.baseURL+"/api/dashboard/console/"+fullName+"/ws", nil)
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("expected console auth failure 401, got %d with body %s", resp.StatusCode, body)
-	}
-	if !strings.Contains(body, "Login required.") {
-		t.Fatalf("expected login required body, got %q", body)
-	}
+	assertGatewayConsoleAndVNCAuthChecks(t, server, plainClient)
+	fullName = createGatewayVM(t, server, shortName)
+	waitForGatewayVMReady(t, server, fullName)
 
-	resp, body = gatewayRequest(t, server.client, http.MethodGet, server.baseURL+"/api/dashboard/console/testuser-devbox/ws", nil)
-	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("expected console ownership failure 403, got %d with body %s", resp.StatusCode, body)
-	}
-
-	resp, body = gatewayRequest(t, server.client, http.MethodGet, server.baseURL+"/api/dashboard/console/%20%20%20/ws", nil)
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("expected console VM name failure 400, got %d with body %s", resp.StatusCode, body)
-	}
-
-	resp, body = gatewayRequest(t, server.client, http.MethodGet, server.baseURL+"/api/dashboard/vnc/testuser-devbox/ws", nil)
-	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("expected VNC ownership failure 403, got %d with body %s", resp.StatusCode, body)
-	}
-
-	resp, body = gatewayRequest(t, server.client, http.MethodGet, server.baseURL+"/api/dashboard/vnc/%20%20%20/ws", nil)
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("expected VNC VM name failure 400, got %d with body %s", resp.StatusCode, body)
-	}
-
-	resp, body = gatewayRequest(t, server.client, http.MethodPost, server.baseURL+"/api/dashboard", url.Values{
-		"vm_name":       {shortName},
-		"vm_vcpu":       {"2"},
-		"vm_memory_mib": {"4096"},
-	})
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected create VM 200, got %d with body %s", resp.StatusCode, body)
-	}
-
-	waitForDashboardVMRow(t, server.client, server.baseURL, fullName, func(vm dashboardVM) bool {
-		return vm.State == "running" && vm.TTYReady && vm.VNCReady
-	})
-
-	resp, body = gatewayRequest(t, server.client, http.MethodGet, server.baseURL+"/api/dashboard/console/"+fullName+"/ws", nil)
+	resp, body := gatewayRequest(t, server.client, http.MethodGet, server.baseURL+"/api/dashboard/console/"+fullName+"/ws", nil)
 	expectGatewayWebsocketPreparationResult(t, resp, body, "Failed to open serial terminal.")
-
 	resp, body = gatewayRequest(t, server.client, http.MethodGet, server.baseURL+"/api/dashboard/vnc/"+fullName+"/ws", nil)
 	expectGatewayWebsocketPreparationResult(t, resp, body, "Failed to open VNC session.")
 
-	if consoleWS, resp, body, err := tryGatewayWebsocketDial(t, server, "/api/dashboard/console/"+fullName+"/ws"); err == nil {
-		closeGatewayWebsocket(t, consoleWS)
-	} else if resp == nil {
-		t.Fatalf("dial console websocket: %v", err)
-	} else {
-		expectGatewayWebsocketPreparationResult(t, resp, body, "Failed to open serial terminal.")
-	}
+	assertGatewayWebsocketDialOrPreparation(t, server, "/api/dashboard/console/"+fullName+"/ws", "Failed to open serial terminal.")
+	assertGatewayWebsocketDialOrPreparation(t, server, "/api/dashboard/vnc/"+fullName+"/ws", "Failed to open VNC session.")
 
-	if vncWS, resp, body, err := tryGatewayWebsocketDial(t, server, "/api/dashboard/vnc/"+fullName+"/ws"); err == nil {
-		closeGatewayWebsocket(t, vncWS)
-	} else if resp == nil {
-		t.Fatalf("dial VNC websocket: %v", err)
-	} else {
-		expectGatewayWebsocketPreparationResult(t, resp, body, "Failed to open VNC session.")
-	}
-
-	resp, body = gatewayRequest(t, server.client, http.MethodPost, server.baseURL+"/api/dashboard/shutdown", url.Values{
+	assertGatewayStatus(t, server.client, http.MethodPost, server.baseURL+"/api/dashboard/shutdown", url.Values{
 		"vm_name": {fullName},
-	})
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected shutdown 200, got %d with body %s", resp.StatusCode, body)
-	}
-
-	waitForDashboardVMRow(t, server.client, server.baseURL, fullName, func(vm dashboardVM) bool {
-		return vm.State == "shut off"
-	})
-
-	resp, body = gatewayRequest(t, server.client, http.MethodGet, server.baseURL+"/api/dashboard/console/"+fullName+"/ws", nil)
-	if resp.StatusCode != http.StatusConflict {
-		t.Fatalf("expected console stopped conflict 409, got %d with body %s", resp.StatusCode, body)
-	}
-	if !strings.Contains(body, "VM must be running for terminal access.") {
-		t.Fatalf("unexpected console stopped body: %q", body)
-	}
-
-	resp, body = gatewayRequest(t, server.client, http.MethodGet, server.baseURL+"/api/dashboard/vnc/"+fullName+"/ws", nil)
-	if resp.StatusCode != http.StatusConflict {
-		t.Fatalf("expected VNC stopped conflict 409, got %d with body %s", resp.StatusCode, body)
-	}
-	if !strings.Contains(body, "VM must be running for VNC access.") {
-		t.Fatalf("unexpected VNC stopped body: %q", body)
-	}
+	}, http.StatusOK)
+	waitForGatewayVMState(t, server, fullName, "shut off")
+	assertGatewayStoppedConsoleAndVNC(t, server, fullName)
 }

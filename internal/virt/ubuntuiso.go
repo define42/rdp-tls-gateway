@@ -3,7 +3,6 @@ package virt
 import (
 	"bytes"
 	"fmt"
-	"io"
 
 	"github.com/google/uuid"
 	"libvirt.org/go/libvirt"
@@ -18,8 +17,39 @@ func CreateUbuntuSeedISOToPool(
 	cloudInitPasswordHash string,
 	hostname string,
 ) error {
+	userData, metaData, networkConfig := ubuntuSeedData(username, cloudInitPasswordHash, hostname)
+	seedISOData, err := CreateSeedISO(userData, metaData, networkConfig)
+	if err != nil {
+		return err
+	}
 
-	// 2. Build cloud-init data
+	pool, err := conn.LookupStoragePoolByName(storagePoolName)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := pool.Free(); err != nil {
+			fmt.Println("pool free error:", err)
+		}
+	}()
+
+	volXML, err := storageVolCreateXML(pool, volumeName, uint64(len(seedISOData)), "raw")
+	if err != nil {
+		return err
+	}
+
+	vol, err := pool.StorageVolCreateXML(volXML, 0)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = vol.Free()
+	}()
+
+	return uploadSeedISO(conn, vol, seedISOData)
+}
+
+func ubuntuSeedData(username, cloudInitPasswordHash, hostname string) (*SeedUserData, *SeedMetaData, *SeedNetworkConfig) {
 	userData := &SeedUserData{
 		Output: &SeedOutput{
 			All: "| tee -a /var/log/cloud-init-output.log",
@@ -43,9 +73,8 @@ func CreateUbuntuSeedISOToPool(
 		},
 	}
 
-	id := uuid.New()
 	metaData := &SeedMetaData{
-		InstanceID:    id.String(),
+		InstanceID:    uuid.New().String(),
 		LocalHostname: hostname,
 	}
 
@@ -65,40 +94,10 @@ func CreateUbuntuSeedISOToPool(
 		},
 	}
 
-	// 3. Build the seed ISO in memory.
-	seedISOData, err := CreateSeedISO(userData, metaData, networkConfig)
-	if err != nil {
-		return err
-	}
+	return userData, metaData, networkConfig
+}
 
-	// 4. Lookup storage pool
-	pool, err := conn.LookupStoragePoolByName(storagePoolName)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err := pool.Free(); err != nil {
-			fmt.Println("pool free error:", err)
-		}
-	}()
-
-	// 5. Create volume for ISO
-	volXML, err := storageVolCreateXML(pool, volumeName, uint64(len(seedISOData)), "raw")
-	if err != nil {
-		return err
-	}
-
-	vol, err := pool.StorageVolCreateXML(volXML, 0)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = vol.Free()
-	}()
-
-	// 6. Upload ISO into the volume
-	src := bytes.NewReader(seedISOData)
-
+func uploadSeedISO(conn *libvirt.Connect, vol *libvirt.StorageVol, seedISOData []byte) error {
 	stream, err := conn.NewStream(0)
 	if err != nil {
 		return err
@@ -111,14 +110,7 @@ func CreateUbuntuSeedISOToPool(
 		return err
 	}
 
-	if err := stream.SendAll(func(_ *libvirt.Stream, nbytes int) ([]byte, error) {
-		buf := make([]byte, nbytes)
-		n, err := src.Read(buf)
-		if err != nil && err != io.EOF {
-			return nil, err
-		}
-		return buf[:n], nil
-	}); err != nil {
+	if err := stream.SendAll(streamReaderChunks(bytes.NewReader(seedISOData))); err != nil {
 		_ = stream.Abort()
 		return err
 	}

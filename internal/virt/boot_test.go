@@ -125,7 +125,9 @@ func waitForVNCSocket(t *testing.T, vmName string, timeout time.Duration) {
 	t.Fatalf("VNC socket for %s was not ready within %s: %v", vmName, timeout, lastErr)
 }
 
-func TestStartVM(t *testing.T) {
+func newConsoleSocketSettings(t *testing.T) *config.SettingsType {
+	t.Helper()
+
 	settings := config.NewSettingType(false)
 	if settings.OverwriteForTestString(config.VIRT_SERIAL_SOCKET_DIR, t.TempDir()) != nil {
 		t.Fatalf("Failed to overwrite VIRT_SERIAL_SOCKET_DIR for test")
@@ -133,6 +135,33 @@ func TestStartVM(t *testing.T) {
 	if settings.OverwriteForTestString(config.VIRT_VNC_SOCKET_DIR, t.TempDir()) != nil {
 		t.Fatalf("Failed to overwrite VIRT_VNC_SOCKET_DIR for test")
 	}
+	return settings
+}
+
+func waitForRunningVM(t *testing.T, username, vmName string, conn *libvirt.Connect, timeout time.Duration) {
+	t.Helper()
+
+	waitForState(t, username, vmName, "running", conn, timeout)
+	waitForSerialSocket(t, vmName, timeout)
+	waitForVNCSocket(t, vmName, timeout)
+}
+
+func assertRemovedVM(t *testing.T, conn *libvirt.Connect, vmName string) {
+	t.Helper()
+
+	vms, err := virt.ListVMs("", conn)
+	if err != nil {
+		t.Fatalf("Failed to list VMs after deletion: %v", err)
+	}
+	for _, v := range vms {
+		if v.Name == vmName {
+			t.Fatalf("VM %s still found in VM list after deletion", vmName)
+		}
+	}
+}
+
+func TestStartVM(t *testing.T) {
+	settings := newConsoleSocketSettings(t)
 
 	user, err := typesUser.NewUser(testUsername, testPassword)
 	if err != nil {
@@ -152,17 +181,13 @@ func TestStartVM(t *testing.T) {
 		_, _ = conn.Close()
 	}()
 
-	waitForState(t, testUsername, vmName, "running", conn, testTimeout)
-	waitForSerialSocket(t, vmName, testTimeout)
-	waitForVNCSocket(t, vmName, testTimeout)
+	waitForRunningVM(t, testUsername, vmName, conn, testTimeout)
 
-	// Test ShutdownVM.
 	if err := virt.ShutdownVM(vmName); err != nil {
 		t.Fatalf("Failed to shutdown VM %s: %v", vmName, err)
 	}
 	waitForState(t, testUsername, vmName, "shut off", conn, testTimeout)
 
-	// Test UpdateVMResources.
 	if err := virt.UpdateVMResources(vmName, 2, 2048); err != nil {
 		t.Fatalf("Failed to update VM %s resources: %v", vmName, err)
 	}
@@ -171,37 +196,18 @@ func TestStartVM(t *testing.T) {
 		t.Fatalf("VM %s does not have updated CPU and Memory as expected: %v", vmName, err)
 	}
 
-	// Test StartExistingVM.
 	if err := virt.StartExistingVM(vmName); err != nil {
 		t.Fatalf("Failed to start existing VM %s: %v", vmName, err)
 	}
-	waitForState(t, testUsername, vmName, "running", conn, testTimeout)
-	waitForSerialSocket(t, vmName, testTimeout)
-	waitForVNCSocket(t, vmName, testTimeout)
+	waitForRunningVM(t, testUsername, vmName, conn, testTimeout)
 
-	// Test RestartVM.
 	if err := virt.RestartVM(vmName); err != nil {
 		t.Fatalf("Failed to restart VM %s: %v", vmName, err)
 	}
-	waitForState(t, testUsername, vmName, "running", conn, testTimeout)
-	waitForSerialSocket(t, vmName, testTimeout)
-	waitForVNCSocket(t, vmName, testTimeout)
+	waitForRunningVM(t, testUsername, vmName, conn, testTimeout)
 
-	// Cleanup: Destroy the VM after test
-	// (In a real test, consider using defer to ensure cleanup)
-	err = virt.RemoveVM(vmName, settings)
-	if err != nil {
+	if err := virt.RemoveVM(vmName, settings); err != nil {
 		t.Fatalf("Failed to destroy VM %s: %v", vmName, err)
 	}
-
-	// Verify that the VM has been removed
-	vms, err := virt.ListVMs("", conn)
-	if err != nil {
-		t.Fatalf("Failed to list VMs after deletion: %v", err)
-	}
-	for _, v := range vms {
-		if v.Name == vmName {
-			t.Fatalf("VM %s still found in VM list after deletion", vmName)
-		}
-	}
+	assertRemovedVM(t, conn, vmName)
 }

@@ -16,6 +16,11 @@ import (
 	"github.com/mholt/acmez"
 )
 
+type handleHTTPSRequestInfo struct {
+	host string
+	path string
+}
+
 func waitHandleHTTPSDone(t *testing.T, done <-chan struct{}) {
 	t.Helper()
 	select {
@@ -39,16 +44,52 @@ func newTestTLSManager(t *testing.T) (*cert.TLSManager, *config.SettingsType) {
 	return frontTLS, settings
 }
 
+func assertHandleHTTPSResponse(t *testing.T, tlsClient *tls.Conn) {
+	t.Helper()
+
+	resp, err := http.ReadResponse(bufio.NewReader(tlsClient), &http.Request{Method: http.MethodGet})
+	if err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected status: %v", resp.Status)
+	}
+	if got := string(body); got != "hello" {
+		t.Fatalf("unexpected body: %q", got)
+	}
+	if got := resp.Header.Get("X-Test"); got != "ok" {
+		t.Fatalf("unexpected header X-Test: %q", got)
+	}
+}
+
+func assertObservedHTTPRequest(t *testing.T, reqCh <-chan handleHTTPSRequestInfo) {
+	t.Helper()
+
+	select {
+	case req := <-reqCh:
+		if req.host != "example.com" {
+			t.Fatalf("unexpected host: %q", req.host)
+		}
+		if req.path != "/" {
+			t.Fatalf("unexpected path: %q", req.path)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("handler was not called")
+	}
+}
+
 func TestHandleHTTPS_ServesRequest(t *testing.T) {
 	frontTLS, settings := newTestTLSManager(t)
 
-	type reqInfo struct {
-		host string
-		path string
-	}
-	reqCh := make(chan reqInfo, 1)
+	reqCh := make(chan handleHTTPSRequestInfo, 1)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		reqCh <- reqInfo{host: r.Host, path: r.URL.Path}
+		reqCh <- handleHTTPSRequestInfo{host: r.Host, path: r.URL.Path}
 		w.Header().Set("X-Test", "ok")
 		_, _ = w.Write([]byte("hello"))
 	})
@@ -81,37 +122,8 @@ func TestHandleHTTPS_ServesRequest(t *testing.T) {
 		t.Fatalf("write request: %v", err)
 	}
 
-	resp, err := http.ReadResponse(bufio.NewReader(tlsClient), &http.Request{Method: http.MethodGet})
-	if err != nil {
-		t.Fatalf("read response: %v", err)
-	}
-	body, err := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
-	if err != nil {
-		t.Fatalf("read body: %v", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("unexpected status: %v", resp.Status)
-	}
-	if got := string(body); got != "hello" {
-		t.Fatalf("unexpected body: %q", got)
-	}
-	if got := resp.Header.Get("X-Test"); got != "ok" {
-		t.Fatalf("unexpected header X-Test: %q", got)
-	}
-
-	select {
-	case req := <-reqCh:
-		if req.host != "example.com" {
-			t.Fatalf("unexpected host: %q", req.host)
-		}
-		if req.path != "/" {
-			t.Fatalf("unexpected path: %q", req.path)
-		}
-	case <-time.After(200 * time.Millisecond):
-		t.Fatal("handler was not called")
-	}
+	assertHandleHTTPSResponse(t, tlsClient)
+	assertObservedHTTPRequest(t, reqCh)
 	_ = tlsClient.Close()
 	_ = client.Close()
 	waitHandleHTTPSDone(t, done)

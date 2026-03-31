@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -178,141 +177,58 @@ func TestGatewayHTTPSLifecycle(t *testing.T) {
 	ldapURL, cleanupLDAP := startGlauth(ctx, t, "")
 	defer cleanupLDAP()
 
-	t.Setenv(config.LDAP_URL, ldapURL)
-	t.Setenv(config.LDAP_SKIP_TLS_VERIFY, "true")
-	t.Setenv(config.LDAP_STARTTLS, "false")
-	t.Setenv(config.LDAP_USER_DOMAIN, "@example.com")
-	t.Setenv(config.FRONT_DOMAIN, "gateway.test")
-	t.Setenv(config.VIRT_SERIAL_SOCKET_DIR, t.TempDir())
-	t.Setenv(config.VIRT_VNC_SOCKET_DIR, t.TempDir())
-
-	settings := config.NewSettingType(false)
+	settings := newGatewayIntegrationSettings(t, ldapURL)
 	server := startGatewayTestServer(t, settings)
 
-	resp, _ := gatewayRequest(t, server.client, http.MethodGet, server.baseURL+"/api/health", nil)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected health 200, got %d", resp.StatusCode)
-	}
-
-	resp, _ = gatewayRequest(t, server.client, http.MethodGet, server.baseURL+"/", nil)
-	if resp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("expected root redirect 303, got %d", resp.StatusCode)
-	}
-	if loc := resp.Header.Get("Location"); loc != "/login" {
-		t.Fatalf("expected root redirect to /login, got %q", loc)
-	}
-
-	resp, body := gatewayRequest(t, server.client, http.MethodGet, server.baseURL+"/static/dashboard.html", nil)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected dashboard html 200, got %d", resp.StatusCode)
-	}
-	if !strings.Contains(body, "Available DevBoxes") {
-		t.Fatalf("expected dashboard html content, got %q", body)
-	}
-
-	resp, body = gatewayRequest(t, server.client, http.MethodPost, server.baseURL+"/login", url.Values{
+	assertGatewayStatus(t, server.client, http.MethodGet, server.baseURL+"/api/health", nil, http.StatusOK)
+	assertGatewayRedirect(t, server.client, http.MethodGet, server.baseURL+"/", nil, http.StatusSeeOther, "/login")
+	assertGatewayStatusContains(t, server.client, http.MethodGet, server.baseURL+"/static/dashboard.html", nil, http.StatusOK, "Available DevBoxes")
+	assertGatewayRedirect(t, server.client, http.MethodPost, server.baseURL+"/login", url.Values{
 		"username": {"johndoe"},
 		"password": {"dogood"},
-	})
-	if resp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("expected login redirect 303, got %d with body %s", resp.StatusCode, body)
-	}
-	if loc := resp.Header.Get("Location"); loc != "/api/dashboard" {
-		t.Fatalf("expected login redirect to /api/dashboard, got %q", loc)
-	}
+	}, http.StatusSeeOther, "/api/dashboard")
+	assertGatewayStatusContains(t, server.client, http.MethodGet, server.baseURL+"/api/dashboard", nil, http.StatusOK, "/static/dashboard.js")
+	assertGatewayStatus(t, server.client, http.MethodGet, server.baseURL+"/api/dashboard/data", nil, http.StatusOK)
 
-	resp, body = gatewayRequest(t, server.client, http.MethodGet, server.baseURL+"/api/dashboard", nil)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected dashboard 200, got %d with body %s", resp.StatusCode, body)
-	}
-	if !strings.Contains(body, "/static/dashboard.js") {
-		t.Fatalf("expected dashboard page body, got %q", body)
-	}
-
-	resp, body = gatewayRequest(t, server.client, http.MethodGet, server.baseURL+"/api/dashboard/data", nil)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected dashboard data 200, got %d with body %s", resp.StatusCode, body)
-	}
-
-	shortName := "api" + strconv.FormatInt(time.Now().UnixNano()%1_000_000, 10)
+	shortName := uniqueGatewayVMShortName("api")
 	fullName := "johndoe-" + shortName
 	t.Cleanup(func() {
 		_ = virt.RemoveVM(fullName, settings)
 	})
 
-	resp, body = gatewayRequest(t, server.client, http.MethodPost, server.baseURL+"/api/dashboard", url.Values{
-		"vm_name":       {shortName},
-		"vm_vcpu":       {"2"},
-		"vm_memory_mib": {"4096"},
-	})
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected create VM 200, got %d with body %s", resp.StatusCode, body)
-	}
-
-	row := waitForDashboardVMRow(t, server.client, server.baseURL, fullName, func(vm dashboardVM) bool {
-		return vm.State == "running"
-	})
+	fullName = createGatewayVM(t, server, shortName)
+	row := waitForGatewayVMState(t, server, fullName, "running")
 	if row.DisplayName != fullName+".gateway.test" {
 		t.Fatalf("expected display name %q, got %q", fullName+".gateway.test", row.DisplayName)
 	}
 
-	resp, body = gatewayRequest(t, server.client, http.MethodPost, server.baseURL+"/api/dashboard/shutdown", url.Values{
+	assertGatewayStatus(t, server.client, http.MethodPost, server.baseURL+"/api/dashboard/shutdown", url.Values{
 		"vm_name": {fullName},
-	})
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected shutdown 200, got %d with body %s", resp.StatusCode, body)
-	}
-	waitForDashboardVMRow(t, server.client, server.baseURL, fullName, func(vm dashboardVM) bool {
-		return vm.State == "shut off"
-	})
+	}, http.StatusOK)
+	waitForGatewayVMState(t, server, fullName, "shut off")
 
-	resp, body = gatewayRequest(t, server.client, http.MethodPost, server.baseURL+"/api/dashboard/resources", url.Values{
+	assertGatewayStatus(t, server.client, http.MethodPost, server.baseURL+"/api/dashboard/resources", url.Values{
 		"vm_name":       {fullName},
 		"vm_vcpu":       {"1"},
 		"vm_memory_mib": {"8192"},
-	})
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected update resources 200, got %d with body %s", resp.StatusCode, body)
-	}
-	waitForDashboardVMRow(t, server.client, server.baseURL, fullName, func(vm dashboardVM) bool {
-		return vm.State == "shut off" && vm.VCPU == 1 && vm.MemoryMiB == 8192
-	})
+	}, http.StatusOK)
+	waitForGatewayVMResources(t, server, fullName, 1, 8192)
 
-	resp, body = gatewayRequest(t, server.client, http.MethodPost, server.baseURL+"/api/dashboard/start", url.Values{
+	assertGatewayStatus(t, server.client, http.MethodPost, server.baseURL+"/api/dashboard/start", url.Values{
 		"vm_name": {fullName},
-	})
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected start 200, got %d with body %s", resp.StatusCode, body)
-	}
-	waitForDashboardVMRow(t, server.client, server.baseURL, fullName, func(vm dashboardVM) bool {
-		return vm.State == "running"
-	})
+	}, http.StatusOK)
+	waitForGatewayVMState(t, server, fullName, "running")
 
-	resp, body = gatewayRequest(t, server.client, http.MethodPost, server.baseURL+"/api/dashboard/restart", url.Values{
+	assertGatewayStatus(t, server.client, http.MethodPost, server.baseURL+"/api/dashboard/restart", url.Values{
 		"vm_name": {fullName},
-	})
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected restart 200, got %d with body %s", resp.StatusCode, body)
-	}
-	waitForDashboardVMRow(t, server.client, server.baseURL, fullName, func(vm dashboardVM) bool {
-		return vm.State == "running"
-	})
+	}, http.StatusOK)
+	waitForGatewayVMState(t, server, fullName, "running")
 
-	resp, body = gatewayRequest(t, server.client, http.MethodPost, server.baseURL+"/api/dashboard/remove", url.Values{
+	assertGatewayStatus(t, server.client, http.MethodPost, server.baseURL+"/api/dashboard/remove", url.Values{
 		"vm_name": {fullName},
-	})
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected remove 200, got %d with body %s", resp.StatusCode, body)
-	}
+	}, http.StatusOK)
 	waitForDashboardVMRemoval(t, server.client, server.baseURL, fullName)
 
-	resp, _ = gatewayRequest(t, server.client, http.MethodGet, server.baseURL+"/logout", nil)
-	if resp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("expected logout redirect 303, got %d", resp.StatusCode)
-	}
-
-	resp, _ = gatewayRequest(t, server.client, http.MethodGet, server.baseURL+"/api/dashboard/data", nil)
-	if resp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("expected dashboard data redirect after logout, got %d", resp.StatusCode)
-	}
+	assertGatewayRedirect(t, server.client, http.MethodGet, server.baseURL+"/logout", nil, http.StatusSeeOther, "/login")
+	assertGatewayRedirect(t, server.client, http.MethodGet, server.baseURL+"/api/dashboard/data", nil, http.StatusSeeOther, "/login")
 }

@@ -91,68 +91,8 @@ func RemoveVolumes(conn *libvirt.Connect, storagePoolName string, volumeNames ..
 	return nil
 }
 
-// CopyAndResizeVolume creates a qcow2 volume from the source image and resizes it when needed.
-func CopyAndResizeVolume(
-	conn *libvirt.Connect,
-	storagePoolName string,
-	volumeName string,
-	sourceImagePath string,
-	capacityBytes uint64,
-) error {
-
-	// Lookup storage pool
-	pool, err := conn.LookupStoragePoolByName(storagePoolName)
-	if err != nil {
-		return fmt.Errorf("lookup pool %s: %w", storagePoolName, err)
-	}
-	defer func() {
-		if err := pool.Free(); err != nil {
-			fmt.Println("pool free error:", err)
-		}
-	}()
-
-	// Create volume XML
-	volXML, err := storageVolCreateXML(pool, volumeName, capacityBytes, "qcow2")
-	if err != nil {
-		return err
-	}
-
-	// Create volume
-	vol, err := pool.StorageVolCreateXML(volXML, 0)
-	if err != nil {
-		return fmt.Errorf("create volume: %w", err)
-	}
-	defer func() {
-		_ = vol.Free()
-	}()
-
-	// Open source image
-	src, err := os.Open(sourceImagePath)
-	if err != nil {
-		return fmt.Errorf("open source image: %w", err)
-	}
-	defer func() { _ = src.Close() }()
-
-	srcInfo, err := src.Stat()
-	if err != nil {
-		return fmt.Errorf("stat source image: %w", err)
-	}
-
-	// Create libvirt stream
-	stream, err := conn.NewStream(0)
-	if err != nil {
-		return fmt.Errorf("create stream: %w", err)
-	}
-	defer func() {
-		_ = stream.Free()
-	}()
-
-	// Start upload
-	if err := vol.Upload(stream, 0, uint64(srcInfo.Size()), 0); err != nil {
-		return fmt.Errorf("start upload: %w", err)
-	}
-
-	if err := stream.SendAll(func(_ *libvirt.Stream, nbytes int) ([]byte, error) {
+func streamReaderChunks(src io.Reader) func(*libvirt.Stream, int) ([]byte, error) {
+	return func(_ *libvirt.Stream, nbytes int) ([]byte, error) {
 		if nbytes <= 0 {
 			return []byte{}, nil
 		}
@@ -171,28 +111,40 @@ func CopyAndResizeVolume(
 			return []byte{}, nil
 		}
 		return buf[:n], nil
-	}); err != nil {
-		_ = stream.Abort()
-		return fmt.Errorf("stream send: %w", err)
 	}
+}
 
-	if err := stream.Finish(); err != nil {
-		return fmt.Errorf("stream finish: %w", err)
+// CopyAndResizeVolume creates a qcow2 volume from the source image and resizes it when needed.
+func CopyAndResizeVolume(
+	conn *libvirt.Connect,
+	storagePoolName string,
+	volumeName string,
+	sourceImagePath string,
+	capacityBytes uint64,
+) error {
+	pool, err := conn.LookupStoragePoolByName(storagePoolName)
+	if err != nil {
+		return fmt.Errorf("lookup pool %s: %w", storagePoolName, err)
 	}
-
-	if capacityBytes > 0 {
-		volInfo, err := vol.GetInfo()
-		if err != nil {
-			return fmt.Errorf("get volume info: %w", err)
+	defer func() {
+		if err := pool.Free(); err != nil {
+			fmt.Println("pool free error:", err)
 		}
-		if volInfo.Capacity < capacityBytes {
-			if err := vol.Resize(capacityBytes, 0); err != nil {
-				return fmt.Errorf("resize volume: %w", err)
-			}
-		}
+	}()
+
+	vol, err := createQCOW2Volume(pool, volumeName, capacityBytes)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = vol.Free()
+	}()
+
+	if err := uploadFileToVolume(conn, vol, sourceImagePath); err != nil {
+		return err
 	}
 
-	return nil
+	return resizeVolumeIfNeeded(vol, capacityBytes)
 }
 
 // DestroyExistingDomain force-stops and undefines the named domain when it exists.
@@ -244,68 +196,25 @@ func storagePoolConfig(settings *config.SettingsType) (poolName string, poolPath
 }
 
 func ensureStoragePool(conn *libvirt.Connect, storagePoolName, storagePoolPath string) (*libvirt.StoragePool, error) {
-	storagePoolName = strings.TrimSpace(storagePoolName)
-	if storagePoolName == "" {
-		return nil, fmt.Errorf("storage pool name cannot be empty")
+	storagePoolName, storagePoolPath, err := normalizeStoragePoolConfig(storagePoolName, storagePoolPath)
+	if err != nil {
+		return nil, err
 	}
-
-	storagePoolPath = filepath.Clean(strings.TrimSpace(storagePoolPath))
-	if storagePoolPath == "." {
-		return nil, fmt.Errorf("storage pool path cannot be empty")
-	}
-
 	if err := os.MkdirAll(storagePoolPath, 0o755); err != nil {
 		return nil, fmt.Errorf("create storage pool path %s: %w", storagePoolPath, err)
 	}
 
-	pool, err := conn.LookupStoragePoolByName(storagePoolName)
+	pool, err := lookupOrDefineStoragePool(conn, storagePoolName, storagePoolPath)
 	if err != nil {
-		var libErr libvirt.Error
-		if !errors.As(err, &libErr) || libErr.Code != libvirt.ERR_NO_STORAGE_POOL {
-			return nil, fmt.Errorf("lookup storage pool %s: %w", storagePoolName, err)
-		}
-
-		poolXML := fmt.Sprintf(`
-<pool type='dir'>
-  <name>%s</name>
-  <target>
-    <path>%s</path>
-  </target>
-</pool>`, storagePoolName, storagePoolPath)
-
-		pool, err = conn.StoragePoolDefineXML(poolXML, 0)
-		if err != nil {
-			return nil, fmt.Errorf("define storage pool %s at %s: %w", storagePoolName, storagePoolPath, err)
-		}
-		log.Printf("Storage pool %s defined at %s", storagePoolName, storagePoolPath)
+		return nil, err
 	}
-
-	active, err := pool.IsActive()
-	if err != nil {
+	if err := startStoragePoolIfNeeded(pool, storagePoolName); err != nil {
 		_ = pool.Free()
-		return nil, fmt.Errorf("check if storage pool %s is active: %w", storagePoolName, err)
-	}
-	if !active {
-		if err := pool.Create(0); err != nil {
-			_ = pool.Free()
-			return nil, fmt.Errorf("start storage pool %s: %w", storagePoolName, err)
-		}
-		log.Printf("Storage pool %s started", storagePoolName)
+		return nil, err
 	}
 
-	autostart, err := pool.GetAutostart()
-	if err == nil && !autostart {
-		if err := pool.SetAutostart(true); err != nil {
-			log.Printf("Failed to set autostart for storage pool %s: %v", storagePoolName, err)
-		}
-	}
-
-	if targetPath, err := storagePoolTargetPath(pool); err == nil {
-		if filepath.Clean(targetPath) != storagePoolPath {
-			log.Printf("Storage pool %s target path is %s (configured %s)", storagePoolName, targetPath, storagePoolPath)
-		}
-	}
-
+	configureStoragePoolAutostart(pool, storagePoolName)
+	logStoragePoolTargetPath(pool, storagePoolName, storagePoolPath)
 	return pool, nil
 }
 
@@ -337,22 +246,17 @@ func InitVirt(settings *config.SettingsType) error {
 
 // BootNewVM creates or recreates a VM for the user and starts it with owner metadata.
 func BootNewVM(name string, user *types.User, settings *config.SettingsType, vcpu int, memoryMiB int) (vmName string, err error) {
-
 	vmName = user.GetName() + "-" + name
-	if vcpu <= 0 || memoryMiB <= 0 {
-		return vmName, fmt.Errorf("invalid resources (vcpu=%d memoryMiB=%d)", vcpu, memoryMiB)
+	if err := validateBootResources(vcpu, memoryMiB); err != nil {
+		return vmName, err
 	}
 
 	seedIso := vmName + "_seed.iso"
 	poolName, poolPath := storagePoolConfig(settings)
-	if _, err := ensureSerialSocketDir(settings); err != nil {
-		return vmName, fmt.Errorf("failed to ensure serial socket directory: %w", err)
+	vmSerialSocketPath, vmVNCSocketPath, err := prepareBootSocketPaths(settings, vmName)
+	if err != nil {
+		return vmName, err
 	}
-	if _, err := ensureVNCSocketDir(settings); err != nil {
-		return vmName, fmt.Errorf("failed to ensure VNC socket directory: %w", err)
-	}
-	vmSerialSocketPath := serialSocketPath(settings, vmName)
-	vmVNCSocketPath := vncSocketPath(settings, vmName)
 
 	conn, err := libvirt.NewConnect(LibvirtURI())
 	if err != nil {
@@ -362,38 +266,15 @@ func BootNewVM(name string, user *types.User, settings *config.SettingsType, vcp
 		_, _ = conn.Close()
 	}()
 
-	pool, err := ensureStoragePool(conn, poolName, poolPath)
-	if err != nil {
-		return vmName, fmt.Errorf("failed to ensure storage pool %s: %w", poolName, err)
+	if err := ensureBootStoragePool(conn, poolName, poolPath); err != nil {
+		return vmName, err
 	}
-	_ = pool.Free()
-
-	if err := DestroyExistingDomain(conn, vmName); err != nil {
-		return vmName, fmt.Errorf("failed to destroy existing domain: %w", err)
+	if err := resetExistingVMArtifacts(conn, settings, poolName, vmName, seedIso); err != nil {
+		return vmName, err
 	}
-	if err := RemoveVolumes(conn, poolName, vmName, seedIso); err != nil {
-		return vmName, fmt.Errorf("failed to remove existing volumes: %w", err)
+	if err := provisionBootVolumes(conn, settings, poolName, vmName, seedIso, user); err != nil {
+		return vmName, err
 	}
-	if err := removeSerialSocket(settings, vmName); err != nil {
-		return vmName, fmt.Errorf("failed to remove existing serial socket: %w", err)
-	}
-	if err := removeVNCSocket(settings, vmName); err != nil {
-		return vmName, fmt.Errorf("failed to remove existing VNC socket: %w", err)
-	}
-
-	baseImage, err := ensureBaseImage(settings)
-	if err != nil {
-		return vmName, fmt.Errorf("failed to ensure base image: %w", err)
-	}
-
-	if err := CopyAndResizeVolume(conn, poolName, vmName, baseImage, 40*1024*1024*1024); err != nil {
-		return vmName, fmt.Errorf("failed to copy and resize base image: %w", err)
-	}
-
-	if err := CreateUbuntuSeedISOToPool(conn, poolName, seedIso, user.GetName(), user.GetCloudInitPasswordHash(), vmName); err != nil {
-		return vmName, fmt.Errorf("failed to create seed ISO: %w", err)
-	}
-
 	if err := StartVMWithOwner(vmName, seedIso, poolName, vmSerialSocketPath, vmVNCSocketPath, user.GetName(), vcpu, memoryMiB); err != nil {
 		return vmName, fmt.Errorf("failed to start VM: %w", err)
 	}
@@ -425,6 +306,214 @@ func RemoveVM(name string, settings *config.SettingsType) error {
 	}
 	if err := removeVNCSocket(settings, name); err != nil {
 		return err
+	}
+	return nil
+}
+
+func createQCOW2Volume(pool *libvirt.StoragePool, volumeName string, capacityBytes uint64) (*libvirt.StorageVol, error) {
+	volXML, err := storageVolCreateXML(pool, volumeName, capacityBytes, "qcow2")
+	if err != nil {
+		return nil, err
+	}
+
+	vol, err := pool.StorageVolCreateXML(volXML, 0)
+	if err != nil {
+		return nil, fmt.Errorf("create volume: %w", err)
+	}
+	return vol, nil
+}
+
+func uploadFileToVolume(conn *libvirt.Connect, vol *libvirt.StorageVol, sourceImagePath string) error {
+	src, srcSize, err := openSourceImage(sourceImagePath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = src.Close() }()
+
+	stream, err := conn.NewStream(0)
+	if err != nil {
+		return fmt.Errorf("create stream: %w", err)
+	}
+	defer func() {
+		_ = stream.Free()
+	}()
+
+	if err := vol.Upload(stream, 0, uint64(srcSize), 0); err != nil {
+		return fmt.Errorf("start upload: %w", err)
+	}
+	if err := stream.SendAll(streamReaderChunks(src)); err != nil {
+		_ = stream.Abort()
+		return fmt.Errorf("stream send: %w", err)
+	}
+	if err := stream.Finish(); err != nil {
+		return fmt.Errorf("stream finish: %w", err)
+	}
+	return nil
+}
+
+func openSourceImage(sourceImagePath string) (*os.File, int64, error) {
+	src, err := os.Open(sourceImagePath)
+	if err != nil {
+		return nil, 0, fmt.Errorf("open source image: %w", err)
+	}
+
+	srcInfo, err := src.Stat()
+	if err != nil {
+		_ = src.Close()
+		return nil, 0, fmt.Errorf("stat source image: %w", err)
+	}
+
+	return src, srcInfo.Size(), nil
+}
+
+func resizeVolumeIfNeeded(vol *libvirt.StorageVol, capacityBytes uint64) error {
+	if capacityBytes == 0 {
+		return nil
+	}
+
+	volInfo, err := vol.GetInfo()
+	if err != nil {
+		return fmt.Errorf("get volume info: %w", err)
+	}
+	if volInfo.Capacity >= capacityBytes {
+		return nil
+	}
+	if err := vol.Resize(capacityBytes, 0); err != nil {
+		return fmt.Errorf("resize volume: %w", err)
+	}
+	return nil
+}
+
+func normalizeStoragePoolConfig(storagePoolName, storagePoolPath string) (string, string, error) {
+	storagePoolName = strings.TrimSpace(storagePoolName)
+	if storagePoolName == "" {
+		return "", "", fmt.Errorf("storage pool name cannot be empty")
+	}
+
+	storagePoolPath = filepath.Clean(strings.TrimSpace(storagePoolPath))
+	if storagePoolPath == "." {
+		return "", "", fmt.Errorf("storage pool path cannot be empty")
+	}
+
+	return storagePoolName, storagePoolPath, nil
+}
+
+func lookupOrDefineStoragePool(conn *libvirt.Connect, storagePoolName, storagePoolPath string) (*libvirt.StoragePool, error) {
+	pool, err := conn.LookupStoragePoolByName(storagePoolName)
+	if err == nil {
+		return pool, nil
+	}
+
+	var libErr libvirt.Error
+	if !errors.As(err, &libErr) || libErr.Code != libvirt.ERR_NO_STORAGE_POOL {
+		return nil, fmt.Errorf("lookup storage pool %s: %w", storagePoolName, err)
+	}
+
+	pool, err = conn.StoragePoolDefineXML(storagePoolDefinitionXML(storagePoolName, storagePoolPath), 0)
+	if err != nil {
+		return nil, fmt.Errorf("define storage pool %s at %s: %w", storagePoolName, storagePoolPath, err)
+	}
+	log.Printf("Storage pool %s defined at %s", storagePoolName, storagePoolPath)
+	return pool, nil
+}
+
+func storagePoolDefinitionXML(storagePoolName, storagePoolPath string) string {
+	return fmt.Sprintf(`
+<pool type='dir'>
+  <name>%s</name>
+  <target>
+    <path>%s</path>
+  </target>
+</pool>`, storagePoolName, storagePoolPath)
+}
+
+func startStoragePoolIfNeeded(pool *libvirt.StoragePool, storagePoolName string) error {
+	active, err := pool.IsActive()
+	if err != nil {
+		return fmt.Errorf("check if storage pool %s is active: %w", storagePoolName, err)
+	}
+	if active {
+		return nil
+	}
+	if err := pool.Create(0); err != nil {
+		return fmt.Errorf("start storage pool %s: %w", storagePoolName, err)
+	}
+	log.Printf("Storage pool %s started", storagePoolName)
+	return nil
+}
+
+func configureStoragePoolAutostart(pool *libvirt.StoragePool, storagePoolName string) {
+	autostart, err := pool.GetAutostart()
+	if err != nil || autostart {
+		return
+	}
+	if err := pool.SetAutostart(true); err != nil {
+		log.Printf("Failed to set autostart for storage pool %s: %v", storagePoolName, err)
+	}
+}
+
+func logStoragePoolTargetPath(pool *libvirt.StoragePool, storagePoolName, storagePoolPath string) {
+	targetPath, err := storagePoolTargetPath(pool)
+	if err != nil {
+		return
+	}
+	if filepath.Clean(targetPath) != storagePoolPath {
+		log.Printf("Storage pool %s target path is %s (configured %s)", storagePoolName, targetPath, storagePoolPath)
+	}
+}
+
+func validateBootResources(vcpu int, memoryMiB int) error {
+	if vcpu <= 0 || memoryMiB <= 0 {
+		return fmt.Errorf("invalid resources (vcpu=%d memoryMiB=%d)", vcpu, memoryMiB)
+	}
+	return nil
+}
+
+func prepareBootSocketPaths(settings *config.SettingsType, vmName string) (string, string, error) {
+	if _, err := ensureSerialSocketDir(settings); err != nil {
+		return "", "", fmt.Errorf("failed to ensure serial socket directory: %w", err)
+	}
+	if _, err := ensureVNCSocketDir(settings); err != nil {
+		return "", "", fmt.Errorf("failed to ensure VNC socket directory: %w", err)
+	}
+	return serialSocketPath(settings, vmName), vncSocketPath(settings, vmName), nil
+}
+
+func ensureBootStoragePool(conn *libvirt.Connect, poolName, poolPath string) error {
+	pool, err := ensureStoragePool(conn, poolName, poolPath)
+	if err != nil {
+		return fmt.Errorf("failed to ensure storage pool %s: %w", poolName, err)
+	}
+	_ = pool.Free()
+	return nil
+}
+
+func resetExistingVMArtifacts(conn *libvirt.Connect, settings *config.SettingsType, poolName, vmName, seedIso string) error {
+	if err := DestroyExistingDomain(conn, vmName); err != nil {
+		return fmt.Errorf("failed to destroy existing domain: %w", err)
+	}
+	if err := RemoveVolumes(conn, poolName, vmName, seedIso); err != nil {
+		return fmt.Errorf("failed to remove existing volumes: %w", err)
+	}
+	if err := removeSerialSocket(settings, vmName); err != nil {
+		return fmt.Errorf("failed to remove existing serial socket: %w", err)
+	}
+	if err := removeVNCSocket(settings, vmName); err != nil {
+		return fmt.Errorf("failed to remove existing VNC socket: %w", err)
+	}
+	return nil
+}
+
+func provisionBootVolumes(conn *libvirt.Connect, settings *config.SettingsType, poolName, vmName, seedIso string, user *types.User) error {
+	baseImage, err := ensureBaseImage(settings)
+	if err != nil {
+		return fmt.Errorf("failed to ensure base image: %w", err)
+	}
+	if err := CopyAndResizeVolume(conn, poolName, vmName, baseImage, 40*1024*1024*1024); err != nil {
+		return fmt.Errorf("failed to copy and resize base image: %w", err)
+	}
+	if err := CreateUbuntuSeedISOToPool(conn, poolName, seedIso, user.GetName(), user.GetCloudInitPasswordHash(), vmName); err != nil {
+		return fmt.Errorf("failed to create seed ISO: %w", err)
 	}
 	return nil
 }

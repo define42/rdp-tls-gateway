@@ -4,9 +4,7 @@ import (
 	"fmt"
 )
 
-// UbuntuDomain returns the libvirt domain XML for a standard Ubuntu VM.
-func UbuntuDomain(name, seedIso, storagePoolName, serialSocketPath, vncSocketPath string, vcpu int, memoryMiB int) string {
-	return fmt.Sprintf(`<domain type='kvm'>
+const ubuntuDomainXML = `<domain type='kvm'>
   <name>%s</name>
   <memory unit='MiB'>%d</memory>
   <currentMemory unit='MiB'>%d</currentMemory>
@@ -73,5 +71,9 @@ func UbuntuDomain(name, seedIso, storagePoolName, serialSocketPath, vncSocketPat
       <backend model='random'>/dev/urandom</backend>
     </rng>
   </devices>
-</domain>`, name, memoryMiB, memoryMiB, vcpu, storagePoolName, name, storagePoolName, seedIso, vncSocketPath, vncSocketPath, serialSocketPath)
+</domain>`
+
+// UbuntuDomain returns the libvirt domain XML for a standard Ubuntu VM.
+func UbuntuDomain(name, seedIso, storagePoolName, serialSocketPath, vncSocketPath string, vcpu int, memoryMiB int) string {
+	return fmt.Sprintf(ubuntuDomainXML, name, memoryMiB, memoryMiB, vcpu, storagePoolName, name, storagePoolName, seedIso, vncSocketPath, vncSocketPath, serialSocketPath)
 }

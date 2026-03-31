@@ -70,6 +70,28 @@ func TestCompleteLoginRecordsLoginIP(t *testing.T) {
 	}
 }
 
+func assertDashboardOwnershipErrorResponse(t *testing.T, verb string, err error, wantCode int, wantErr string) {
+	t.Helper()
+
+	rec := httptest.NewRecorder()
+	writeDashboardVMActionOwnershipError(rec, "alice-bob-desktop", "alice", verb, err)
+
+	if rec.Code != wantCode {
+		t.Fatalf("expected %d, got %d with body %s", wantCode, rec.Code, rec.Body.String())
+	}
+
+	var resp dashboardActionResponse
+	if decodeErr := json.NewDecoder(rec.Body).Decode(&resp); decodeErr != nil {
+		t.Fatalf("decode response: %v", decodeErr)
+	}
+	if resp.OK {
+		t.Fatalf("expected ok=false, got true")
+	}
+	if resp.Error != wantErr {
+		t.Fatalf("expected error %q, got %q", wantErr, resp.Error)
+	}
+}
+
 func TestWriteDashboardVMActionOwnershipError(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -119,25 +141,7 @@ func TestWriteDashboardVMActionOwnershipError(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			rec := httptest.NewRecorder()
-
-			writeDashboardVMActionOwnershipError(rec, "alice-bob-desktop", "alice", tc.verb, tc.err)
-
-			if rec.Code != tc.wantCode {
-				t.Fatalf("expected %d, got %d with body %s", tc.wantCode, rec.Code, rec.Body.String())
-			}
-
-			var resp dashboardActionResponse
-			if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
-				t.Fatalf("decode response: %v", err)
-			}
-
-			if resp.OK {
-				t.Fatalf("expected ok=false, got true")
-			}
-			if resp.Error != tc.wantErr {
-				t.Fatalf("expected error %q, got %q", tc.wantErr, resp.Error)
-			}
+			assertDashboardOwnershipErrorResponse(t, tc.verb, tc.err, tc.wantCode, tc.wantErr)
 		})
 	}
 }

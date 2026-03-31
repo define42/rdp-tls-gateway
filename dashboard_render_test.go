@@ -121,8 +121,8 @@ func waitForDashboardVM(t *testing.T, settings *config.SettingsType, user, name 
 	return dashboardVM{}
 }
 
-func TestListDashboardVMs(t *testing.T) {
-	virt.GetInstance()
+func newDashboardVMSettings(t *testing.T) *config.SettingsType {
+	t.Helper()
 
 	settings := config.NewSettingType(false)
 	if err := settings.OverwriteForTestString(config.VIRT_SERIAL_SOCKET_DIR, t.TempDir()); err != nil {
@@ -134,6 +134,11 @@ func TestListDashboardVMs(t *testing.T) {
 	if err := settings.OverwriteForTestString(config.FRONT_DOMAIN, "dashboard.test"); err != nil {
 		t.Fatalf("overwrite FRONT_DOMAIN: %v", err)
 	}
+	return settings
+}
+
+func createDashboardVM(t *testing.T, settings *config.SettingsType) (string, string) {
+	t.Helper()
 
 	suffix := time.Now().UnixNano() % 1_000_000
 	username := "dashuser" + strconv.FormatInt(suffix, 10)
@@ -154,9 +159,12 @@ func TestListDashboardVMs(t *testing.T) {
 		}
 	})
 
-	row := waitForDashboardVM(t, settings, username, vmName, dashboardVMTestTimeout)
+	return username, vmName
+}
 
-	wantDisplayName := vmName + ".dashboard.test"
+func assertDashboardVMRow(t *testing.T, row dashboardVM, wantDisplayName string) {
+	t.Helper()
+
 	if row.DisplayName != wantDisplayName {
 		t.Fatalf("expected display name %q, got %q", wantDisplayName, row.DisplayName)
 	}
@@ -178,13 +186,17 @@ func TestListDashboardVMs(t *testing.T) {
 	if !row.VNCReady {
 		t.Fatal("expected VNCReady=true")
 	}
+}
+
+func assertDashboardRDPConnect(t *testing.T, rdpConnect, wantDisplayName, username string) {
+	t.Helper()
 
 	const prefix = "data:application/x-rdp;base64,"
-	if !strings.HasPrefix(row.RDPConnect, prefix) {
-		t.Fatalf("expected RDP data URI prefix, got %q", row.RDPConnect)
+	if !strings.HasPrefix(rdpConnect, prefix) {
+		t.Fatalf("expected RDP data URI prefix, got %q", rdpConnect)
 	}
 
-	decodedRDP, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(row.RDPConnect, prefix))
+	decodedRDP, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(rdpConnect, prefix))
 	if err != nil {
 		t.Fatalf("decode RDP payload: %v", err)
 	}
@@ -195,4 +207,16 @@ func TestListDashboardVMs(t *testing.T) {
 	if !strings.Contains(rdp, "username:s:"+username) {
 		t.Fatalf("expected RDP payload to contain username %q, got %q", username, rdp)
 	}
+}
+
+func TestListDashboardVMs(t *testing.T) {
+	virt.GetInstance()
+
+	settings := newDashboardVMSettings(t)
+	username, vmName := createDashboardVM(t, settings)
+	row := waitForDashboardVM(t, settings, username, vmName, dashboardVMTestTimeout)
+	wantDisplayName := vmName + ".dashboard.test"
+
+	assertDashboardVMRow(t, row, wantDisplayName)
+	assertDashboardRDPConnect(t, row.RDPConnect, wantDisplayName, username)
 }

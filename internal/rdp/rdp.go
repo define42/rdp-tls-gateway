@@ -50,196 +50,42 @@ func getSubdomain(host, root string) (string, bool) {
 	return sub, true
 }
 
+type frontRDPConnection struct {
+	tlsConn  *tls.Conn
+	sni      string
+	hostname string
+}
+
 // HandleRDP handles a single RDP connection over TLS.
 func HandleRDP(raw net.Conn, frontTLS *cert.TLSManager, sessionManager *session.Manager, settings *config.SettingsType) {
-
 	started := time.Now()
 	log.Printf("rdp debug: new connection remote=%s local=%s", raw.RemoteAddr(), raw.LocalAddr())
 
-	// 1) Read client Connection Request (TPKT)
-	crq, err := readTPKT(raw)
-	if err != nil {
-		log.Printf("read client CRQ: %v", err)
-		return
-	}
-	log.Printf("rdp debug: client CRQ len=%d", len(crq))
-
-	// Require that client offered TLS in RDP_NEG_REQ (practical for SNI routing).
-	reqProto, ok := findClientRequestedProtocols(crq)
-	log.Printf("rdp debug: client requested protocols ok=%v value=0x%08x", ok, reqProto)
-	if reqProto&(x224.PROTOCOL_HYBRID|x224.PROTOCOL_HYBRID_EX) != 0 {
-		log.Printf("rdp debug: client offered NLA (HYBRID/HYBRID_EX); gateway only supports TLS (PROTOCOL_SSL)")
-	}
-	if !ok || (reqProto&x224.PROTOCOL_SSL) == 0 {
-		log.Printf("client did not offer TLS (ok=%v requested=0x%08x) from %s", ok, reqProto, raw.RemoteAddr())
-		return
-	}
-
-	// 2) Send server Connection Confirm selecting TLS
-	ccfPayload := buildServerCCFSelectTLS()
-	log.Printf("rdp debug: sending server CCF select TLS")
-	if err := writeTPKT(raw, ccfPayload); err != nil {
-		log.Printf("write CCF(TLS): %v", err)
-		return
-	}
-
-	// 3) TLS handshake with client; get SNI
-	clientTLS := tls.Server(raw, frontTLS.GetTLSConfig())
-	if err := clientTLS.Handshake(); err != nil {
-		log.Printf("client tls handshake: %v", err)
-		return
-	}
-	clientState := clientTLS.ConnectionState()
-	sni := strings.ToLower(strings.TrimSpace(clientState.ServerName))
-	log.Printf(
-		"rdp debug: client TLS established version=%s cipher=0x%04x sni=%q elapsed=%s",
-		tlsVersionLabel(clientState.Version),
-		clientState.CipherSuite,
-		sni,
-		time.Since(started),
-	)
-
-	// check end of sni is setting.Get(config.FRONT_DOMAIN)
-	frontDomain := strings.TrimSpace(settings.Get(config.FRONT_DOMAIN))
-	if frontDomain != "" {
-		log.Printf("rdp debug: enforcing front domain %q", frontDomain)
-	}
-	if frontDomain != "" && !strings.HasSuffix(sni, frontDomain) {
-		log.Printf("client SNI=%q does not match required domain %q from %s", sni, frontDomain, raw.RemoteAddr())
-		_ = clientTLS.Close()
-		return
-	}
-	hostname, ok := getSubdomain(sni, frontDomain)
+	clientConn, ok := negotiateFrontRDP(raw, frontTLS, settings, started)
 	if !ok {
-		log.Printf("client SNI=%q does not have valid subdomain for domain %q from %s", sni, frontDomain, raw.RemoteAddr())
-		_ = clientTLS.Close()
 		return
 	}
-	log.Printf("rdp debug: resolved subdomain hostname=%q", hostname)
-
-	if sessionManager == nil {
-		log.Printf("rdp denied SNI=%q vm=%q remote=%s: session manager unavailable", sni, hostname, raw.RemoteAddr())
-		_ = clientTLS.Close()
+	if !authorizeRDPAccess(raw.RemoteAddr(), sessionManager, clientConn.sni, clientConn.hostname) {
+		_ = clientConn.tlsConn.Close()
 		return
 	}
 
-	owner, hasOwner, err := virt.VMOwner(hostname)
-	if err != nil {
-		log.Printf("resolve owner for VM %s: %v", hostname, err)
-		_ = clientTLS.Close()
-		return
-	}
-	if !hasOwner {
-		log.Printf("rdp denied SNI=%q vm=%q remote=%s: missing VM owner", sni, hostname, raw.RemoteAddr())
-		_ = clientTLS.Close()
-		return
-	}
-
-	clientIP, ok := session.CanonicalClientIP(raw.RemoteAddr().String())
+	backendAddr, ok := resolveBackendAddr(raw.RemoteAddr(), clientConn.sni, clientConn.hostname)
 	if !ok {
-		log.Printf("rdp denied SNI=%q vm=%q remote=%s: invalid client IP", sni, hostname, raw.RemoteAddr())
-		_ = clientTLS.Close()
-		return
-	}
-	if !sessionManager.UserHasActiveSessionFromIP(owner, clientIP) {
-		log.Printf("rdp denied SNI=%q vm=%q owner=%q client_ip=%q remote=%s: no matching active session", sni, hostname, owner, clientIP, raw.RemoteAddr())
-		_ = clientTLS.Close()
-		return
-	}
-	log.Printf("rdp debug: authorized owner=%q client_ip=%q vm=%q", owner, clientIP, hostname)
-
-	backendAddr, err := vmIPAddressLookup(hostname)
-	if err != nil {
-		log.Printf("get IP of VM %s: %v", hostname, err)
-		_ = clientTLS.Close()
-		return
-	}
-	log.Printf("rdp debug: resolved VM %q to IP %q", hostname, backendAddr)
-
-	if backendAddr == "" {
-		log.Printf("no route for SNI=%q from %s", sni, raw.RemoteAddr())
-		_ = clientTLS.Close()
-		return
-	}
-	backendAddr = net.JoinHostPort(backendAddr, "3389")
-	log.Printf("client %s SNI=%q -> %s", raw.RemoteAddr(), sni, backendAddr)
-
-	// 4) Dial backend TCP
-	d := net.Dialer{Timeout: settings.GetDuration(config.TIMEOUT)}
-	log.Printf("rdp debug: dialing backend %s", backendAddr)
-	backendRaw, err := d.Dial("tcp", backendAddr)
-	if err != nil {
-		log.Printf("dial backend %s: %v", backendAddr, err)
-		_ = clientTLS.Close()
-		return
-	}
-	defer func() { _ = backendRaw.Close() }()
-	log.Printf("rdp debug: backend TCP connected to %s", backendAddr)
-
-	_ = backendRaw.SetDeadline(time.Now().Add(settings.GetDuration(config.TIMEOUT)))
-
-	// 5) Send CRQ to backend (force TLS-only negotiation)
-	backendCRQ := buildClientCRQSelectTLS()
-	log.Printf("rdp debug: sending backend CRQ select TLS")
-	if err := writeTPKT(backendRaw, backendCRQ); err != nil {
-		log.Printf("write backend CRQ: %v", err)
-		_ = clientTLS.Close()
+		_ = clientConn.tlsConn.Close()
 		return
 	}
 
-	// 6) Read backend CCF and require TLS selected
-	ccfBackend, err := readTPKT(backendRaw)
-	if err != nil {
-		log.Printf("read backend CCF: %v", err)
-		_ = clientTLS.Close()
-		return
-	}
-	sel, ok := findServerSelectedProtocol(ccfBackend)
-	log.Printf("rdp debug: backend selected protocol ok=%v value=0x%08x", ok, sel)
+	backendTLS, ok := dialBackendRDP(backendAddr, clientConn.sni, settings)
 	if !ok {
-		log.Printf("backend did not include RDP_NEG_RSP (cannot confirm TLS); backend=%s", backendAddr)
-		_ = clientTLS.Close()
-		return
-	}
-	if sel != x224.PROTOCOL_SSL {
-		log.Printf("backend did not select TLS (selected=0x%08x) backend=%s", sel, backendAddr)
-		_ = clientTLS.Close()
+		_ = clientConn.tlsConn.Close()
 		return
 	}
 
-	// 7) Start TLS to backend, ignoring certificate validation
-	backendTLSCfg := &tls.Config{
-		InsecureSkipVerify: true, // ignore backend cert chain + hostname
-	}
-
-	backendTLSCfg.MinVersion = tls.VersionTLS10
-
-	// Still send SNI to backend if we have it (helps if backend uses SNI-based cert selection)
-	if sni != "" && sni != "*" {
-		backendTLSCfg.ServerName = sni
-	}
-
-	backendTLS := tls.Client(backendRaw, backendTLSCfg)
-	if err := backendTLS.Handshake(); err != nil {
-		log.Printf("backend tls handshake: %v (backend=%s)", err, backendAddr)
-		_ = clientTLS.Close()
-		return
-	}
-	backendState := backendTLS.ConnectionState()
-	log.Printf(
-		"rdp debug: backend TLS established version=%s cipher=0x%04x server_name=%q",
-		tlsVersionLabel(backendState.Version),
-		backendState.CipherSuite,
-		backendState.ServerName,
-	)
-
-	// Clear deadlines for steady-state proxying
-	_ = clientTLS.SetDeadline(time.Time{})
+	_ = clientConn.tlsConn.SetDeadline(time.Time{})
 	_ = backendTLS.SetDeadline(time.Time{})
-
-	// 8) Proxy both directions: clientTLS <-> backendTLS
 	log.Printf("rdp debug: starting bidirectional proxy")
-	proxyBidirectional(clientTLS, backendTLS)
+	proxyBidirectional(clientConn.tlsConn, backendTLS)
 }
 
 func proxyBidirectional(a, b net.Conn) {
@@ -407,4 +253,233 @@ func tlsVersionLabel(version uint16) string {
 	default:
 		return fmt.Sprintf("0x%04x", version)
 	}
+}
+
+func negotiateFrontRDP(raw net.Conn, frontTLS *cert.TLSManager, settings *config.SettingsType, started time.Time) (*frontRDPConnection, bool) {
+	crq, ok := readClientConnectionRequest(raw)
+	if !ok {
+		return nil, false
+	}
+	if !clientOfferedTLS(raw.RemoteAddr(), crq) {
+		return nil, false
+	}
+	if !writeFrontConnectionConfirm(raw) {
+		return nil, false
+	}
+
+	clientTLS, sni, ok := handshakeFrontTLS(raw, frontTLS, started)
+	if !ok {
+		return nil, false
+	}
+
+	hostname, ok := validateFrontSNI(sni, raw.RemoteAddr(), settings)
+	if !ok {
+		_ = clientTLS.Close()
+		return nil, false
+	}
+
+	return &frontRDPConnection{
+		tlsConn:  clientTLS,
+		sni:      sni,
+		hostname: hostname,
+	}, true
+}
+
+func readClientConnectionRequest(raw net.Conn) ([]byte, bool) {
+	crq, err := readTPKT(raw)
+	if err != nil {
+		log.Printf("read client CRQ: %v", err)
+		return nil, false
+	}
+	log.Printf("rdp debug: client CRQ len=%d", len(crq))
+	return crq, true
+}
+
+func clientOfferedTLS(remoteAddr net.Addr, crq []byte) bool {
+	reqProto, ok := findClientRequestedProtocols(crq)
+	log.Printf("rdp debug: client requested protocols ok=%v value=0x%08x", ok, reqProto)
+	if reqProto&(x224.PROTOCOL_HYBRID|x224.PROTOCOL_HYBRID_EX) != 0 {
+		log.Printf("rdp debug: client offered NLA (HYBRID/HYBRID_EX); gateway only supports TLS (PROTOCOL_SSL)")
+	}
+	if ok && (reqProto&x224.PROTOCOL_SSL) != 0 {
+		return true
+	}
+
+	log.Printf("client did not offer TLS (ok=%v requested=0x%08x) from %s", ok, reqProto, remoteAddr)
+	return false
+}
+
+func writeFrontConnectionConfirm(raw net.Conn) bool {
+	log.Printf("rdp debug: sending server CCF select TLS")
+	if err := writeTPKT(raw, buildServerCCFSelectTLS()); err != nil {
+		log.Printf("write CCF(TLS): %v", err)
+		return false
+	}
+	return true
+}
+
+func handshakeFrontTLS(raw net.Conn, frontTLS *cert.TLSManager, started time.Time) (*tls.Conn, string, bool) {
+	clientTLS := tls.Server(raw, frontTLS.GetTLSConfig())
+	if err := clientTLS.Handshake(); err != nil {
+		log.Printf("client tls handshake: %v", err)
+		return nil, "", false
+	}
+
+	clientState := clientTLS.ConnectionState()
+	sni := strings.ToLower(strings.TrimSpace(clientState.ServerName))
+	log.Printf(
+		"rdp debug: client TLS established version=%s cipher=0x%04x sni=%q elapsed=%s",
+		tlsVersionLabel(clientState.Version),
+		clientState.CipherSuite,
+		sni,
+		time.Since(started),
+	)
+	return clientTLS, sni, true
+}
+
+func validateFrontSNI(sni string, remoteAddr net.Addr, settings *config.SettingsType) (string, bool) {
+	frontDomain := strings.TrimSpace(settings.Get(config.FRONT_DOMAIN))
+	if frontDomain != "" {
+		log.Printf("rdp debug: enforcing front domain %q", frontDomain)
+	}
+	if frontDomain != "" && !strings.HasSuffix(sni, frontDomain) {
+		log.Printf("client SNI=%q does not match required domain %q from %s", sni, frontDomain, remoteAddr)
+		return "", false
+	}
+
+	hostname, ok := getSubdomain(sni, frontDomain)
+	if !ok {
+		log.Printf("client SNI=%q does not have valid subdomain for domain %q from %s", sni, frontDomain, remoteAddr)
+		return "", false
+	}
+
+	log.Printf("rdp debug: resolved subdomain hostname=%q", hostname)
+	return hostname, true
+}
+
+func authorizeRDPAccess(remoteAddr net.Addr, sessionManager *session.Manager, sni, hostname string) bool {
+	if sessionManager == nil {
+		log.Printf("rdp denied SNI=%q vm=%q remote=%s: session manager unavailable", sni, hostname, remoteAddr)
+		return false
+	}
+
+	owner, hasOwner, err := virt.VMOwner(hostname)
+	if err != nil {
+		log.Printf("resolve owner for VM %s: %v", hostname, err)
+		return false
+	}
+	if !hasOwner {
+		log.Printf("rdp denied SNI=%q vm=%q remote=%s: missing VM owner", sni, hostname, remoteAddr)
+		return false
+	}
+
+	clientIP, ok := session.CanonicalClientIP(remoteAddr.String())
+	if !ok {
+		log.Printf("rdp denied SNI=%q vm=%q remote=%s: invalid client IP", sni, hostname, remoteAddr)
+		return false
+	}
+	if !sessionManager.UserHasActiveSessionFromIP(owner, clientIP) {
+		log.Printf("rdp denied SNI=%q vm=%q owner=%q client_ip=%q remote=%s: no matching active session", sni, hostname, owner, clientIP, remoteAddr)
+		return false
+	}
+
+	log.Printf("rdp debug: authorized owner=%q client_ip=%q vm=%q", owner, clientIP, hostname)
+	return true
+}
+
+func resolveBackendAddr(remoteAddr net.Addr, sni, hostname string) (string, bool) {
+	backendIP, err := vmIPAddressLookup(hostname)
+	if err != nil {
+		log.Printf("get IP of VM %s: %v", hostname, err)
+		return "", false
+	}
+	log.Printf("rdp debug: resolved VM %q to IP %q", hostname, backendIP)
+	if backendIP == "" {
+		log.Printf("no route for SNI=%q from %s", sni, remoteAddr)
+		return "", false
+	}
+
+	backendAddr := net.JoinHostPort(backendIP, "3389")
+	log.Printf("client %s SNI=%q -> %s", remoteAddr, sni, backendAddr)
+	return backendAddr, true
+}
+
+func dialBackendRDP(backendAddr, sni string, settings *config.SettingsType) (*tls.Conn, bool) {
+	backendRaw, err := dialBackendTCP(backendAddr, settings)
+	if err != nil {
+		return nil, false
+	}
+
+	backendTLS, err := negotiateBackendTLS(backendRaw, backendAddr, sni)
+	if err != nil {
+		_ = backendRaw.Close()
+		return nil, false
+	}
+	return backendTLS, true
+}
+
+func dialBackendTCP(backendAddr string, settings *config.SettingsType) (net.Conn, error) {
+	d := net.Dialer{Timeout: settings.GetDuration(config.TIMEOUT)}
+	log.Printf("rdp debug: dialing backend %s", backendAddr)
+
+	backendRaw, err := d.Dial("tcp", backendAddr)
+	if err != nil {
+		log.Printf("dial backend %s: %v", backendAddr, err)
+		return nil, err
+	}
+
+	log.Printf("rdp debug: backend TCP connected to %s", backendAddr)
+	_ = backendRaw.SetDeadline(time.Now().Add(settings.GetDuration(config.TIMEOUT)))
+	return backendRaw, nil
+}
+
+func negotiateBackendTLS(backendRaw net.Conn, backendAddr, sni string) (*tls.Conn, error) {
+	log.Printf("rdp debug: sending backend CRQ select TLS")
+	if err := writeTPKT(backendRaw, buildClientCRQSelectTLS()); err != nil {
+		log.Printf("write backend CRQ: %v", err)
+		return nil, err
+	}
+
+	ccfBackend, err := readTPKT(backendRaw)
+	if err != nil {
+		log.Printf("read backend CCF: %v", err)
+		return nil, err
+	}
+
+	sel, ok := findServerSelectedProtocol(ccfBackend)
+	log.Printf("rdp debug: backend selected protocol ok=%v value=0x%08x", ok, sel)
+	if !ok {
+		log.Printf("backend did not include RDP_NEG_RSP (cannot confirm TLS); backend=%s", backendAddr)
+		return nil, fmt.Errorf("backend did not confirm TLS")
+	}
+	if sel != x224.PROTOCOL_SSL {
+		log.Printf("backend did not select TLS (selected=0x%08x) backend=%s", sel, backendAddr)
+		return nil, fmt.Errorf("backend did not select TLS")
+	}
+
+	backendTLS := tls.Client(backendRaw, backendTLSConfig(sni))
+	if err := backendTLS.Handshake(); err != nil {
+		log.Printf("backend tls handshake: %v (backend=%s)", err, backendAddr)
+		return nil, err
+	}
+
+	backendState := backendTLS.ConnectionState()
+	log.Printf(
+		"rdp debug: backend TLS established version=%s cipher=0x%04x server_name=%q",
+		tlsVersionLabel(backendState.Version),
+		backendState.CipherSuite,
+		backendState.ServerName,
+	)
+	return backendTLS, nil
+}
+
+func backendTLSConfig(sni string) *tls.Config {
+	backendTLSCfg := &tls.Config{
+		InsecureSkipVerify: true, // ignore backend cert chain + hostname
+		MinVersion:         tls.VersionTLS10,
+	}
+	if sni != "" && sni != "*" {
+		backendTLSCfg.ServerName = sni
+	}
+	return backendTLSCfg
 }

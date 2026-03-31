@@ -32,62 +32,92 @@ func ListVMs(user string, conn *libvirt.Connect) ([]VMInfo, error) {
 		log.Printf("list domains: %v", err)
 		return nil, err
 	}
-	defer func() {
-		for _, d := range doms {
-			_ = d.Free()
-		}
-	}()
+	defer freeDomains(doms)
 
 	var result []VMInfo
 	for _, d := range doms {
-		name, err := d.GetName()
-		if err != nil {
-			log.Printf("domain name: %v", err)
-			continue
+		info, ok := domainVMInfo(d, user)
+		if ok {
+			result = append(result, info)
 		}
-
-		owner := ""
-		if metadataOwner, hasOwner, err := domainOwner(&d); err != nil {
-			log.Printf("domain owner %s: %v", name, err)
-		} else if hasOwner {
-			owner = metadataOwner
-		}
-		if user != "" && owner != user {
-			continue
-		}
-
-		state, _, err := d.GetState()
-		if err != nil {
-			log.Printf("domain state %s: %v", name, err)
-			continue
-		}
-		mem, vcpu := domainResources(d)
-		volGB := domainDiskGB(d)
-		ttyReady := domainTTYReady(&d)
-		vncReady := domainVNCReady(&d)
-		ip := ""
-		primaryIP := ""
-		if state == libvirt.DOMAIN_RUNNING || state == libvirt.DOMAIN_PAUSED || state == libvirt.DOMAIN_PMSUSPENDED {
-			ips := domainIPs(d)
-			if len(ips) > 0 {
-				primaryIP = ips[0]
-				ip = strings.Join(ips, ", ")
-			}
-		}
-		result = append(result, VMInfo{
-			Name:      name,
-			Owner:     owner,
-			State:     formatState(state),
-			MemoryMiB: mem,
-			VCPU:      vcpu,
-			VolumeGB:  volGB,
-			IP:        ip,
-			PrimaryIP: primaryIP,
-			TTYReady:  ttyReady,
-			VNCReady:  vncReady,
-		})
 	}
 	return result, nil
+}
+
+func freeDomains(doms []libvirt.Domain) {
+	for _, d := range doms {
+		_ = d.Free()
+	}
+}
+
+func domainVMInfo(d libvirt.Domain, user string) (VMInfo, bool) {
+	name, err := d.GetName()
+	if err != nil {
+		log.Printf("domain name: %v", err)
+		return VMInfo{}, false
+	}
+
+	owner := domainOwnerForVMInfo(name, &d)
+	if user != "" && owner != user {
+		return VMInfo{}, false
+	}
+
+	state, _, err := d.GetState()
+	if err != nil {
+		log.Printf("domain state %s: %v", name, err)
+		return VMInfo{}, false
+	}
+
+	mem, vcpu := domainResources(d)
+	ip, primaryIP := domainDisplayIPs(d, state)
+	return VMInfo{
+		Name:      name,
+		Owner:     owner,
+		State:     formatState(state),
+		MemoryMiB: mem,
+		VCPU:      vcpu,
+		VolumeGB:  domainDiskGB(d),
+		IP:        ip,
+		PrimaryIP: primaryIP,
+		TTYReady:  domainTTYReady(&d),
+		VNCReady:  domainVNCReady(&d),
+	}, true
+}
+
+func domainOwnerForVMInfo(name string, d *libvirt.Domain) string {
+	owner, hasOwner, err := domainOwner(d)
+	if err != nil {
+		log.Printf("domain owner %s: %v", name, err)
+		return ""
+	}
+	if !hasOwner {
+		return ""
+	}
+	return owner
+}
+
+func domainDisplayIPs(d libvirt.Domain, state libvirt.DomainState) (string, string) {
+	if !domainCanReportIPs(state) {
+		return "", ""
+	}
+
+	ips := domainIPs(d)
+	if len(ips) == 0 {
+		return "", ""
+	}
+
+	return strings.Join(ips, ", "), ips[0]
+}
+
+func domainCanReportIPs(state libvirt.DomainState) bool {
+	switch state {
+	case libvirt.DOMAIN_RUNNING, libvirt.DOMAIN_PAUSED, libvirt.DOMAIN_PMSUSPENDED:
+		return true
+	case libvirt.DOMAIN_NOSTATE, libvirt.DOMAIN_BLOCKED, libvirt.DOMAIN_SHUTDOWN, libvirt.DOMAIN_CRASHED, libvirt.DOMAIN_SHUTOFF:
+		return false
+	default:
+		return false
+	}
 }
 
 func domainTTYReady(d *libvirt.Domain) bool {
@@ -142,39 +172,44 @@ func domainIPs(d libvirt.Domain) []string {
 		libvirt.DOMAIN_INTERFACE_ADDRESSES_SRC_LEASE,
 		libvirt.DOMAIN_INTERFACE_ADDRESSES_SRC_ARP,
 	}
-	var ipv4 []string
+
+	var ips []string
 	seen := make(map[string]struct{})
-	var firstErr error
 
 	for _, src := range sources {
-		ifaces, err := d.ListAllInterfaceAddresses(src)
-		if err != nil {
-			if firstErr == nil {
-				firstErr = err
-			}
-			continue
-		}
-		for _, iface := range ifaces {
-			for _, addr := range iface.Addrs {
-				if addr.Addr == "" {
-					continue
-				}
-				if _, ok := seen[addr.Addr]; ok {
-					continue
-				}
-				seen[addr.Addr] = struct{}{}
-				switch addr.Type {
-				case libvirt.IP_ADDR_TYPE_IPV4:
-					ipv4 = append(ipv4, addr.Addr)
-				case libvirt.IP_ADDR_TYPE_IPV6:
-					ipv4 = append(ipv4, addr.Addr)
-				default:
-					ipv4 = append(ipv4, addr.Addr)
-				}
-			}
-		}
+		ips = appendDomainIPsFromSource(ips, seen, d, src)
 	}
-	return ipv4
+	return ips
+}
+
+func appendDomainIPsFromSource(ips []string, seen map[string]struct{}, d libvirt.Domain, src libvirt.DomainInterfaceAddressesSource) []string {
+	ifaces, err := d.ListAllInterfaceAddresses(src)
+	if err != nil {
+		return ips
+	}
+
+	for _, iface := range ifaces {
+		ips = appendDomainInterfaceIPs(ips, seen, iface)
+	}
+	return ips
+}
+
+func appendDomainInterfaceIPs(ips []string, seen map[string]struct{}, iface libvirt.DomainInterface) []string {
+	for _, addr := range iface.Addrs {
+		ips = appendUniqueDomainIP(ips, seen, addr.Addr)
+	}
+	return ips
+}
+
+func appendUniqueDomainIP(ips []string, seen map[string]struct{}, addr string) []string {
+	if addr == "" {
+		return ips
+	}
+	if _, ok := seen[addr]; ok {
+		return ips
+	}
+	seen[addr] = struct{}{}
+	return append(ips, addr)
 }
 
 func formatState(state libvirt.DomainState) string {

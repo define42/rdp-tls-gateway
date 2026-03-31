@@ -120,6 +120,101 @@ func waitForDomainRemoval(t *testing.T, conn *libvirt.Connect, name string, time
 	t.Fatalf("domain %s was not removed within %s", name, timeout)
 }
 
+func assertUnownedVM(t *testing.T, vmName string) {
+	t.Helper()
+
+	owner, hasOwner, err := VMOwner(vmName)
+	if err != nil {
+		t.Fatalf("VMOwner without metadata: %v", err)
+	}
+	if hasOwner || owner != "" {
+		t.Fatalf("expected StartVM without metadata owner to report none, got owner=%q hasOwner=%v", owner, hasOwner)
+	}
+	owned, err := UserOwnsVM(vmName, "bootuser")
+	if err != nil {
+		t.Fatalf("UserOwnsVM without metadata: %v", err)
+	}
+	if owned {
+		t.Fatalf("did not expect %q to own StartVM-created VM %q without metadata", "bootuser", vmName)
+	}
+}
+
+func assertSocketPlaceholderRemoved(t *testing.T, path, label string) {
+	t.Helper()
+
+	if info, err := os.Lstat(path); err == nil && info.Mode().IsRegular() {
+		t.Fatalf("expected stale %s placeholder file to be replaced or removed before VM start", label)
+	}
+}
+
+func assertMissingVolumes(t *testing.T, pool *libvirt.StoragePool, volumeNames ...string) {
+	t.Helper()
+
+	for _, volumeName := range volumeNames {
+		if _, err := pool.LookupStorageVolByName(volumeName); err == nil {
+			t.Fatalf("expected volume %s to be removed", volumeName)
+		}
+	}
+}
+
+func lookupDomainUUID(t *testing.T, conn *libvirt.Connect, vmName string) string {
+	t.Helper()
+
+	dom, err := conn.LookupDomainByName(vmName)
+	if err != nil {
+		t.Fatalf("lookup domain %s: %v", vmName, err)
+	}
+	defer func() { _ = dom.Free() }()
+
+	uuid, err := dom.GetUUIDString()
+	if err != nil {
+		t.Fatalf("get domain UUID for %s: %v", vmName, err)
+	}
+	return uuid
+}
+
+func requireListedVM(t *testing.T, vms []VMInfo, vmName string) VMInfo {
+	t.Helper()
+
+	for _, vm := range vms {
+		if vm.Name == vmName {
+			return vm
+		}
+	}
+	t.Fatalf("expected VM %q in VM list", vmName)
+	return VMInfo{}
+}
+
+func assertListedVMOwner(t *testing.T, vms []VMInfo, vmName, owner string) {
+	t.Helper()
+
+	vm := requireListedVM(t, vms, vmName)
+	if vm.Owner != owner {
+		t.Fatalf("expected owner %q, got %q", owner, vm.Owner)
+	}
+}
+
+func assertListExcludesVM(t *testing.T, vms []VMInfo, vmName string) {
+	t.Helper()
+
+	for _, vm := range vms {
+		if vm.Name == vmName {
+			t.Fatalf("did not expect VM list to include %q", vmName)
+		}
+	}
+}
+
+func writeStaleSocketPlaceholders(t *testing.T, serialPath, vncPath string) {
+	t.Helper()
+
+	if err := os.WriteFile(serialPath, []byte("stale"), 0o644); err != nil {
+		t.Fatalf("write stale serial socket placeholder: %v", err)
+	}
+	if err := os.WriteFile(vncPath, []byte("stale"), 0o644); err != nil {
+		t.Fatalf("write stale vnc socket placeholder: %v", err)
+	}
+}
+
 func TestStartVMAndRemoveVMManageArtifacts(t *testing.T) {
 	conn := newTestLibvirtConn(t)
 	settings := newBootTestSettings(t)
@@ -160,50 +255,23 @@ func TestStartVMAndRemoveVMManageArtifacts(t *testing.T) {
 		t.Fatalf("CreateUbuntuSeedISOToPool: %v", err)
 	}
 
-	if err := os.WriteFile(serialPath, []byte("stale"), 0o644); err != nil {
-		t.Fatalf("write stale serial socket placeholder: %v", err)
-	}
-	if err := os.WriteFile(vncPath, []byte("stale"), 0o644); err != nil {
-		t.Fatalf("write stale vnc socket placeholder: %v", err)
-	}
+	writeStaleSocketPlaceholders(t, serialPath, vncPath)
 
 	if err := StartVM(vmName, seedISO, poolName, serialPath, vncPath, vcpu, memoryMB); err != nil {
 		t.Fatalf("StartVM: %v", err)
 	}
 
 	waitForDomainState(t, conn, vmName, true, bootLifecycleTimeout)
-	owner, hasOwner, err := VMOwner(vmName)
-	if err != nil {
-		t.Fatalf("VMOwner without metadata: %v", err)
-	}
-	if hasOwner || owner != "" {
-		t.Fatalf("expected StartVM without metadata owner to report none, got owner=%q hasOwner=%v", owner, hasOwner)
-	}
-	owned, err := UserOwnsVM(vmName, "bootuser")
-	if err != nil {
-		t.Fatalf("UserOwnsVM without metadata: %v", err)
-	}
-	if owned {
-		t.Fatalf("did not expect %q to own StartVM-created VM %q without metadata", "bootuser", vmName)
-	}
-	if info, err := os.Lstat(serialPath); err == nil && info.Mode().IsRegular() {
-		t.Fatal("expected stale serial placeholder file to be replaced or removed before VM start")
-	}
-	if info, err := os.Lstat(vncPath); err == nil && info.Mode().IsRegular() {
-		t.Fatal("expected stale VNC placeholder file to be replaced or removed before VM start")
-	}
+	assertUnownedVM(t, vmName)
+	assertSocketPlaceholderRemoved(t, serialPath, "serial")
+	assertSocketPlaceholderRemoved(t, vncPath, "VNC")
 
 	if err := RemoveVM(vmName, settings); err != nil {
 		t.Fatalf("RemoveVM: %v", err)
 	}
 
 	waitForDomainRemoval(t, conn, vmName, bootLifecycleTimeout)
-	if _, err := pool.LookupStorageVolByName(vmName); err == nil {
-		t.Fatal("expected VM disk volume to be removed")
-	}
-	if _, err := pool.LookupStorageVolByName(seedISO); err == nil {
-		t.Fatal("expected seed ISO volume to be removed")
-	}
+	assertMissingVolumes(t, pool, vmName, seedISO)
 }
 
 func TestBootNewVMRecreatesExistingVM(t *testing.T) {
@@ -222,16 +290,7 @@ func TestBootNewVMRecreatesExistingVM(t *testing.T) {
 	})
 
 	waitForDomainState(t, conn, vmName, true, bootLifecycleTimeout)
-
-	firstDomain, err := conn.LookupDomainByName(vmName)
-	if err != nil {
-		t.Fatalf("lookup initial domain: %v", err)
-	}
-	firstUUID, err := firstDomain.GetUUIDString()
-	_ = firstDomain.Free()
-	if err != nil {
-		t.Fatalf("get initial domain UUID: %v", err)
-	}
+	firstUUID := lookupDomainUUID(t, conn, vmName)
 
 	recreatedName, err := BootNewVM(shortName, user, settings, 4, 8192)
 	if err != nil {
@@ -242,16 +301,7 @@ func TestBootNewVMRecreatesExistingVM(t *testing.T) {
 	}
 
 	waitForDomainState(t, conn, vmName, true, bootLifecycleTimeout)
-
-	recreatedDomain, err := conn.LookupDomainByName(vmName)
-	if err != nil {
-		t.Fatalf("lookup recreated domain: %v", err)
-	}
-	recreatedUUID, err := recreatedDomain.GetUUIDString()
-	_ = recreatedDomain.Free()
-	if err != nil {
-		t.Fatalf("get recreated domain UUID: %v", err)
-	}
+	recreatedUUID := lookupDomainUUID(t, conn, vmName)
 	if recreatedUUID == firstUUID {
 		t.Fatal("expected recreated VM to have a new domain UUID")
 	}
@@ -260,25 +310,15 @@ func TestBootNewVMRecreatesExistingVM(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListVMs: %v", err)
 	}
-
-	found := false
-	for _, vm := range vms {
-		if vm.Name != vmName {
-			continue
-		}
-		found = true
-		if vm.State != "running" {
-			t.Fatalf("expected recreated VM to be running, got %q", vm.State)
-		}
-		if vm.VCPU != 4 {
-			t.Fatalf("expected recreated VM vcpu 4, got %d", vm.VCPU)
-		}
-		if vm.MemoryMiB != 8192 {
-			t.Fatalf("expected recreated VM memory 8192, got %d", vm.MemoryMiB)
-		}
+	vm := requireListedVM(t, vms, vmName)
+	if vm.State != "running" {
+		t.Fatalf("expected recreated VM to be running, got %q", vm.State)
 	}
-	if !found {
-		t.Fatalf("expected recreated VM %q in VM list", vmName)
+	if vm.VCPU != 4 {
+		t.Fatalf("expected recreated VM vcpu 4, got %d", vm.VCPU)
+	}
+	if vm.MemoryMiB != 8192 {
+		t.Fatalf("expected recreated VM memory 8192, got %d", vm.MemoryMiB)
 	}
 }
 
@@ -329,28 +369,13 @@ func TestBootNewVMPersistsOwnerMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListVMs(owner): %v", err)
 	}
-	found := false
-	for _, vm := range metaVMs {
-		if vm.Name == vmName {
-			found = true
-			if vm.Owner != user.GetName() {
-				t.Fatalf("expected owner %q, got %q", user.GetName(), vm.Owner)
-			}
-		}
-	}
-	if !found {
-		t.Fatalf("expected VM %q in owner-scoped list", vmName)
-	}
+	assertListedVMOwner(t, metaVMs, vmName, user.GetName())
 
 	prefixVMs, err := ListVMs("meta", conn)
 	if err != nil {
 		t.Fatalf("ListVMs(prefix): %v", err)
 	}
-	for _, vm := range prefixVMs {
-		if vm.Name == vmName {
-			t.Fatalf("did not expect prefix user list to include %q", vmName)
-		}
-	}
+	assertListExcludesVM(t, prefixVMs, vmName)
 }
 
 func TestBootNewVMFailsWithoutBaseImageSource(t *testing.T) {

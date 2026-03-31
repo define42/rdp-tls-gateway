@@ -11,6 +11,15 @@ linters:
     - gochecknoglobals
     - gochecknoinits
     - exhaustive
+    - gocognit
+    - nestif
+    - funlen
+
+  settings:
+    gocognit:
+      min-complexity: 15
+    nestif:
+      min-complexity: 4
 
   exclusions:
     rules:

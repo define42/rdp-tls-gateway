@@ -71,75 +71,17 @@ func (tm *TLSManager) updateDomains() {
 
 // NewTLSManager builds the frontend TLS manager from the active settings.
 func NewTLSManager(settings *config.SettingsType) (*TLSManager, error) {
-	frontPageDomain := settings.Get(config.FRONT_DOMAIN)
-
 	fallback, err := LoadOrGenerateCert(settings)
 	if err != nil {
 		log.Fatalf("cert setup: %v", err)
 		return nil, err
 	}
 
-	acmeEnabled := settings.IsTrue(config.ACME_ENABLE)
-	email := settings.Get(config.ACME_EMAIL)
-	ca := settings.Get(config.ACME_CA)
-	storage := settings.Get(config.ACME_DATA_DIR)
-
-	if !acmeEnabled {
-		frontTLS := &tls.Config{
-			Certificates: []tls.Certificate{fallback},
-		}
-
-		frontTLS.MinVersion = tls.VersionTLS10
-		frontTLS.CipherSuites = allCipherSuiteIDs()
-
-		return &TLSManager{
-			tlsConfig: frontTLS,
-			settings:  settings,
-		}, nil
+	if !settings.IsTrue(config.ACME_ENABLE) {
+		return newStaticTLSManager(settings, fallback), nil
 	}
 
-	certmagic.DefaultACME.Agreed = true
-	certmagic.DefaultACME.DisableHTTPChallenge = true
-	if email != "" {
-		certmagic.DefaultACME.Email = email
-	} else {
-		log.Printf("acme: no -acme-email provided; account registration may be rejected by some CAs")
-	}
-	if ca != "" {
-		certmagic.DefaultACME.CA = resolveACMECA(ca)
-	}
-	if storage != "" {
-		certmagic.Default.Storage = &certmagic.FileStorage{Path: storage}
-	}
-
-	magic := certmagic.NewDefault()
-	var domains []string
-	if frontPageDomain != "" {
-		domains = append(domains, frontPageDomain)
-	}
-	if len(domains) == 0 {
-		return nil, fmt.Errorf("acme enabled but no explicit hostnames provided in -routes or -frontpage-domain")
-	}
-	log.Printf("acme: pre-issuing certificates for: %s", strings.Join(domains, ", "))
-
-	if err := magic.ManageSync(context.Background(), domains); err != nil {
-		return nil, err
-	}
-
-	tlsCfg := magic.TLSConfig()
-	tlsCfg.NextProtos = append([]string{"http/1.1"}, tlsCfg.NextProtos...)
-	tlsCfg.GetCertificate = acmeGetCertificate(magic, fallback)
-	tlsCfg.MinVersion = tls.VersionTLS10 // RDP backend compatibility
-	tlsCfg.CipherSuites = allCipherSuiteIDs()
-
-	tm := TLSManager{
-		magic:     magic,
-		tlsConfig: tlsCfg,
-		settings:  settings,
-	}
-
-	go tm.worker()
-	return &tm, nil
+	return newACMETLSManager(settings, fallback)
 }
 
 // LoadOrGenerateCert loads the configured certificate pair or creates a self-signed fallback.
@@ -164,6 +106,83 @@ func LoadOrGenerateCert(settings *config.SettingsType) (tls.Certificate, error) 
 // IsACMETLSALPN reports whether the negotiated ALPN protocol is ACME TLS-ALPN-01.
 func IsACMETLSALPN(protocol string) bool {
 	return protocol == acmez.ACMETLS1Protocol
+}
+
+func newStaticTLSManager(settings *config.SettingsType, fallback tls.Certificate) *TLSManager {
+	frontTLS := &tls.Config{
+		Certificates: []tls.Certificate{fallback},
+	}
+
+	frontTLS.MinVersion = tls.VersionTLS10
+	frontTLS.CipherSuites = allCipherSuiteIDs()
+
+	return &TLSManager{
+		tlsConfig: frontTLS,
+		settings:  settings,
+	}
+}
+
+func newACMETLSManager(settings *config.SettingsType, fallback tls.Certificate) (*TLSManager, error) {
+	configureACMEDefaults(settings)
+
+	domains, err := initialManagedDomains(settings.Get(config.FRONT_DOMAIN))
+	if err != nil {
+		return nil, err
+	}
+
+	magic := certmagic.NewDefault()
+	log.Printf("acme: pre-issuing certificates for: %s", strings.Join(domains, ", "))
+	if err := magic.ManageSync(context.Background(), domains); err != nil {
+		return nil, err
+	}
+
+	tm := &TLSManager{
+		magic:     magic,
+		tlsConfig: newManagedTLSConfig(magic, fallback),
+		settings:  settings,
+	}
+	go tm.worker()
+
+	return tm, nil
+}
+
+func configureACMEDefaults(settings *config.SettingsType) {
+	certmagic.DefaultACME.Agreed = true
+	certmagic.DefaultACME.DisableHTTPChallenge = true
+
+	email := settings.Get(config.ACME_EMAIL)
+	if email != "" {
+		certmagic.DefaultACME.Email = email
+	} else {
+		log.Printf("acme: no -acme-email provided; account registration may be rejected by some CAs")
+	}
+
+	if ca := settings.Get(config.ACME_CA); ca != "" {
+		certmagic.DefaultACME.CA = resolveACMECA(ca)
+	}
+	if storage := settings.Get(config.ACME_DATA_DIR); storage != "" {
+		certmagic.Default.Storage = &certmagic.FileStorage{Path: storage}
+	}
+}
+
+func initialManagedDomains(frontPageDomain string) ([]string, error) {
+	var domains []string
+	if frontPageDomain != "" {
+		domains = append(domains, frontPageDomain)
+	}
+	if len(domains) == 0 {
+		return nil, fmt.Errorf("acme enabled but no explicit hostnames provided in -routes or -frontpage-domain")
+	}
+	return domains, nil
+}
+
+func newManagedTLSConfig(magic *certmagic.Config, fallback tls.Certificate) *tls.Config {
+	tlsCfg := magic.TLSConfig()
+	tlsCfg.NextProtos = append([]string{"http/1.1"}, tlsCfg.NextProtos...)
+	tlsCfg.GetCertificate = acmeGetCertificate(magic, fallback)
+	tlsCfg.MinVersion = tls.VersionTLS10 // RDP backend compatibility
+	tlsCfg.CipherSuites = allCipherSuiteIDs()
+	return tlsCfg
 }
 
 func acmeGetCertificate(magic *certmagic.Config, fallback tls.Certificate) func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
