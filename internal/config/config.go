@@ -289,5 +289,89 @@ const (
 	TIMEOUT                = "TIMEOUT"
 )
 
+func (s *SettingsType) OverwriteForTestString(id, value string) error {
+
+	if st, ok := s.m[id]; ok {
+		if st.Kind != KindString {
+			return &SettingTypeMismatchError{ID: id, Expected: KindString, Actual: st.Kind}
+		}
+		st.S = value
+		st.Raw = value
+		return nil
+	}
+	return &SettingNotFoundError{ID: id}
+}
+
+func (s *SettingsType) OverwriteForTestInt(id string, value int) error {
+	if st, ok := s.m[id]; ok {
+		if st.Kind != KindInt {
+			return &SettingTypeMismatchError{ID: id, Expected: KindInt, Actual: st.Kind}
+		}
+		st.I = value
+		st.Raw = strconv.Itoa(value)
+		return nil
+	}
+	return &SettingNotFoundError{ID: id}
+}
+
+func (s *SettingsType) OverwriteForTestBool(id string, value bool) error {
+	if st, ok := s.m[id]; ok {
+		if st.Kind != KindBool {
+			return &SettingTypeMismatchError{ID: id, Expected: KindBool, Actual: st.Kind}
+		}
+		st.B = value
+		st.Raw = strconv.FormatBool(value)
+		return nil
+	}
+	return &SettingNotFoundError{ID: id}
+}
+
+func (s *SettingsType) OverwriteForTestDuration(id string, value time.Duration) error {
+	if st, ok := s.m[id]; ok {
+		if st.Kind != KindDuration {
+			return &SettingTypeMismatchError{ID: id, Expected: KindDuration, Actual: st.Kind}
+		}
+		st.D = value
+		st.Raw = value.String()
+		return nil
+	}
+	return &SettingNotFoundError{ID: id}
+}
+
+type SettingNotFoundError struct {
+	ID string
+}
+
+func (e *SettingNotFoundError) Error() string {
+	return "setting not found: " + e.ID
+}
+
+type SettingTypeMismatchError struct {
+	ID       string
+	Expected Kind
+	Actual   Kind
+}
+
+func (e *SettingTypeMismatchError) Error() string {
+	return "setting type mismatch for " + e.ID + ": expected " + kindToString(e.Expected) + ", got " + kindToString(e.Actual)
+}
+
+func kindToString(k Kind) string {
+	switch k {
+	case KindString:
+		return "string"
+	case KindInt:
+		return "int"
+	case KindBool:
+		return "bool"
+	case KindDuration:
+		return "duration"
+	default:
+		return "unknown"
+	}
+}
+
+// ---- Global instance (for convenience, but consider using your own in libraries) ----
+
 // NOTE: prints at init-time (like your original). Consider false in libraries.
 //var Settings = NewSettingType(true)

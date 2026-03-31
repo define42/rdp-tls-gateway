@@ -56,7 +56,11 @@ func checkState(testUsername, vmName, state string, conn *libvirt.Connect) error
 
 func TestStartVM(t *testing.T) {
 
+	//tmpDir := t.TempDir()
+
 	settings := config.NewSettingType(false)
+	settings.OverwriteForTestString(config.VIRT_SERIAL_SOCKET_DIR, t.TempDir())
+	settings.OverwriteForTestString(config.VIRT_VNC_SOCKET_DIR, t.TempDir())
 
 	if err := virt.InitVirt(settings); err != nil {
 		log.Fatalf("Failed to initialize virtualization: %v", err)
