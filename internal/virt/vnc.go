@@ -108,16 +108,16 @@ func domainVNCSocketPath(dom *libvirt.Domain) (string, bool, error) {
 	return vncSocketPathFromDomainXML(xmlDesc)
 }
 
-func DialVNCSocket(name string, timeout time.Duration) (net.Conn, error) {
+func VNCSocketPathForDomain(name string) (string, error) {
 	conn, err := libvirt.NewConnect(LibvirtURI())
 	if err != nil {
-		return nil, fmt.Errorf("connect libvirt: %w", err)
+		return "", fmt.Errorf("connect libvirt: %w", err)
 	}
 	defer conn.Close()
 
 	dom, err := conn.LookupDomainByName(name)
 	if err != nil {
-		return nil, fmt.Errorf("lookup domain %s: %w", name, err)
+		return "", fmt.Errorf("lookup domain %s: %w", name, err)
 	}
 	defer func() {
 		_ = dom.Free()
@@ -125,18 +125,27 @@ func DialVNCSocket(name string, timeout time.Duration) (net.Conn, error) {
 
 	active, err := dom.IsActive()
 	if err != nil {
-		return nil, fmt.Errorf("check domain active %s: %w", name, err)
+		return "", fmt.Errorf("check domain active %s: %w", name, err)
 	}
 	if !active {
-		return nil, ErrVNCNotRunning
+		return "", ErrVNCNotRunning
 	}
 
 	socketPath, ok, err := domainVNCSocketPath(dom)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	if !ok {
-		return nil, ErrVNCNotConfigured
+		return "", ErrVNCNotConfigured
+	}
+
+	return socketPath, nil
+}
+
+func DialVNCSocket(name string, timeout time.Duration) (net.Conn, error) {
+	socketPath, err := VNCSocketPathForDomain(name)
+	if err != nil {
+		return nil, err
 	}
 
 	vncConn, err := net.DialTimeout("unix", socketPath, timeout)

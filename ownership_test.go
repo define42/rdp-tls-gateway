@@ -1,24 +1,58 @@
 package main
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
-func stubDashboardVMOwnershipCheck(t *testing.T, fn func(name, username string) (bool, error)) {
-	t.Helper()
+func TestDashboardVMOwnedByUser(t *testing.T) {
+	tests := []struct {
+		name     string
+		owner    string
+		hasOwner bool
+		username string
+		want     bool
+	}{
+		{
+			name:     "matching owner",
+			owner:    "alice",
+			hasOwner: true,
+			username: "alice",
+			want:     true,
+		},
+		{
+			name:     "different owner",
+			owner:    "bob",
+			hasOwner: true,
+			username: "alice",
+			want:     false,
+		},
+		{
+			name:     "prefix collision is not ownership",
+			owner:    "alice-bob",
+			hasOwner: true,
+			username: "alice",
+			want:     false,
+		},
+		{
+			name:     "missing owner metadata",
+			owner:    "",
+			hasOwner: false,
+			username: "alice",
+			want:     false,
+		},
+		{
+			name:     "blank username",
+			owner:    "alice",
+			hasOwner: true,
+			username: "   ",
+			want:     false,
+		},
+	}
 
-	originalCheck := dashboardVMOwnershipCheck
-	dashboardVMOwnershipCheck = fn
-	t.Cleanup(func() {
-		dashboardVMOwnershipCheck = originalCheck
-	})
-}
-
-func stubDashboardVMOwnershipByPrefix(t *testing.T) {
-	t.Helper()
-
-	stubDashboardVMOwnershipCheck(t, func(name, username string) (bool, error) {
-		return strings.HasPrefix(name, username+"-"), nil
-	})
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := dashboardVMOwnedByUser(tc.owner, tc.hasOwner, tc.username)
+			if got != tc.want {
+				t.Fatalf("dashboardVMOwnedByUser(%q, %v, %q) = %v, want %v", tc.owner, tc.hasOwner, tc.username, got, tc.want)
+			}
+		})
+	}
 }

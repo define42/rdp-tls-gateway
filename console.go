@@ -20,13 +20,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var (
-	dialDashboardVNCSocket  = virt.DialVNCSocket
-	dashboardSocketUpgrader = websocket.Upgrader{
-		CheckOrigin: sameOriginWebsocketRequest,
-	}
-)
-
 func handleDashboardConsoleWS(sessionManager *session.Manager, settings *config.SettingsType) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user, ok := sessionManager.UserFromContext(r.Context())
@@ -43,13 +36,11 @@ func handleDashboardConsoleWS(sessionManager *session.Manager, settings *config.
 
 		owned, err := dashboardVMOwnershipCheck(name, user.GetName())
 		if err != nil {
-			log.Printf("verify terminal access for user %q vm %q failed: %v", user.GetName(), name, err)
-			http.Error(w, "Unable to verify VM ownership.", http.StatusInternalServerError)
+			writeDashboardConsoleOwnershipError(w, name, user.GetName(), err)
 			return
 		}
 		if !owned {
-			log.Printf("user %q attempted to access terminal for vm %q not owned by them", user.GetName(), name)
-			http.Error(w, "You do not have permission to access this VM terminal.", http.StatusForbidden)
+			writeDashboardConsoleOwnershipError(w, name, user.GetName(), nil)
 			return
 		}
 
@@ -57,6 +48,10 @@ func handleDashboardConsoleWS(sessionManager *session.Manager, settings *config.
 		if err != nil {
 			writeDashboardSerialSocketError(w, name, err)
 			return
+		}
+
+		dashboardSocketUpgrader := websocket.Upgrader{
+			CheckOrigin: sameOriginWebsocketRequest,
 		}
 
 		ws, err := dashboardSocketUpgrader.Upgrade(w, r, nil)
@@ -119,30 +114,22 @@ func handleDashboardVNCWS(sessionManager *session.Manager, settings *config.Sett
 
 		owned, err := dashboardVMOwnershipCheck(name, user.GetName())
 		if err != nil {
-			log.Printf("verify VNC access for user %q vm %q failed: %v", user.GetName(), name, err)
-			http.Error(w, "Unable to verify VM ownership.", http.StatusInternalServerError)
+			writeDashboardVNCOwnershipError(w, name, user.GetName(), err)
 			return
 		}
 		if !owned {
-			log.Printf("user %q attempted to access VNC for vm %q not owned by them", user.GetName(), name)
-			http.Error(w, "You do not have permission to access this VM VNC session.", http.StatusForbidden)
+			writeDashboardVNCOwnershipError(w, name, user.GetName(), nil)
 			return
 		}
 
-		vncConn, err := dialDashboardVNCSocket(name, settings.GetDuration(config.TIMEOUT))
+		vncConn, err := openDashboardVNCSocket(name, settings.GetDuration(config.TIMEOUT))
 		if err != nil {
-			switch {
-			case errors.Is(err, virt.ErrVNCNotRunning):
-				http.Error(w, "VM must be running for VNC access.", http.StatusConflict)
-			case errors.Is(err, virt.ErrVNCNotConfigured):
-				http.Error(w, "VNC is not available for this VM.", http.StatusConflict)
-			case errors.Is(err, virt.ErrVNCNotReady):
-				http.Error(w, "VNC is not ready yet.", http.StatusConflict)
-			default:
-				log.Printf("open VNC for vm %q failed: %v", name, err)
-				http.Error(w, "Failed to open VNC session.", http.StatusInternalServerError)
-			}
+			writeDashboardVNCSocketError(w, name, err)
 			return
+		}
+
+		dashboardSocketUpgrader := websocket.Upgrader{
+			CheckOrigin: sameOriginWebsocketRequest,
 		}
 
 		ws, err := dashboardSocketUpgrader.Upgrade(w, r, nil)
@@ -154,6 +141,61 @@ func handleDashboardVNCWS(sessionManager *session.Manager, settings *config.Sett
 
 		bridgeDashboardSocket("vnc", name, ws, vncConn)
 	}
+}
+
+func openDashboardVNCSocket(name string, timeout time.Duration) (net.Conn, error) {
+	socketPath, err := virt.VNCSocketPathForDomain(name)
+	if err != nil {
+		return nil, err
+	}
+	return dialDashboardVNCSocket(socketPath, timeout)
+}
+
+func dialDashboardVNCSocket(socketPath string, timeout time.Duration) (net.Conn, error) {
+	vncConn, err := net.DialTimeout("unix", socketPath, timeout)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, virt.ErrVNCNotReady
+		}
+		return nil, fmt.Errorf("dial vnc socket %s: %w", socketPath, err)
+	}
+	return vncConn, nil
+}
+
+func writeDashboardVNCSocketError(w http.ResponseWriter, name string, err error) {
+	switch {
+	case errors.Is(err, virt.ErrVNCNotRunning):
+		http.Error(w, "VM must be running for VNC access.", http.StatusConflict)
+	case errors.Is(err, virt.ErrVNCNotConfigured):
+		http.Error(w, "VNC is not available for this VM.", http.StatusConflict)
+	case errors.Is(err, virt.ErrVNCNotReady):
+		http.Error(w, "VNC is not ready yet.", http.StatusConflict)
+	default:
+		log.Printf("open VNC for vm %q failed: %v", name, err)
+		http.Error(w, "Failed to open VNC session.", http.StatusInternalServerError)
+	}
+}
+
+func writeDashboardConsoleOwnershipError(w http.ResponseWriter, name, username string, err error) {
+	if err != nil {
+		log.Printf("verify terminal access for user %q vm %q failed: %v", username, name, err)
+		http.Error(w, "Unable to verify VM ownership.", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("user %q attempted to access terminal for vm %q not owned by them", username, name)
+	http.Error(w, "You do not have permission to access this VM terminal.", http.StatusForbidden)
+}
+
+func writeDashboardVNCOwnershipError(w http.ResponseWriter, name, username string, err error) {
+	if err != nil {
+		log.Printf("verify VNC access for user %q vm %q failed: %v", username, name, err)
+		http.Error(w, "Unable to verify VM ownership.", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("user %q attempted to access VNC for vm %q not owned by them", username, name)
+	http.Error(w, "You do not have permission to access this VM VNC session.", http.StatusForbidden)
 }
 
 func bridgeDashboardSocket(channel, name string, ws *websocket.Conn, backendConn net.Conn) {

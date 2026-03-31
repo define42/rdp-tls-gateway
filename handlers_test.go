@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -89,74 +90,61 @@ func TestHandleLoginPostRecordsLoginIP(t *testing.T) {
 	}
 }
 
-func TestDashboardMutationEndpointsRejectNonOwnerVM(t *testing.T) {
-	sessionManager := session.NewManager()
-	settings := config.NewSettingType(false)
-	router := getRemoteGatewayRotuer(sessionManager, settings)
-	cookie := issueSessionCookie(t, sessionManager, "alice")
-	stubDashboardVMOwnershipByPrefix(t)
-
+func TestWriteDashboardVMActionOwnershipError(t *testing.T) {
 	tests := []struct {
-		name    string
-		path    string
-		form    url.Values
-		wantErr string
+		name     string
+		verb     string
+		err      error
+		wantCode int
+		wantErr  string
 	}{
 		{
-			name: "resources",
-			path: "/api/dashboard/resources",
-			form: url.Values{
-				"vm_name":       {"bob-desktop"},
-				"vm_vcpu":       {"2"},
-				"vm_memory_mib": {"4096"},
-			},
-			wantErr: "You do not have permission to update this VM.",
+			name:     "resources forbidden",
+			verb:     "update",
+			wantCode: http.StatusForbidden,
+			wantErr:  "You do not have permission to update this VM.",
 		},
 		{
-			name: "start",
-			path: "/api/dashboard/start",
-			form: url.Values{
-				"vm_name": {"bob-desktop"},
-			},
-			wantErr: "You do not have permission to start this VM.",
+			name:     "start forbidden",
+			verb:     "start",
+			wantCode: http.StatusForbidden,
+			wantErr:  "You do not have permission to start this VM.",
 		},
 		{
-			name: "restart",
-			path: "/api/dashboard/restart",
-			form: url.Values{
-				"vm_name": {"bob-desktop"},
-			},
-			wantErr: "You do not have permission to restart this VM.",
+			name:     "restart forbidden",
+			verb:     "restart",
+			wantCode: http.StatusForbidden,
+			wantErr:  "You do not have permission to restart this VM.",
 		},
 		{
-			name: "shutdown",
-			path: "/api/dashboard/shutdown",
-			form: url.Values{
-				"vm_name": {"bob-desktop"},
-			},
-			wantErr: "You do not have permission to shutdown this VM.",
+			name:     "shutdown forbidden",
+			verb:     "shutdown",
+			wantCode: http.StatusForbidden,
+			wantErr:  "You do not have permission to shutdown this VM.",
 		},
 		{
-			name: "remove",
-			path: "/api/dashboard/remove",
-			form: url.Values{
-				"vm_name": {"bob-desktop"},
-			},
-			wantErr: "You do not have permission to remove this VM.",
+			name:     "remove forbidden",
+			verb:     "remove",
+			wantCode: http.StatusForbidden,
+			wantErr:  "You do not have permission to remove this VM.",
+		},
+		{
+			name:     "lookup failure",
+			verb:     "update",
+			err:      errors.New("boom"),
+			wantCode: http.StatusInternalServerError,
+			wantErr:  "Unable to verify VM ownership.",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.form.Encode()))
-			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-			req.AddCookie(cookie)
 			rec := httptest.NewRecorder()
 
-			router.ServeHTTP(rec, req)
+			writeDashboardVMActionOwnershipError(rec, "alice-bob-desktop", "alice", tc.verb, tc.err)
 
-			if rec.Code != http.StatusForbidden {
-				t.Fatalf("expected %d, got %d with body %s", http.StatusForbidden, rec.Code, rec.Body.String())
+			if rec.Code != tc.wantCode {
+				t.Fatalf("expected %d, got %d with body %s", tc.wantCode, rec.Code, rec.Body.String())
 			}
 
 			var resp dashboardActionResponse
@@ -171,43 +159,5 @@ func TestDashboardMutationEndpointsRejectNonOwnerVM(t *testing.T) {
 				t.Fatalf("expected error %q, got %q", tc.wantErr, resp.Error)
 			}
 		})
-	}
-}
-
-func TestDashboardMutationEndpointsRejectPrefixCollidingVM(t *testing.T) {
-	sessionManager := session.NewManager()
-	settings := config.NewSettingType(false)
-	router := getRemoteGatewayRotuer(sessionManager, settings)
-	cookie := issueSessionCookie(t, sessionManager, "alice")
-
-	stubDashboardVMOwnershipCheck(t, func(name, username string) (bool, error) {
-		if name != "alice-bob-desktop" || username != "alice" {
-			t.Fatalf("unexpected ownership check for %q / %q", name, username)
-		}
-		return false, nil
-	})
-
-	form := url.Values{
-		"vm_name":       {"alice-bob-desktop"},
-		"vm_vcpu":       {"2"},
-		"vm_memory_mib": {"4096"},
-	}
-	req := httptest.NewRequest(http.MethodPost, "/api/dashboard/resources", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(cookie)
-	rec := httptest.NewRecorder()
-
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("expected %d, got %d with body %s", http.StatusForbidden, rec.Code, rec.Body.String())
-	}
-
-	var resp dashboardActionResponse
-	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if resp.Error != "You do not have permission to update this VM." {
-		t.Fatalf("expected ownership denial, got %q", resp.Error)
 	}
 }

@@ -454,24 +454,33 @@ func authorizeDashboardVMAction(req *http.Request, w http.ResponseWriter, sessio
 
 	owned, err := dashboardVMOwnershipCheck(name, user.GetName())
 	if err != nil {
-		log.Printf("verify ownership for user %q %s vm %q failed: %v", user.GetName(), verb, name, err)
-		writeJSON(w, http.StatusInternalServerError, dashboardActionResponse{
-			OK:    false,
-			Error: "Unable to verify VM ownership.",
-		})
+		writeDashboardVMActionOwnershipError(w, name, user.GetName(), verb, err)
 		return "", false
 	}
 
 	if !owned {
-		log.Printf("user %q attempted to %s vm %q not owned by them", user.GetName(), verb, name)
-		writeJSON(w, http.StatusForbidden, dashboardActionResponse{
-			OK:    false,
-			Error: fmt.Sprintf("You do not have permission to %s this VM.", verb),
-		})
+		writeDashboardVMActionOwnershipError(w, name, user.GetName(), verb, nil)
 		return "", false
 	}
 
 	return name, true
+}
+
+func writeDashboardVMActionOwnershipError(w http.ResponseWriter, name, username, verb string, err error) {
+	if err != nil {
+		log.Printf("verify ownership for user %q %s vm %q failed: %v", username, verb, name, err)
+		writeJSON(w, http.StatusInternalServerError, dashboardActionResponse{
+			OK:    false,
+			Error: "Unable to verify VM ownership.",
+		})
+		return
+	}
+
+	log.Printf("user %q attempted to %s vm %q not owned by them", username, verb, name)
+	writeJSON(w, http.StatusForbidden, dashboardActionResponse{
+		OK:    false,
+		Error: fmt.Sprintf("You do not have permission to %s this VM.", verb),
+	})
 }
 
 func validateVMName(name string) (string, error) {
