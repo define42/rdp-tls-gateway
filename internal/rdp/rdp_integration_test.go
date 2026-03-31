@@ -3,6 +3,8 @@ package rdp
 import (
 	"crypto/tls"
 	"encoding/binary"
+	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -12,11 +14,13 @@ import (
 	"rdptlsgateway/internal/config"
 	"rdptlsgateway/internal/session"
 	"rdptlsgateway/internal/types"
+	"rdptlsgateway/internal/virt"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/tomatome/grdp/protocol/x224"
+	"libvirt.org/go/libvirt"
 )
 
 type addrOverrideConn struct {
@@ -62,20 +66,103 @@ func issueUserSession(t *testing.T, sessionManager *session.Manager, username, r
 	handler.ServeHTTP(rec, req)
 }
 
-func stubVMOwners(t *testing.T, owners map[string]string) {
+const (
+	testDomainOwnerMetadataNamespace = "urn:rdptlsgateway:domain:owner"
+	testDomainOwnerMetadataPrefix    = "rdptlsgateway"
+)
+
+type testDomainOwnerMetadata struct {
+	XMLName xml.Name `xml:"owner"`
+	Value   string   `xml:",chardata"`
+}
+
+func defineOwnedRDPTestDomains(t *testing.T, owners map[string]string) {
 	t.Helper()
 
-	originalLookup := vmOwnerLookup
-	vmOwnerLookup = func(name string) (string, bool, error) {
-		owner, ok := owners[name]
-		if !ok {
-			return "", false, nil
-		}
-		return owner, true, nil
+	for name := range owners {
+		cleanupOwnedRDPTestDomain(t, name)
 	}
+
+	conn, err := libvirt.NewConnect(virt.LibvirtURI())
+	if err != nil {
+		t.Fatalf("connect libvirt: %v", err)
+	}
+	defer conn.Close()
+
+	for name, owner := range owners {
+		dom, err := conn.DomainDefineXML(minimalRDPTestDomainXML(name))
+		if err != nil {
+			t.Fatalf("define test domain %q: %v", name, err)
+		}
+
+		payload, err := xml.Marshal(testDomainOwnerMetadata{Value: owner})
+		if err != nil {
+			_ = dom.Free()
+			t.Fatalf("marshal owner metadata for %q: %v", name, err)
+		}
+
+		if err := dom.SetMetadata(
+			libvirt.DOMAIN_METADATA_ELEMENT,
+			string(payload),
+			testDomainOwnerMetadataPrefix,
+			testDomainOwnerMetadataNamespace,
+			libvirt.DOMAIN_AFFECT_CONFIG,
+		); err != nil {
+			_ = dom.Free()
+			t.Fatalf("set owner metadata for %q: %v", name, err)
+		}
+
+		if err := dom.Free(); err != nil {
+			t.Fatalf("free test domain %q: %v", name, err)
+		}
+	}
+
 	t.Cleanup(func() {
-		vmOwnerLookup = originalLookup
+		for name := range owners {
+			cleanupOwnedRDPTestDomain(t, name)
+		}
 	})
+}
+
+func cleanupOwnedRDPTestDomain(t *testing.T, name string) {
+	t.Helper()
+
+	conn, err := libvirt.NewConnect(virt.LibvirtURI())
+	if err != nil {
+		t.Fatalf("connect libvirt for cleanup: %v", err)
+	}
+	defer conn.Close()
+
+	dom, err := conn.LookupDomainByName(name)
+	if err != nil {
+		if errors.Is(err, libvirt.ERR_NO_DOMAIN) {
+			return
+		}
+		t.Fatalf("lookup test domain %q for cleanup: %v", name, err)
+	}
+	defer func() {
+		_ = dom.Free()
+	}()
+
+	active, err := dom.IsActive()
+	if err == nil && active {
+		_ = dom.Destroy()
+	}
+	if err := dom.Undefine(); err != nil && !errors.Is(err, libvirt.ERR_NO_DOMAIN) {
+		t.Fatalf("undefine test domain %q: %v", name, err)
+	}
+}
+
+func minimalRDPTestDomainXML(name string) string {
+	return fmt.Sprintf(`<domain type='kvm'>
+  <name>%s</name>
+  <memory unit='MiB'>64</memory>
+  <currentMemory unit='MiB'>64</currentMemory>
+  <vcpu placement='static'>1</vcpu>
+  <os>
+    <type arch='x86_64' machine='q35'>hvm</type>
+  </os>
+</domain>`, name)
 }
 
 func stubVMIPs(t *testing.T, entries map[string]string) {
@@ -242,7 +329,7 @@ func TestHandleRDPSuccessfulProxy(t *testing.T) {
 
 	backendHost := "127.0.0.42"
 	stubVMIPs(t, map[string]string{"vm1": backendHost})
-	stubVMOwners(t, map[string]string{"vm1": "alice"})
+	defineOwnedRDPTestDomains(t, map[string]string{"vm1": "alice"})
 
 	stopBackend := startBackendServer(t, backendHost, func(raw net.Conn) {
 		req, err := readTPKT(raw)
@@ -345,7 +432,7 @@ func TestHandleRDPRejectsMissingRoute(t *testing.T) {
 	InitLogging()
 
 	stubVMIPs(t, map[string]string{})
-	stubVMOwners(t, map[string]string{"missing": "alice"})
+	defineOwnedRDPTestDomains(t, map[string]string{"missing": "alice"})
 	frontTLS, settings := newFrontTLSManager(t, "example.test")
 	sessionManager := session.NewManager()
 	issueUserSession(t, sessionManager, "alice", "192.0.2.101:5000")
@@ -373,7 +460,7 @@ func TestHandleRDPBackendDialFailure(t *testing.T) {
 	InitLogging()
 
 	stubVMIPs(t, map[string]string{"vmdial": "127.0.0.43"})
-	stubVMOwners(t, map[string]string{"vmdial": "alice"})
+	defineOwnedRDPTestDomains(t, map[string]string{"vmdial": "alice"})
 	frontTLS, settings := newFrontTLSManager(t, "example.test")
 	sessionManager := session.NewManager()
 	issueUserSession(t, sessionManager, "alice", "192.0.2.102:5000")
@@ -402,7 +489,7 @@ func TestHandleRDPRejectsBackendWithoutTLS(t *testing.T) {
 
 	backendHost := "127.0.0.44"
 	stubVMIPs(t, map[string]string{"vmbad": backendHost})
-	stubVMOwners(t, map[string]string{"vmbad": "alice"})
+	defineOwnedRDPTestDomains(t, map[string]string{"vmbad": "alice"})
 
 	stopBackend := startBackendServer(t, backendHost, func(raw net.Conn) {
 		if _, err := readTPKT(raw); err != nil {
@@ -443,7 +530,7 @@ func TestHandleRDPRejectsWithoutOwnerSessionBeforeDial(t *testing.T) {
 
 	backendHost := "127.0.0.45"
 	stubVMIPs(t, map[string]string{"vmnosession": backendHost})
-	stubVMOwners(t, map[string]string{"vmnosession": "alice"})
+	defineOwnedRDPTestDomains(t, map[string]string{"vmnosession": "alice"})
 
 	stopTracker := startBackendDialTracker(t, backendHost)
 	defer func() {
@@ -478,7 +565,7 @@ func TestHandleRDPRejectsDifferentOwnerSessionIPBeforeDial(t *testing.T) {
 
 	backendHost := "127.0.0.46"
 	stubVMIPs(t, map[string]string{"vmdiffip": backendHost})
-	stubVMOwners(t, map[string]string{"vmdiffip": "alice"})
+	defineOwnedRDPTestDomains(t, map[string]string{"vmdiffip": "alice"})
 
 	stopTracker := startBackendDialTracker(t, backendHost)
 	defer func() {
@@ -514,7 +601,7 @@ func TestHandleRDPRejectsOtherUserSessionFromSameIPBeforeDial(t *testing.T) {
 
 	backendHost := "127.0.0.47"
 	stubVMIPs(t, map[string]string{"vmotheruser": backendHost})
-	stubVMOwners(t, map[string]string{"vmotheruser": "alice"})
+	defineOwnedRDPTestDomains(t, map[string]string{"vmotheruser": "alice"})
 
 	stopTracker := startBackendDialTracker(t, backendHost)
 	defer func() {
@@ -550,7 +637,7 @@ func TestHandleRDPAllowsAnyMatchingOwnerSessionIP(t *testing.T) {
 
 	backendHost := "127.0.0.48"
 	stubVMIPs(t, map[string]string{"vmmulti": backendHost})
-	stubVMOwners(t, map[string]string{"vmmulti": "alice"})
+	defineOwnedRDPTestDomains(t, map[string]string{"vmmulti": "alice"})
 
 	stopBackend := startBackendServer(t, backendHost, func(raw net.Conn) {
 		req, err := readTPKT(raw)

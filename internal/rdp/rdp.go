@@ -28,8 +28,6 @@ func InitLogging() {
 	glog.SetLevel(glog.ERROR)
 }
 
-var vmOwnerLookup = virt.VMOwner
-
 var vmIPAddressLookup = func(hostname string) (string, error) {
 	return virt.GetInstance().GetIPOfVM(hostname)
 }
@@ -123,7 +121,7 @@ func HandleRDP(raw net.Conn, frontTLS *cert.TLSManager, sessionManager *session.
 		return
 	}
 
-	owner, hasOwner, err := vmOwnerLookup(hostname)
+	owner, hasOwner, err := virt.VMOwner(hostname)
 	if err != nil {
 		log.Printf("resolve owner for VM %s: %v", hostname, err)
 		_ = clientTLS.Close()
