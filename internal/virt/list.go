@@ -11,7 +11,8 @@ import (
 	"libvirt.org/go/libvirt"
 )
 
-type vmInfo struct {
+// VMInfo describes a VM entry shown in the dashboard and worker cache.
+type VMInfo struct {
 	Name      string
 	Owner     string
 	State     string
@@ -24,8 +25,8 @@ type vmInfo struct {
 	VNCReady  bool
 }
 
-func ListVMs(user string, conn *libvirt.Connect) ([]vmInfo, error) {
-
+// ListVMs returns VMs visible to the given user from the provided libvirt connection.
+func ListVMs(user string, conn *libvirt.Connect) ([]VMInfo, error) {
 	doms, err := conn.ListAllDomains(0)
 	if err != nil {
 		log.Printf("list domains: %v", err)
@@ -37,7 +38,7 @@ func ListVMs(user string, conn *libvirt.Connect) ([]vmInfo, error) {
 		}
 	}()
 
-	var result []vmInfo
+	var result []VMInfo
 	for _, d := range doms {
 		name, err := d.GetName()
 		if err != nil {
@@ -73,7 +74,7 @@ func ListVMs(user string, conn *libvirt.Connect) ([]vmInfo, error) {
 				ip = strings.Join(ips, ", ")
 			}
 		}
-		result = append(result, vmInfo{
+		result = append(result, VMInfo{
 			Name:      name,
 			Owner:     owner,
 			State:     formatState(state),
@@ -120,7 +121,6 @@ func domainResources(d libvirt.Domain) (int, int) {
 func domainDiskGB(d libvirt.Domain) int {
 	info, err := d.GetBlockInfo("vda", 0)
 	if err != nil {
-		//log.Printf("block info: %v", err)
 		return 0
 	}
 	size := info.Capacity
@@ -166,6 +166,8 @@ func domainIPs(d libvirt.Domain) []string {
 				switch addr.Type {
 				case libvirt.IP_ADDR_TYPE_IPV4:
 					ipv4 = append(ipv4, addr.Addr)
+				case libvirt.IP_ADDR_TYPE_IPV6:
+					ipv4 = append(ipv4, addr.Addr)
 				default:
 					ipv4 = append(ipv4, addr.Addr)
 				}
@@ -177,6 +179,10 @@ func domainIPs(d libvirt.Domain) []string {
 
 func formatState(state libvirt.DomainState) string {
 	switch state {
+	case libvirt.DOMAIN_NOSTATE:
+		return "unknown"
+	case libvirt.DOMAIN_BLOCKED:
+		return "blocked"
 	case libvirt.DOMAIN_RUNNING:
 		return "running"
 	case libvirt.DOMAIN_PAUSED:
@@ -192,18 +198,20 @@ func formatState(state libvirt.DomainState) string {
 	}
 }
 
+// SingletonWorker caches VM metadata in the background for fast read access.
 type SingletonWorker struct {
 	ticker *time.Ticker
 	ctx    context.Context
 	cancel context.CancelFunc
 	mu     sync.RWMutex
-	vms    []vmInfo
+	vms    []VMInfo
 }
 
-func (s *SingletonWorker) GetVMs(user string) []vmInfo {
+// GetVMs returns the cached VMs, optionally filtered by owner.
+func (s *SingletonWorker) GetVMs(user string) []VMInfo {
 	snapshot := s.snapshotVMs()
 
-	var filteredVMs []vmInfo
+	var filteredVMs []VMInfo
 	for _, vm := range snapshot {
 		if user == "" || vm.Owner == user {
 			filteredVMs = append(filteredVMs, vm)
@@ -211,6 +219,8 @@ func (s *SingletonWorker) GetVMs(user string) []vmInfo {
 	}
 	return filteredVMs
 }
+
+// GetVMnames returns the cached VM names.
 func (s *SingletonWorker) GetVMnames() []string {
 	snapshot := s.snapshotVMs()
 
@@ -221,6 +231,7 @@ func (s *SingletonWorker) GetVMnames() []string {
 	return names
 }
 
+// GetIPOfVM returns the primary IP address cached for the named VM.
 func (s *SingletonWorker) GetIPOfVM(vmName string) (string, error) {
 	for _, vm := range s.snapshotVMs() {
 		if vm.Name == vmName {
@@ -230,7 +241,7 @@ func (s *SingletonWorker) GetIPOfVM(vmName string) (string, error) {
 	return "", fmt.Errorf("vm %s not found", vmName)
 }
 
-func (s *SingletonWorker) snapshotVMs() []vmInfo {
+func (s *SingletonWorker) snapshotVMs() []VMInfo {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -238,12 +249,12 @@ func (s *SingletonWorker) snapshotVMs() []vmInfo {
 		return nil
 	}
 
-	snapshot := make([]vmInfo, len(s.vms))
+	snapshot := make([]VMInfo, len(s.vms))
 	copy(snapshot, s.vms)
 	return snapshot
 }
 
-func (s *SingletonWorker) setVMs(vms []vmInfo) {
+func (s *SingletonWorker) setVMs(vms []VMInfo) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -252,7 +263,7 @@ func (s *SingletonWorker) setVMs(vms []vmInfo) {
 		return
 	}
 
-	next := make([]vmInfo, len(vms))
+	next := make([]VMInfo, len(vms))
 	copy(next, vms)
 	s.vms = next
 }
@@ -262,6 +273,7 @@ var (
 	once     sync.Once        //nolint:gochecknoglobals // package-level singleton needed for one-time registration
 )
 
+// GetInstance returns the process-wide VM cache worker.
 func GetInstance() *SingletonWorker {
 	once.Do(func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -326,6 +338,7 @@ func (s *SingletonWorker) doWork(conn *libvirt.Connect) error {
 	return nil
 }
 
+// Stop stops the background worker ticker and cancels its context.
 func (s *SingletonWorker) Stop() {
 	s.cancel()
 	s.ticker.Stop()

@@ -21,9 +21,12 @@ const (
 )
 
 var (
+	// ErrSerialConsoleNotConfigured reports that the domain does not expose a serial console socket.
 	ErrSerialConsoleNotConfigured = errors.New("serial console not configured")
-	ErrSerialConsoleNotRunning    = errors.New("serial console not running")
-	ErrSerialConsoleNotReady      = errors.New("serial console not ready")
+	// ErrSerialConsoleNotRunning reports that the domain is not running.
+	ErrSerialConsoleNotRunning = errors.New("serial console not running")
+	// ErrSerialConsoleNotReady reports that the serial console socket path does not exist yet.
+	ErrSerialConsoleNotReady = errors.New("serial console not ready")
 )
 
 type domainSerialXML struct {
@@ -104,6 +107,7 @@ func domainSerialSocketPath(dom *libvirt.Domain) (string, bool, error) {
 	return serialSocketPathFromDomainXML(xmlDesc)
 }
 
+// SerialSocketPathForDomain returns the serial socket path for a running domain.
 func SerialSocketPathForDomain(name string) (string, error) {
 	conn, err := libvirt.NewConnect(LibvirtURI())
 	if err != nil {
@@ -140,6 +144,7 @@ func SerialSocketPathForDomain(name string) (string, error) {
 	return socketPath, nil
 }
 
+// DialSerialSocket connects to the serial socket for a running domain.
 func DialSerialSocket(name string, timeout time.Duration) (net.Conn, error) {
 	socketPath, err := SerialSocketPathForDomain(name)
 	if err != nil {

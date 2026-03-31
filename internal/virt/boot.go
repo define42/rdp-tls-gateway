@@ -14,12 +14,12 @@ import (
 	"libvirt.org/go/libvirt"
 )
 
-// startVM starts a libvirt VM by name if it is not already running
-
+// StartVM defines and starts a VM without attaching owner metadata.
 func StartVM(name, seedIso, storagePoolName, serialSocketPath, vncSocketPath string, vcpu int, memoryMiB int) error {
 	return startVM(name, seedIso, storagePoolName, serialSocketPath, vncSocketPath, "", vcpu, memoryMiB)
 }
 
+// StartVMWithOwner defines and starts a VM while attaching owner metadata.
 func StartVMWithOwner(name, seedIso, storagePoolName, serialSocketPath, vncSocketPath, owner string, vcpu int, memoryMiB int) error {
 	return startVM(name, seedIso, storagePoolName, serialSocketPath, vncSocketPath, owner, vcpu, memoryMiB)
 }
@@ -42,7 +42,6 @@ func startVM(name, seedIso, storagePoolName, serialSocketPath, vncSocketPath, ow
 
 	dom, err := conn.DomainDefineXML(UbuntuDomain(name, seedIso, storagePoolName, serialSocketPath, vncSocketPath, vcpu, memoryMiB))
 	if err != nil {
-		fmt.Println("whaat", err)
 		return err
 	}
 	defer func() {
@@ -59,10 +58,10 @@ func startVM(name, seedIso, storagePoolName, serialSocketPath, vncSocketPath, ow
 		return err
 	}
 
-	//fmt.Printf("VM %s started (ID %d)\n", name, dom.GetID())
 	return nil
 }
 
+// RemoveVolumes deletes the named volumes from the given storage pool.
 func RemoveVolumes(conn *libvirt.Connect, storagePoolName string, volumeNames ...string) error {
 	pool, err := conn.LookupStoragePoolByName(storagePoolName)
 	if err != nil {
@@ -92,6 +91,7 @@ func RemoveVolumes(conn *libvirt.Connect, storagePoolName string, volumeNames ..
 	return nil
 }
 
+// CopyAndResizeVolume creates a qcow2 volume from the source image and resizes it when needed.
 func CopyAndResizeVolume(
 	conn *libvirt.Connect,
 	storagePoolName string,
@@ -195,6 +195,7 @@ func CopyAndResizeVolume(
 	return nil
 }
 
+// DestroyExistingDomain force-stops and undefines the named domain when it exists.
 func DestroyExistingDomain(conn *libvirt.Connect, vmName string) error {
 	existingDom, err := conn.LookupDomainByName(vmName)
 	if err != nil {
@@ -308,6 +309,7 @@ func ensureStoragePool(conn *libvirt.Connect, storagePoolName, storagePoolPath s
 	return pool, nil
 }
 
+// InitVirt ensures the libvirt storage pool and base image are ready for VM operations.
 func InitVirt(settings *config.SettingsType) error {
 	conn, err := libvirt.NewConnect(LibvirtURI())
 	if err != nil {
@@ -333,6 +335,7 @@ func InitVirt(settings *config.SettingsType) error {
 	return nil
 }
 
+// BootNewVM creates or recreates a VM for the user and starts it with owner metadata.
 func BootNewVM(name string, user *types.User, settings *config.SettingsType, vcpu int, memoryMiB int) (vmName string, err error) {
 
 	vmName = user.GetName() + "-" + name
@@ -398,6 +401,7 @@ func BootNewVM(name string, user *types.User, settings *config.SettingsType, vcp
 	return vmName, nil
 }
 
+// RemoveVM deletes the named VM, its disks, and any leftover console sockets.
 func RemoveVM(name string, settings *config.SettingsType) error {
 	conn, err := libvirt.NewConnect(LibvirtURI())
 	if err != nil {

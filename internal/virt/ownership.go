@@ -72,6 +72,7 @@ func domainOwner(dom *libvirt.Domain) (string, bool, error) {
 	return owner, true, nil
 }
 
+// UserOwnsVM reports whether the named VM is owned by the given user.
 func UserOwnsVM(name, username string) (bool, error) {
 	username = strings.TrimSpace(username)
 	if username == "" {
@@ -89,6 +90,7 @@ func UserOwnsVM(name, username string) (bool, error) {
 	return owner == username, nil
 }
 
+// VMOwner returns the owner metadata for the named VM when present.
 func VMOwner(name string) (string, bool, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {

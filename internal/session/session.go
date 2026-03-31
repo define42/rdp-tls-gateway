@@ -30,10 +30,12 @@ const sessionTTL = 30 * time.Minute
 
 var registerSessionTypesOnce sync.Once //nolint:gochecknoglobals // package-level singleton needed for one-time registration
 
+// Manager wraps the session store used by HTTP handlers and middleware.
 type Manager struct {
 	*scs.SessionManager
 }
 
+// NewManager constructs the gateway session manager.
 func NewManager() *Manager {
 	registerSessionTypes()
 	return &Manager{SessionManager: newSessionManager()}
@@ -57,6 +59,7 @@ func newSessionManager() *scs.SessionManager {
 	return manager
 }
 
+// CanonicalClientIP normalizes a remote address down to a comparable client IP string.
 func CanonicalClientIP(remoteAddr string) (string, bool) {
 	remoteAddr = strings.TrimSpace(remoteAddr)
 	if remoteAddr == "" {
@@ -80,6 +83,7 @@ func CanonicalClientIP(remoteAddr string) (string, bool) {
 	return addr.Unmap().String(), true
 }
 
+// CreateSession stores the authenticated user and canonical client IP in the session.
 func (m *Manager) CreateSession(ctx context.Context, u *types.User, clientIP string) error {
 	if err := m.RenewToken(ctx); err != nil {
 		return err
@@ -101,6 +105,7 @@ func (m *Manager) getSession(r *http.Request) (sessionData, bool) {
 	return sess, true
 }
 
+// UserFromContext returns the authenticated user stored in the request context.
 func (m *Manager) UserFromContext(ctx context.Context) (*types.User, bool) {
 	if ctx == nil {
 		return nil, false
@@ -114,7 +119,7 @@ func (m *Manager) UserFromContext(ctx context.Context) (*types.User, bool) {
 	return nil, false
 }
 
-func (m *Manager) GetSessionFromUserName(username string) (sessionData, bool) {
+func (m *Manager) getSessionFromUserName(username string) (sessionData, bool) {
 	username = strings.TrimSpace(username)
 	if username == "" {
 		return sessionData{}, false
@@ -128,6 +133,7 @@ func (m *Manager) GetSessionFromUserName(username string) (sessionData, bool) {
 	return sessionData{}, false
 }
 
+// UserHasActiveSessionFromIP reports whether the user has an active session from the given IP.
 func (m *Manager) UserHasActiveSessionFromIP(username, clientIP string) bool {
 	username = strings.TrimSpace(username)
 	if username == "" {
@@ -174,12 +180,14 @@ func (m *Manager) allSessions() []sessionData {
 	return decoded
 }
 
+// DestroySession removes the current browser session.
 func (m *Manager) DestroySession(ctx context.Context) error {
 	return m.Destroy(ctx)
 }
 
 type sessionContextKey struct{}
 
+// SessionMiddleware enforces an authenticated session for Huma handlers.
 func (m *Manager) SessionMiddleware() func(huma.Context, func(huma.Context)) {
 	return func(ctx huma.Context, next func(huma.Context)) {
 		req, w := humachi.Unwrap(ctx)

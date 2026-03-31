@@ -9,6 +9,7 @@ import (
 	"libvirt.org/go/libvirt"
 )
 
+// CreateUbuntuSeedISOToPool builds a cloud-init seed ISO and uploads it to the storage pool.
 func CreateUbuntuSeedISOToPool(
 	conn *libvirt.Connect,
 	storagePoolName string,

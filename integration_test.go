@@ -35,25 +35,25 @@ func TestIntegrationLogin(t *testing.T) {
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		},
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
 	}
 
-	assertLoginSuccess(t, ctx, baseURL, loginClient, "testuser", "dogood")
-	assertLoginFailure(t, ctx, baseURL, loginClient, "serviceuser", "mysecret2", "Invalid credentials.")
-	assertLoginFailure(t, ctx, baseURL, loginClient, "hackers", "wrongpass2", "Invalid credentials.")
-	assertLoginFailure(t, ctx, baseURL, loginClient, "hackers", "", "Missing credentials.")
+	assertLoginSuccess(ctx, t, baseURL, loginClient, "testuser", "dogood")
+	assertLoginFailure(ctx, t, baseURL, loginClient, "serviceuser", "mysecret2", "Invalid credentials.")
+	assertLoginFailure(ctx, t, baseURL, loginClient, "hackers", "wrongpass2", "Invalid credentials.")
+	assertLoginFailure(ctx, t, baseURL, loginClient, "hackers", "", "Missing credentials.")
 
 }
 
-func assertLoginSuccess(t *testing.T, ctx context.Context, baseURL string, client *http.Client, username, password string) {
+func assertLoginSuccess(ctx context.Context, t *testing.T, baseURL string, client *http.Client, username, password string) {
 	t.Helper()
 	form := url.Values{}
 	form.Set("username", username)
 	form.Set("password", password)
 	headers := map[string]string{"Content-Type": "application/x-www-form-urlencoded"}
-	status, _, header := doRequest(t, ctx, baseURL, client, http.MethodPost, "/login", "", "", strings.NewReader(form.Encode()), headers)
+	status, _, header := doRequest(ctx, t, baseURL, client, http.MethodPost, "/login", "", "", strings.NewReader(form.Encode()), headers)
 	if status != http.StatusSeeOther {
 		t.Fatalf("expected 303 for login, got %d", status)
 	}
@@ -65,7 +65,7 @@ func assertLoginSuccess(t *testing.T, ctx context.Context, baseURL string, clien
 	}
 }
 
-func doRequest(t *testing.T, ctx context.Context, baseURL string, client *http.Client, method, path, user, pass string, body io.Reader, headers map[string]string) (int, string, http.Header) {
+func doRequest(ctx context.Context, t *testing.T, baseURL string, client *http.Client, method, path, user, pass string, body io.Reader, headers map[string]string) (int, string, http.Header) {
 	t.Helper()
 	req, err := http.NewRequestWithContext(ctx, method, baseURL+path, body)
 	if err != nil {
@@ -86,13 +86,13 @@ func doRequest(t *testing.T, ctx context.Context, baseURL string, client *http.C
 	return resp.StatusCode, string(data), resp.Header.Clone()
 }
 
-func assertLoginFailure(t *testing.T, ctx context.Context, baseURL string, client *http.Client, username, password, message string) {
+func assertLoginFailure(ctx context.Context, t *testing.T, baseURL string, client *http.Client, username, password, message string) {
 	t.Helper()
 	form := url.Values{}
 	form.Set("username", username)
 	form.Set("password", password)
 	headers := map[string]string{"Content-Type": "application/x-www-form-urlencoded"}
-	status, body, _ := doRequest(t, ctx, baseURL, client, http.MethodPost, "/login", "", "", strings.NewReader(form.Encode()), headers)
+	status, body, _ := doRequest(ctx, t, baseURL, client, http.MethodPost, "/login", "", "", strings.NewReader(form.Encode()), headers)
 	if status != http.StatusOK {
 		t.Fatalf("expected 200 for login page, got %d: %s", status, body)
 	}

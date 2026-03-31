@@ -284,7 +284,7 @@ func TestHandleSharedConnRoutesTLS(t *testing.T) {
 	frontTLS, settings := newTestTLSManager(t)
 
 	reqCh := make(chan struct{}, 1)
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		reqCh <- struct{}{}
 		w.WriteHeader(http.StatusNoContent)
 	})

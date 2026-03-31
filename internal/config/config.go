@@ -11,15 +11,22 @@ import (
 	"github.com/olekukonko/tablewriter"
 )
 
+// Kind identifies the underlying value type stored in a setting.
 type Kind uint8
 
+// Kind values supported by SettingsType.
 const (
+	// KindString stores plain string values.
 	KindString Kind = iota
+	// KindInt stores integer values.
 	KindInt
+	// KindBool stores boolean values.
 	KindBool
+	// KindDuration stores time.Duration values.
 	KindDuration
 )
 
+// Setting stores a single configuration entry and its parsed value.
 type Setting struct {
 	Description string
 	Kind        Kind
@@ -32,17 +39,22 @@ type Setting struct {
 	D time.Duration
 }
 
+// SettingsType holds the process configuration keyed by environment-backed setting ID.
 type SettingsType struct {
 	m map[string]*Setting
 }
 
 const (
-	DefaultVDIImageDir         = "/data/desktop/"
+	// DefaultVDIImageDir is the default directory for VM disk images.
+	DefaultVDIImageDir = "/data/desktop/"
+	// DefaultVirtStoragePoolName is the default libvirt storage pool name.
 	DefaultVirtStoragePoolName = "desktop"
+	// DefaultVirtStoragePoolPath is the default libvirt storage pool path.
 	DefaultVirtStoragePoolPath = DefaultVDIImageDir
 )
 
-func NewSettingType(print bool) *SettingsType {
+// NewSettingType builds the gateway settings from defaults and environment overrides.
+func NewSettingType(printSettings bool) *SettingsType {
 	s := &SettingsType{m: make(map[string]*Setting)}
 
 	s.SetString(ACME_DATA_DIR, "ACME data directory", "/data/acme/")
@@ -74,7 +86,7 @@ func NewSettingType(print bool) *SettingsType {
 	s.SetString(ACME_CA, "ACME CA directory URL or 'staging'", "")
 	s.SetString(FRONT_DOMAIN, "Front domain to serve front page on HTTPS requests and also the prefix for vm names", "desktop.local.gd")
 
-	if print {
+	if printSettings {
 		table := tablewriter.NewWriter(os.Stdout)
 		table.Header("KEY", "Description", "Value")
 
@@ -96,6 +108,7 @@ func NewSettingType(print bool) *SettingsType {
 
 // ---- Setters ----
 
+// SetString registers a string setting and resolves its effective value.
 func (s *SettingsType) SetString(id, description, defaultValue string) {
 	raw := defaultValue
 	if v, ok := os.LookupEnv(id); ok {
@@ -111,6 +124,7 @@ func (s *SettingsType) SetString(id, description, defaultValue string) {
 	}
 }
 
+// SetInt registers an integer setting and resolves its effective value.
 func (s *SettingsType) SetInt(id, description string, defaultValue int) {
 	value := defaultValue
 	rawUsed := strconv.Itoa(defaultValue)
@@ -131,6 +145,7 @@ func (s *SettingsType) SetInt(id, description string, defaultValue int) {
 	}
 }
 
+// SetBool registers a boolean setting and resolves its effective value.
 func (s *SettingsType) SetBool(id, description string, defaultValue bool) {
 	value := defaultValue
 	rawUsed := strconv.FormatBool(defaultValue)
@@ -151,6 +166,7 @@ func (s *SettingsType) SetBool(id, description string, defaultValue bool) {
 	}
 }
 
+// SetDuration registers a duration setting and resolves its effective value.
 func (s *SettingsType) SetDuration(id, description string, defaultValue time.Duration) {
 	value := defaultValue
 	rawUsed := defaultValue.String()
@@ -173,6 +189,7 @@ func (s *SettingsType) SetDuration(id, description string, defaultValue time.Dur
 
 // ---- Getters (no fallbacks) ----
 
+// Has reports whether the named setting exists.
 func (s *SettingsType) Has(id string) bool {
 	_, ok := s.m[id]
 	return ok
@@ -181,6 +198,7 @@ func (s *SettingsType) Has(id string) bool {
 // Get returns the setting value as a string.
 func (s *SettingsType) Get(id string) string { return s.GetString(id) }
 
+// GetString returns the setting value as a string.
 func (s *SettingsType) GetString(id string) string {
 	st, ok := s.m[id]
 	if !ok {
@@ -200,6 +218,7 @@ func (s *SettingsType) GetString(id string) string {
 	}
 }
 
+// GetInt returns the setting value as an int.
 func (s *SettingsType) GetInt(id string) int {
 	st, ok := s.m[id]
 	if !ok {
@@ -220,6 +239,7 @@ func (s *SettingsType) GetInt(id string) int {
 	return parsed
 }
 
+// GetBool returns the setting value as a bool.
 func (s *SettingsType) GetBool(id string) bool {
 	st, ok := s.m[id]
 	if !ok {
@@ -240,10 +260,12 @@ func (s *SettingsType) GetBool(id string) bool {
 	return parsed
 }
 
+// IsTrue reports whether the named setting resolves to true.
 func (s *SettingsType) IsTrue(id string) bool {
 	return s.GetBool(id)
 }
 
+// GetDuration returns the setting value as a duration.
 func (s *SettingsType) GetDuration(id string) time.Duration {
 	st, ok := s.m[id]
 	if !ok {
@@ -266,30 +288,33 @@ func (s *SettingsType) GetDuration(id string) time.Duration {
 
 // ---- Keys ----
 
-const ACME_DATA_DIR = "ACME_DATA_DIR"                   //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
-const ACME_EMAIL = "ACME_EMAIL"                         //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
-const ACME_CA = "ACME_CA"                               //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
-const ACME_ENABLE = "ACME_ENABLE"                       //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
-const CERT_FILE = "CERT_FILE"                           //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
-const FRONT_DOMAIN = "FRONT_DOMAIN"                     //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
-const KEY_FILE = "KEY_FILE"                             //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
-const LDAP_URL = "LDAP_URL"                             //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
-const LDAP_BASE_DN = "LDAP_BASE_DN"                     //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
-const LDAP_USER_FILTER = "LDAP_USER_FILTER"             //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
-const LDAP_USER_DOMAIN = "LDAP_USER_DOMAIN"             //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
-const LDAP_STARTTLS = "LDAP_STARTTLS"                   //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
-const LDAP_SKIP_TLS_VERIFY = "LDAP_SKIP_TLS_VERIFY"     //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
-const LISTEN_ADDR = "LISTEN_ADDR"                       //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
-const VDI_IMAGE_DIR = "VDI_IMAGE_DIR"                   //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
-const VIRT_STORAGE_POOL_NAME = "VIRT_STORAGE_POOL_NAME" //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
-const VIRT_STORAGE_POOL_PATH = "VIRT_STORAGE_POOL_PATH" //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
-const VIRT_SERIAL_SOCKET_DIR = "VIRT_SERIAL_SOCKET_DIR" //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
-const VIRT_VNC_SOCKET_DIR = "VIRT_VNC_SOCKET_DIR"       //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
-const BASE_IMAGE_URL = "BASE_IMAGE_URL"                 //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
-const TIMEOUT = "TIMEOUT"                               //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
+// Environment-backed configuration keys.
+const (
+	ACME_DATA_DIR          = "ACME_DATA_DIR"
+	ACME_EMAIL             = "ACME_EMAIL"
+	ACME_CA                = "ACME_CA"
+	ACME_ENABLE            = "ACME_ENABLE"
+	CERT_FILE              = "CERT_FILE"
+	FRONT_DOMAIN           = "FRONT_DOMAIN"
+	KEY_FILE               = "KEY_FILE"
+	LDAP_URL               = "LDAP_URL"
+	LDAP_BASE_DN           = "LDAP_BASE_DN"
+	LDAP_USER_FILTER       = "LDAP_USER_FILTER"
+	LDAP_USER_DOMAIN       = "LDAP_USER_DOMAIN"
+	LDAP_STARTTLS          = "LDAP_STARTTLS"
+	LDAP_SKIP_TLS_VERIFY   = "LDAP_SKIP_TLS_VERIFY"
+	LISTEN_ADDR            = "LISTEN_ADDR"
+	VDI_IMAGE_DIR          = "VDI_IMAGE_DIR"
+	VIRT_STORAGE_POOL_NAME = "VIRT_STORAGE_POOL_NAME"
+	VIRT_STORAGE_POOL_PATH = "VIRT_STORAGE_POOL_PATH"
+	VIRT_SERIAL_SOCKET_DIR = "VIRT_SERIAL_SOCKET_DIR"
+	VIRT_VNC_SOCKET_DIR    = "VIRT_VNC_SOCKET_DIR"
+	BASE_IMAGE_URL         = "BASE_IMAGE_URL"
+	TIMEOUT                = "TIMEOUT"
+)
 
+// OverwriteForTestString replaces a string setting value for tests.
 func (s *SettingsType) OverwriteForTestString(id, value string) error {
-
 	if st, ok := s.m[id]; ok {
 		if st.Kind != KindString {
 			return &SettingTypeMismatchError{ID: id, Expected: KindString, Actual: st.Kind}
@@ -301,6 +326,7 @@ func (s *SettingsType) OverwriteForTestString(id, value string) error {
 	return &SettingNotFoundError{ID: id}
 }
 
+// OverwriteForTestInt replaces an int setting value for tests.
 func (s *SettingsType) OverwriteForTestInt(id string, value int) error {
 	if st, ok := s.m[id]; ok {
 		if st.Kind != KindInt {
@@ -313,6 +339,7 @@ func (s *SettingsType) OverwriteForTestInt(id string, value int) error {
 	return &SettingNotFoundError{ID: id}
 }
 
+// OverwriteForTestBool replaces a bool setting value for tests.
 func (s *SettingsType) OverwriteForTestBool(id string, value bool) error {
 	if st, ok := s.m[id]; ok {
 		if st.Kind != KindBool {
@@ -325,6 +352,7 @@ func (s *SettingsType) OverwriteForTestBool(id string, value bool) error {
 	return &SettingNotFoundError{ID: id}
 }
 
+// OverwriteForTestDuration replaces a duration setting value for tests.
 func (s *SettingsType) OverwriteForTestDuration(id string, value time.Duration) error {
 	if st, ok := s.m[id]; ok {
 		if st.Kind != KindDuration {
@@ -337,6 +365,7 @@ func (s *SettingsType) OverwriteForTestDuration(id string, value time.Duration) 
 	return &SettingNotFoundError{ID: id}
 }
 
+// SettingNotFoundError reports an attempt to access a missing setting.
 type SettingNotFoundError struct {
 	ID string
 }
@@ -345,6 +374,7 @@ func (e *SettingNotFoundError) Error() string {
 	return "setting not found: " + e.ID
 }
 
+// SettingTypeMismatchError reports a test override using the wrong setting kind.
 type SettingTypeMismatchError struct {
 	ID       string
 	Expected Kind
@@ -369,8 +399,3 @@ func kindToString(k Kind) string {
 		return "unknown"
 	}
 }
-
-// ---- Global instance (for convenience, but consider using your own in libraries) ----
-
-// NOTE: prints at init-time (like your original). Consider false in libraries.
-//var Settings = NewSettingType(true)

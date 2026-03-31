@@ -4,6 +4,7 @@ import (
 	"fmt"
 )
 
+// UbuntuDomain returns the libvirt domain XML for a standard Ubuntu VM.
 func UbuntuDomain(name, seedIso, storagePoolName, serialSocketPath, vncSocketPath string, vcpu int, memoryMiB int) string {
 	return fmt.Sprintf(`<domain type='kvm'>
   <name>%s</name>

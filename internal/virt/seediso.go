@@ -9,6 +9,7 @@ import (
 	"github.com/kdomanski/iso9660"
 )
 
+// SeedUserData is the cloud-init user-data document stored on the seed ISO.
 type SeedUserData struct {
 	Output    *SeedOutput   `yaml:"output,omitempty"`
 	Keyboard  *SeedKeyboard `yaml:"keyboard,omitempty"`
@@ -17,15 +18,18 @@ type SeedUserData struct {
 	RunCmd    []string      `yaml:"runcmd,omitempty"`
 }
 
+// SeedOutput configures cloud-init console logging.
 type SeedOutput struct {
 	All string `yaml:"all,omitempty"`
 }
 
+// SeedKeyboard configures the guest keyboard layout.
 type SeedKeyboard struct {
 	Layout  string `yaml:"layout,omitempty"`
 	Variant string `yaml:"variant"`
 }
 
+// SeedUser describes a cloud-init user account.
 type SeedUser struct {
 	Name       string `yaml:"name,omitempty"`
 	Sudo       string `yaml:"sudo,omitempty"`
@@ -34,24 +38,29 @@ type SeedUser struct {
 	Passwd     string `yaml:"passwd,omitempty"`
 }
 
+// SeedMetaData is the NoCloud meta-data document stored on the seed ISO.
 type SeedMetaData struct {
 	InstanceID    string `yaml:"instance-id,omitempty"`
 	LocalHostname string `yaml:"local-hostname,omitempty"`
 }
 
+// SeedNetworkConfig is the NoCloud network-config document.
 type SeedNetworkConfig struct {
 	Network SeedNetwork `yaml:"network"`
 }
 
+// SeedNetwork describes the top-level network section for cloud-init.
 type SeedNetwork struct {
 	Version   int           `yaml:"version"`
 	Ethernets SeedEthernets `yaml:"ethernets,omitempty"`
 }
 
+// SeedEthernets groups ethernet interface definitions for cloud-init.
 type SeedEthernets struct {
 	All SeedEthernet `yaml:"all"`
 }
 
+// SeedEthernet configures a single ethernet interface definition.
 type SeedEthernet struct {
 	Match    *SeedInterfaceMatch `yaml:"match,omitempty"`
 	DHCP4    bool                `yaml:"dhcp4"`
@@ -59,6 +68,7 @@ type SeedEthernet struct {
 	AcceptRA bool                `yaml:"accept-ra"`
 }
 
+// SeedInterfaceMatch matches interfaces by name glob for cloud-init.
 type SeedInterfaceMatch struct {
 	Name string `yaml:"name,omitempty"`
 }

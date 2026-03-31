@@ -6,6 +6,7 @@ import (
 	"libvirt.org/go/libvirt"
 )
 
+// UpdateVMResources updates CPU and memory for a stopped VM.
 func UpdateVMResources(name string, vcpu int, memoryMiB int) error {
 	if vcpu <= 0 || memoryMiB <= 0 {
 		return fmt.Errorf("invalid resources (vcpu=%d memoryMiB=%d)", vcpu, memoryMiB)

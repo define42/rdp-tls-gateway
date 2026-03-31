@@ -45,6 +45,7 @@ func TestNewManager(t *testing.T) {
 	m := NewManager()
 	if m == nil {
 		t.Fatal("expected non-nil Manager")
+		return
 	}
 	if m.SessionManager == nil {
 		t.Fatal("expected non-nil SessionManager")
@@ -61,7 +62,7 @@ func TestCreateAndGetSession(t *testing.T) {
 
 	sessionCookie := issueSession(t, m, user, testSessionRemoteAddr)
 
-	sess, ok := m.GetSessionFromUserName("alice")
+	sess, ok := m.getSessionFromUserName("alice")
 	if !ok {
 		t.Fatal("expected to find session for alice")
 	}
@@ -129,7 +130,7 @@ func TestGetSessionFromUserName(t *testing.T) {
 
 	issueSession(t, m, user, testSessionRemoteAddr)
 
-	sess, ok := m.GetSessionFromUserName("bob")
+	sess, ok := m.getSessionFromUserName("bob")
 	if !ok {
 		t.Fatal("expected to find session for bob")
 	}
@@ -144,7 +145,7 @@ func TestGetSessionFromUserName(t *testing.T) {
 	}
 
 	// Test non-existing user
-	_, ok = m.GetSessionFromUserName("nonexistent")
+	_, ok = m.getSessionFromUserName("nonexistent")
 	if ok {
 		t.Fatal("expected not to find session for nonexistent user")
 	}
@@ -174,7 +175,7 @@ func TestDestroySession(t *testing.T) {
 	handler2.ServeHTTP(rec2, req2)
 
 	// Verify the session is destroyed by checking the user is gone
-	_, found := m.GetSessionFromUserName("charlie")
+	_, found := m.getSessionFromUserName("charlie")
 	if found {
 		t.Fatal("expected session to be destroyed")
 	}
@@ -253,7 +254,7 @@ func TestCreateSessionNormalizesIPv4MappedIPv6(t *testing.T) {
 
 	issueSession(t, m, user, "[::ffff:192.0.2.50]:5000")
 
-	sess, ok := m.GetSessionFromUserName("frank")
+	sess, ok := m.getSessionFromUserName("frank")
 	if !ok {
 		t.Fatal("expected to find session for frank")
 	}
@@ -295,7 +296,7 @@ func TestCanonicalClientIP(t *testing.T) {
 func TestGetSessionFromUserNameEmpty(t *testing.T) {
 	m := NewManager()
 
-	if _, ok := m.GetSessionFromUserName("   "); ok {
+	if _, ok := m.getSessionFromUserName("   "); ok {
 		t.Fatal("expected blank username lookup to fail")
 	}
 }

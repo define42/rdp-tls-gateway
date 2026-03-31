@@ -2,20 +2,19 @@ version: "2"
 
 linters:
   enable:
-    - staticcheck
-    - gochecknoinits
-    - gochecknoglobals
-    - govet
-    - errcheck
-    - ineffassign
     - unused
+    - revive
+    - gocritic
     - errorlint
     - nolintlint
+    - misspell
+    - gochecknoglobals
+    - gochecknoinits
+    - exhaustive
 
-  settings:
-    staticcheck:
-      checks:
-        - all
-        # examples:
-        # - ST1003   # naming conventions
-        # - ST1000   # package comments
+  exclusions:
+    rules:
+      - path: (^|.*/)config\.go$
+        linters:
+          - revive
+        text: "don't use ALL_CAPS in Go names; use CamelCase"

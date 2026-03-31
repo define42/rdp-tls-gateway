@@ -12,7 +12,7 @@ import (
 
 func TestEnsureBaseImageDownloadsAndReusesExistingFile(t *testing.T) {
 	var requests int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt32(&requests, 1)
 		_, _ = w.Write([]byte("fake-image-data"))
 	}))

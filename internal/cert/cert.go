@@ -22,6 +22,7 @@ import (
 	"github.com/mholt/acmez"
 )
 
+// TLSManager owns the frontend TLS configuration and ACME domain updates.
 type TLSManager struct {
 	magic     *certmagic.Config
 	settings  *config.SettingsType
@@ -29,6 +30,7 @@ type TLSManager struct {
 	domains   []string
 }
 
+// GetTLSConfig returns the tls.Config used for incoming frontend connections.
 func (tm *TLSManager) GetTLSConfig() *tls.Config {
 	return tm.tlsConfig
 }
@@ -67,8 +69,8 @@ func (tm *TLSManager) updateDomains() {
 	log.Printf("acme: updated managed domains: %s", strings.Join(tm.domains, ", "))
 }
 
+// NewTLSManager builds the frontend TLS manager from the active settings.
 func NewTLSManager(settings *config.SettingsType) (*TLSManager, error) {
-
 	frontPageDomain := settings.Get(config.FRONT_DOMAIN)
 
 	fallback, err := LoadOrGenerateCert(settings)
@@ -140,6 +142,7 @@ func NewTLSManager(settings *config.SettingsType) (*TLSManager, error) {
 	return &tm, nil
 }
 
+// LoadOrGenerateCert loads the configured certificate pair or creates a self-signed fallback.
 func LoadOrGenerateCert(settings *config.SettingsType) (tls.Certificate, error) {
 	certPath := settings.Get(config.CERT_FILE)
 	keyPath := settings.Get(config.KEY_FILE)
@@ -158,6 +161,7 @@ func LoadOrGenerateCert(settings *config.SettingsType) (tls.Certificate, error) 
 	return tls.LoadX509KeyPair(certPath, keyPath)
 }
 
+// IsACMETLSALPN reports whether the negotiated ALPN protocol is ACME TLS-ALPN-01.
 func IsACMETLSALPN(protocol string) bool {
 	return protocol == acmez.ACMETLS1Protocol
 }

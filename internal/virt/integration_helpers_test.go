@@ -73,7 +73,7 @@ func newInitVirtSettings(t *testing.T, poolPath string) *config.SettingsType {
 func newImageServer(t *testing.T, payload []byte, status int) *httptest.Server {
 	t.Helper()
 
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(status)
 		if _, err := w.Write(payload); err != nil {
 			t.Errorf("write image payload: %v", err)

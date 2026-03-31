@@ -55,7 +55,7 @@ func handleLoginPost(sessionManager *session.Manager, settings *config.SettingsT
 			return
 		}
 
-		user, err := ldap.LdapAuthenticateAccess(username, password, settings)
+		user, err := ldap.AuthenticateAccess(username, password, settings)
 		if err != nil {
 			log.Printf("ldap auth failed for %s: %v", username, err)
 			serveLogin(w, "Invalid credentials.")
@@ -93,7 +93,7 @@ func setNoCacheHeaders(w http.ResponseWriter) {
 	w.Header().Set("Expires", expiresValue)
 }
 
-func handleLoginGet(w http.ResponseWriter, r *http.Request) {
+func handleLoginGet(w http.ResponseWriter, _ *http.Request) {
 	serveLogin(w, "")
 }
 

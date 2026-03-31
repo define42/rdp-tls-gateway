@@ -64,11 +64,11 @@ func waitForState(t *testing.T, username, vmName, state string, conn *libvirt.Co
 	deadline := time.Now().Add(timeout)
 	var lastErr error
 	for time.Now().Before(deadline) {
-		if err := checkState(username, vmName, state, conn); err == nil {
+		err := checkState(username, vmName, state, conn)
+		if err == nil {
 			return
-		} else {
-			lastErr = err
 		}
+		lastErr = err
 		time.Sleep(500 * time.Millisecond)
 	}
 
@@ -126,9 +126,6 @@ func waitForVNCSocket(t *testing.T, vmName string, timeout time.Duration) {
 }
 
 func TestStartVM(t *testing.T) {
-
-	//tmpDir := t.TempDir()
-
 	settings := config.NewSettingType(false)
 	if settings.OverwriteForTestString(config.VIRT_SERIAL_SOCKET_DIR, t.TempDir()) != nil {
 		t.Fatalf("Failed to overwrite VIRT_SERIAL_SOCKET_DIR for test")
@@ -159,13 +156,13 @@ func TestStartVM(t *testing.T) {
 	waitForSerialSocket(t, vmName, testTimeout)
 	waitForVNCSocket(t, vmName, testTimeout)
 
-	//######################### Test ShutdownVM #########################
+	// Test ShutdownVM.
 	if err := virt.ShutdownVM(vmName); err != nil {
 		t.Fatalf("Failed to shutdown VM %s: %v", vmName, err)
 	}
 	waitForState(t, testUsername, vmName, "shut off", conn, testTimeout)
 
-	//######################## Test UpdateVMResources #########################
+	// Test UpdateVMResources.
 	if err := virt.UpdateVMResources(vmName, 2, 2048); err != nil {
 		t.Fatalf("Failed to update VM %s resources: %v", vmName, err)
 	}
@@ -174,7 +171,7 @@ func TestStartVM(t *testing.T) {
 		t.Fatalf("VM %s does not have updated CPU and Memory as expected: %v", vmName, err)
 	}
 
-	//######################### Test StartExistingVM #########################
+	// Test StartExistingVM.
 	if err := virt.StartExistingVM(vmName); err != nil {
 		t.Fatalf("Failed to start existing VM %s: %v", vmName, err)
 	}
@@ -182,7 +179,7 @@ func TestStartVM(t *testing.T) {
 	waitForSerialSocket(t, vmName, testTimeout)
 	waitForVNCSocket(t, vmName, testTimeout)
 
-	//######################### Test RestartVM #########################
+	// Test RestartVM.
 	if err := virt.RestartVM(vmName); err != nil {
 		t.Fatalf("Failed to restart VM %s: %v", vmName, err)
 	}

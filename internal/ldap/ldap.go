@@ -11,7 +11,8 @@ import (
 	"github.com/go-ldap/ldap/v3"
 )
 
-func LdapAuthenticateAccess(username, password string, settings *config.SettingsType) (*types.User, error) {
+// AuthenticateAccess authenticates a user against LDAP and returns the gateway user model.
+func AuthenticateAccess(username, password string, settings *config.SettingsType) (*types.User, error) {
 	conn, err := dialLDAP(settings)
 	if err != nil {
 		return nil, err
@@ -40,9 +41,8 @@ func LdapAuthenticateAccess(username, password string, settings *config.Settings
 		if err := conn.Bind(id, password); err == nil {
 			bindErr = nil
 			break
-		} else {
-			bindErr = err
 		}
+		bindErr = err
 	}
 	if bindErr != nil {
 		return nil, fmt.Errorf("ldap bind failed: %w", bindErr)
@@ -52,7 +52,6 @@ func LdapAuthenticateAccess(username, password string, settings *config.Settings
 	baseDN := settings.Get(config.LDAP_BASE_DN)
 
 	filter := fmt.Sprintf(userFilter, mail)
-	fmt.Println("filter", filter)
 	searchReq := ldap.NewSearchRequest(
 		baseDN,
 		ldap.ScopeWholeSubtree,

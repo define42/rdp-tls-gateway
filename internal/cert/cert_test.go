@@ -115,10 +115,12 @@ func TestNewTLSManagerWithoutACME(t *testing.T) {
 	}
 	if tm == nil {
 		t.Fatal("expected non-nil TLSManager")
+		return
 	}
 	cfg := tm.GetTLSConfig()
 	if cfg == nil {
 		t.Fatal("expected non-nil TLS config")
+		return
 	}
 	if cfg.MinVersion != tls.VersionTLS10 {
 		t.Fatalf("expected MinVersion TLS1.0, got %v", cfg.MinVersion)

@@ -16,6 +16,8 @@ func TestSingletonWorkerDoWorkNilConn(t *testing.T) {
 }
 
 func TestSingletonWorkerCacheConcurrentAccess(t *testing.T) {
+	t.Parallel()
+
 	worker := &SingletonWorker{}
 
 	const loops = 500
@@ -25,7 +27,7 @@ func TestSingletonWorkerCacheConcurrentAccess(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < loops; i++ {
-			worker.setVMs([]vmInfo{
+			worker.setVMs([]VMInfo{
 				{
 					Name:      fmt.Sprintf("alice-vm-%d", i),
 					Owner:     "alice",
@@ -57,6 +59,8 @@ func TestFormatState(t *testing.T) {
 		state libvirt.DomainState
 		want  string
 	}{
+		{libvirt.DOMAIN_NOSTATE, "unknown"},
+		{libvirt.DOMAIN_BLOCKED, "blocked"},
 		{libvirt.DOMAIN_RUNNING, "running"},
 		{libvirt.DOMAIN_PAUSED, "paused"},
 		{libvirt.DOMAIN_SHUTDOWN, "shut off"},
@@ -76,7 +80,7 @@ func TestFormatState(t *testing.T) {
 
 func TestGetVMsFiltersByUser(t *testing.T) {
 	worker := &SingletonWorker{}
-	worker.setVMs([]vmInfo{
+	worker.setVMs([]VMInfo{
 		{Name: "alice-desktop", Owner: "alice", PrimaryIP: "10.0.0.1"},
 		{Name: "alice-dev", Owner: "alice", PrimaryIP: "10.0.0.2"},
 		{Name: "bob-desktop", Owner: "bob", PrimaryIP: "10.0.0.3"},
@@ -100,7 +104,7 @@ func TestGetVMsFiltersByUser(t *testing.T) {
 
 func TestGetVMsSkipsOwnerlessVMsWhenFiltering(t *testing.T) {
 	worker := &SingletonWorker{}
-	worker.setVMs([]vmInfo{
+	worker.setVMs([]VMInfo{
 		{Name: "legacy-vm"},
 		{Name: "alice-desktop", Owner: "alice"},
 	})
@@ -116,7 +120,7 @@ func TestGetVMsSkipsOwnerlessVMsWhenFiltering(t *testing.T) {
 
 func TestGetVMnames(t *testing.T) {
 	worker := &SingletonWorker{}
-	worker.setVMs([]vmInfo{
+	worker.setVMs([]VMInfo{
 		{Name: "vm-a"},
 		{Name: "vm-b"},
 		{Name: "vm-c"},
@@ -130,7 +134,7 @@ func TestGetVMnames(t *testing.T) {
 
 func TestGetIPOfVM(t *testing.T) {
 	worker := &SingletonWorker{}
-	worker.setVMs([]vmInfo{
+	worker.setVMs([]VMInfo{
 		{Name: "my-vm", PrimaryIP: "192.168.1.100"},
 	})
 
@@ -150,7 +154,7 @@ func TestGetIPOfVM(t *testing.T) {
 
 func TestSetVMsNil(t *testing.T) {
 	worker := &SingletonWorker{}
-	worker.setVMs([]vmInfo{{Name: "test"}})
+	worker.setVMs([]VMInfo{{Name: "test"}})
 	worker.setVMs(nil)
 
 	vms := worker.GetVMs("")
@@ -161,8 +165,8 @@ func TestSetVMsNil(t *testing.T) {
 
 func TestSetVMsEmpty(t *testing.T) {
 	worker := &SingletonWorker{}
-	worker.setVMs([]vmInfo{{Name: "test"}})
-	worker.setVMs([]vmInfo{})
+	worker.setVMs([]VMInfo{{Name: "test"}})
+	worker.setVMs([]VMInfo{})
 
 	vms := worker.GetVMs("")
 	if len(vms) != 0 {

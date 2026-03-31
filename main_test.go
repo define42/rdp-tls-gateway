@@ -123,7 +123,7 @@ func TestHandleHTTPS_ACMETLSALPNClosesConn(t *testing.T) {
 	frontTLS.GetTLSConfig().NextProtos = []string{acmez.ACMETLS1Protocol}
 
 	handlerCalled := make(chan struct{}, 1)
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		handlerCalled <- struct{}{}
 	})
 

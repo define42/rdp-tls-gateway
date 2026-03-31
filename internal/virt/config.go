@@ -10,6 +10,7 @@ const (
 	libvirtURIEnv     = "LIBVIRT_URI"
 )
 
+// LibvirtURI returns the configured libvirt connection URI.
 func LibvirtURI() string {
 	if uri := strings.TrimSpace(os.Getenv(libvirtURIEnv)); uri != "" {
 		return uri

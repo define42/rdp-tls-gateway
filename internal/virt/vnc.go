@@ -20,9 +20,12 @@ const (
 )
 
 var (
+	// ErrVNCNotConfigured reports that the domain does not expose a VNC socket.
 	ErrVNCNotConfigured = errors.New("vnc not configured")
-	ErrVNCNotRunning    = errors.New("vnc not running")
-	ErrVNCNotReady      = errors.New("vnc not ready")
+	// ErrVNCNotRunning reports that the domain is not running.
+	ErrVNCNotRunning = errors.New("vnc not running")
+	// ErrVNCNotReady reports that the VNC socket path does not exist yet.
+	ErrVNCNotReady = errors.New("vnc not ready")
 )
 
 type domainGraphicsXML struct {
@@ -108,6 +111,7 @@ func domainVNCSocketPath(dom *libvirt.Domain) (string, bool, error) {
 	return vncSocketPathFromDomainXML(xmlDesc)
 }
 
+// VNCSocketPathForDomain returns the VNC socket path for a running domain.
 func VNCSocketPathForDomain(name string) (string, error) {
 	conn, err := libvirt.NewConnect(LibvirtURI())
 	if err != nil {
@@ -144,6 +148,7 @@ func VNCSocketPathForDomain(name string) (string, error) {
 	return socketPath, nil
 }
 
+// DialVNCSocket connects to the VNC socket for a running domain.
 func DialVNCSocket(name string, timeout time.Duration) (net.Conn, error) {
 	socketPath, err := VNCSocketPathForDomain(name)
 	if err != nil {
