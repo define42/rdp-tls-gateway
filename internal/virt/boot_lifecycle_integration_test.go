@@ -377,7 +377,7 @@ func TestBootNewVMFailsWithoutBaseImageSource(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected BootNewVM to fail without a valid base image URL")
 	}
-	if !strings.Contains(err.Error(), "Failed to ensure base image") {
+	if !strings.Contains(err.Error(), "failed to ensure base image") {
 		t.Fatalf("expected base image failure, got %v", err)
 	}
 	if !strings.HasPrefix(vmName, user.GetName()+"-") {
