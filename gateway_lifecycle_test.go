@@ -106,7 +106,7 @@ func gatewayRequest(t *testing.T, client *http.Client, method, rawURL string, fo
 	if err != nil {
 		t.Fatalf("do request %s %s: %v", method, rawURL, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {

@@ -1,0 +1,14 @@
+version: "2"
+
+linters:
+  enable:
+    - staticcheck
+      #    - gochecknoinits
+
+  settings:
+    staticcheck:
+      checks:
+        - all
+        # examples:
+        # - ST1003   # naming conventions
+        # - ST1000   # package comments

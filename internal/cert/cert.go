@@ -1,3 +1,4 @@
+// Package cert manages frontend TLS certificates and certificate lifecycle.
 package cert
 
 import (

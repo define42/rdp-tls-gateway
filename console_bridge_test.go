@@ -68,8 +68,8 @@ func TestCopySocketToWebsocket(t *testing.T) {
 	defer cleanup()
 
 	backendConn, backendPeer := net.Pipe()
-	defer backendConn.Close()
-	defer backendPeer.Close()
+	defer func() { _ = backendConn.Close() }()
+	defer func() { _ = backendPeer.Close() }()
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -114,8 +114,8 @@ func TestCopyWebsocketToSocket(t *testing.T) {
 	defer cleanup()
 
 	backendConn, backendPeer := net.Pipe()
-	defer backendConn.Close()
-	defer backendPeer.Close()
+	defer func() { _ = backendConn.Close() }()
+	defer func() { _ = backendPeer.Close() }()
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -155,7 +155,7 @@ func TestBridgeDashboardSocket(t *testing.T) {
 	defer cleanup()
 
 	backendConn, backendPeer := net.Pipe()
-	defer backendPeer.Close()
+	defer func() { _ = backendPeer.Close() }()
 
 	done := make(chan struct{})
 	go func() {

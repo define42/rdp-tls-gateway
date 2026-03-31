@@ -1,3 +1,4 @@
+// Package virt manages libvirt-backed virtual machine operations for the gateway.
 package virt
 
 import (
@@ -52,7 +53,7 @@ func ensureBaseImage(settings *config.SettingsType) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("open base image lock: %w", err)
 	}
-	defer lockFile.Close()
+	defer func() { _ = lockFile.Close() }()
 
 	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
 		return "", fmt.Errorf("lock base image %s: %w", baseImagePath, err)
@@ -76,7 +77,7 @@ func ensureBaseImage(settings *config.SettingsType) (string, error) {
 		_ = os.Remove(tmpPath)
 		return "", fmt.Errorf("close temporary base image file: %w", err)
 	}
-	defer os.Remove(tmpPath)
+	defer func() { _ = os.Remove(tmpPath) }()
 
 	log.Printf("Base image %s not found, downloading...", baseImageURL)
 	if err := downloadWithProgress(baseImageURL, tmpPath); err != nil {

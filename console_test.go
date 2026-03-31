@@ -59,7 +59,7 @@ func TestDialDashboardSerialSocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dialDashboardSerialSocket(%q): %v", socketPath, err)
 	}
-	defer clientConn.Close()
+	defer func() { _ = clientConn.Close() }()
 
 	var serverConn net.Conn
 	select {
@@ -69,7 +69,7 @@ func TestDialDashboardSerialSocket(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for accepted dashboard serial socket")
 	}
-	defer serverConn.Close()
+	defer func() { _ = serverConn.Close() }()
 
 	want := []byte("hello from terminal")
 	if _, err := clientConn.Write(want); err != nil {
@@ -174,7 +174,7 @@ func TestDialDashboardVNCSocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dialDashboardVNCSocket(%q): %v", socketPath, err)
 	}
-	defer clientConn.Close()
+	defer func() { _ = clientConn.Close() }()
 
 	var serverConn net.Conn
 	select {
@@ -184,7 +184,7 @@ func TestDialDashboardVNCSocket(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for accepted dashboard vnc socket")
 	}
-	defer serverConn.Close()
+	defer func() { _ = serverConn.Close() }()
 
 	want := []byte("hello from vnc")
 	if _, err := clientConn.Write(want); err != nil {

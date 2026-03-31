@@ -53,8 +53,8 @@ func TestHandleHTTPS_ServesRequest(t *testing.T) {
 	})
 
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 
 	if err := client.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
 		t.Fatalf("set deadline: %v", err)
@@ -70,7 +70,7 @@ func TestHandleHTTPS_ServesRequest(t *testing.T) {
 		InsecureSkipVerify: true,
 		ServerName:         "example.com",
 	})
-	defer tlsClient.Close()
+	defer func() { _ = tlsClient.Close() }()
 
 	if err := tlsClient.Handshake(); err != nil {
 		t.Fatalf("client tls handshake: %v", err)
@@ -127,8 +127,8 @@ func TestHandleHTTPS_ACMETLSALPNClosesConn(t *testing.T) {
 	})
 
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 
 	done := make(chan struct{})
 	go func() {
@@ -141,7 +141,7 @@ func TestHandleHTTPS_ACMETLSALPNClosesConn(t *testing.T) {
 		ServerName:         "localhost",
 		NextProtos:         []string{acmez.ACMETLS1Protocol},
 	})
-	defer tlsClient.Close()
+	defer func() { _ = tlsClient.Close() }()
 
 	if err := client.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
 		t.Fatalf("set deadline: %v", err)
@@ -175,7 +175,7 @@ func TestHandleHTTPSHandshakeFailure(t *testing.T) {
 	frontTLS, settings := newTestTLSManager(t)
 
 	client, server := net.Pipe()
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 
 	done := make(chan struct{})
 	go func() {

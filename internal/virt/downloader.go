@@ -43,7 +43,7 @@ func downloadWithProgress(url, path string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("download %s: unexpected status %s", url, resp.Status)
 	}
@@ -53,7 +53,7 @@ func downloadWithProgress(url, path string) error {
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 
 	pr := &progressReader{
 		reader: resp.Body,

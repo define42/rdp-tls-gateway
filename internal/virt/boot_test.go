@@ -151,7 +151,9 @@ func TestStartVM(t *testing.T) {
 	if err != nil {
 		log.Printf("list vms connect: %v", err)
 	}
-	defer conn.Close()
+	defer func() {
+		_, _ = conn.Close()
+	}()
 
 	waitForState(t, testUsername, vmName, "running", conn, testTimeout)
 	waitForSerialSocket(t, vmName, testTimeout)

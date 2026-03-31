@@ -1,3 +1,4 @@
+// Package rdp implements the TLS-terminating RDP proxy logic.
 package rdp
 
 import (
@@ -171,7 +172,7 @@ func HandleRDP(raw net.Conn, frontTLS *cert.TLSManager, sessionManager *session.
 		_ = clientTLS.Close()
 		return
 	}
-	defer backendRaw.Close()
+	defer func() { _ = backendRaw.Close() }()
 	log.Printf("rdp debug: backend TCP connected to %s", backendAddr)
 
 	_ = backendRaw.SetDeadline(time.Now().Add(settings.GetDuration(config.TIMEOUT)))

@@ -47,7 +47,7 @@ func TestSameOriginWebsocketRequest(t *testing.T) {
 
 func TestSingleConnListenerLifecycle(t *testing.T) {
 	client, server := net.Pipe()
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	listener := newSingleConnListener(server)
 	if listener.Addr() == nil {
@@ -87,7 +87,7 @@ func TestSingleConnListenerLifecycle(t *testing.T) {
 
 func TestSingleConnListenerCloseBeforeAccept(t *testing.T) {
 	client, server := net.Pipe()
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	listener := newSingleConnListener(server)
 	if err := listener.Close(); err != nil {
@@ -100,7 +100,7 @@ func TestSingleConnListenerCloseBeforeAccept(t *testing.T) {
 
 func TestSingleConnListenerCloseTwice(t *testing.T) {
 	client, server := net.Pipe()
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	listener := newSingleConnListener(server)
 	if err := listener.Close(); err != nil {
@@ -113,8 +113,8 @@ func TestSingleConnListenerCloseTwice(t *testing.T) {
 
 func TestBufferedConnRead(t *testing.T) {
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 
 	reader := bufio.NewReader(server)
 	conn := &bufferedConn{Conn: server, r: reader}
@@ -209,7 +209,7 @@ func TestHandleSharedConnRoutesNonTLS(t *testing.T) {
 	}
 
 	client, server := net.Pipe()
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	done := make(chan struct{})
 	sessionManager := session.NewManager()
@@ -290,8 +290,8 @@ func TestHandleSharedConnRoutesTLS(t *testing.T) {
 	})
 
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 
 	done := make(chan struct{})
 	sessionManager := session.NewManager()

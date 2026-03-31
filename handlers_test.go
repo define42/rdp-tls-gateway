@@ -32,7 +32,7 @@ func issueSessionCookie(t *testing.T, sessionManager *session.Manager, username 
 	handler.ServeHTTP(rec, req)
 
 	res := rec.Result()
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	for _, cookie := range res.Cookies() {
 		if cookie.Name == "cv_session" {
 			return cookie

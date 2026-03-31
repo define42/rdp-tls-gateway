@@ -98,7 +98,7 @@ func serveListener(ln net.Listener, mux http.Handler, frontTLS *cert.TLSManager,
 }
 
 func handleSharedConn(raw net.Conn, frontTLS *cert.TLSManager, mux http.Handler, sessionManager *session.Manager, settings *config.SettingsType) {
-	defer raw.Close()
+	defer func() { _ = raw.Close() }()
 
 	br := bufio.NewReader(raw)
 	first, err := br.Peek(1)

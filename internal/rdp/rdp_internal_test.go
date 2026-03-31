@@ -179,8 +179,12 @@ func TestProxyBidirectional(t *testing.T) {
 
 func TestReadTPKTInvalidVersion(t *testing.T) {
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() {
+		_ = client.Close()
+	}()
+	defer func() {
+		_ = server.Close()
+	}()
 
 	go func() {
 		_, _ = server.Write([]byte{0x00, 0x00, 0x00, 0x04}) // wrong version
@@ -194,8 +198,12 @@ func TestReadTPKTInvalidVersion(t *testing.T) {
 
 func TestReadTPKTInvalidLength(t *testing.T) {
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() {
+		_ = client.Close()
+	}()
+	defer func() {
+		_ = server.Close()
+	}()
 
 	go func() {
 		_, _ = server.Write([]byte{0x03, 0x00, 0x00, 0x02}) // length too small

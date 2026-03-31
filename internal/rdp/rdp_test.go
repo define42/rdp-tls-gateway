@@ -36,8 +36,12 @@ func waitDone(t *testing.T, done <-chan struct{}) {
 func TestHandleRDPRejectsClientWithoutTLS(t *testing.T) {
 	InitLogging()
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() {
+		_ = client.Close()
+	}()
+	defer func() {
+		_ = server.Close()
+	}()
 
 	done := make(chan struct{})
 	settings := config.NewSettingType(false)
@@ -63,8 +67,12 @@ func TestHandleRDPRejectsSNIMismatch(t *testing.T) {
 	}
 
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() {
+		_ = client.Close()
+	}()
+	defer func() {
+		_ = server.Close()
+	}()
 
 	if err := client.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
 		t.Fatalf("set deadline: %v", err)
@@ -88,7 +96,9 @@ func TestHandleRDPRejectsSNIMismatch(t *testing.T) {
 		InsecureSkipVerify: true,
 		ServerName:         "bad.example.com",
 	})
-	defer tlsClient.Close()
+	defer func() {
+		_ = tlsClient.Close()
+	}()
 
 	if err := tlsClient.Handshake(); err != nil {
 		t.Fatalf("client tls handshake: %v", err)

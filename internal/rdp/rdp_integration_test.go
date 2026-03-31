@@ -87,7 +87,9 @@ func defineOwnedRDPTestDomains(t *testing.T, owners map[string]string) {
 	if err != nil {
 		t.Fatalf("connect libvirt: %v", err)
 	}
-	defer conn.Close()
+	defer func() {
+		_, _ = conn.Close()
+	}()
 
 	for name, owner := range owners {
 		dom, err := conn.DomainDefineXML(minimalRDPTestDomainXML(name))
@@ -131,7 +133,9 @@ func cleanupOwnedRDPTestDomain(t *testing.T, name string) {
 	if err != nil {
 		t.Fatalf("connect libvirt for cleanup: %v", err)
 	}
-	defer conn.Close()
+	defer func() {
+		_, _ = conn.Close()
+	}()
 
 	dom, err := conn.LookupDomainByName(name)
 	if err != nil {
@@ -258,7 +262,7 @@ func startBackendServer(t *testing.T, host string, handler func(net.Conn)) func(
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		handler(conn)
 	}()
 
@@ -354,7 +358,7 @@ func TestHandleRDPSuccessfulProxy(t *testing.T) {
 			t.Errorf("backend TLS handshake: %v", err)
 			return
 		}
-		defer tlsConn.Close()
+		defer func() { _ = tlsConn.Close() }()
 
 		buf := make([]byte, 4)
 		if _, err := io.ReadFull(tlsConn, buf); err != nil {
@@ -376,8 +380,8 @@ func TestHandleRDPSuccessfulProxy(t *testing.T) {
 	issueUserSession(t, sessionManager, "alice", "192.0.2.100:5000")
 
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 	server = newServerConnWithRemoteIP(server, "192.0.2.100")
 
 	done := make(chan struct{})
@@ -387,7 +391,7 @@ func TestHandleRDPSuccessfulProxy(t *testing.T) {
 	}()
 
 	tlsClient := performFrontHandshake(t, client, "vm1.example.test")
-	defer tlsClient.Close()
+	defer func() { _ = tlsClient.Close() }()
 
 	if _, err := tlsClient.Write([]byte("ping")); err != nil {
 		t.Fatalf("write proxied client bytes: %v", err)
@@ -410,8 +414,8 @@ func TestHandleRDPRejectsMissingSubdomain(t *testing.T) {
 
 	frontTLS, settings := newFrontTLSManager(t, "example.test")
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 
 	done := make(chan struct{})
 	go func() {
@@ -420,7 +424,7 @@ func TestHandleRDPRejectsMissingSubdomain(t *testing.T) {
 	}()
 
 	tlsClient := performFrontHandshake(t, client, "example.test")
-	defer tlsClient.Close()
+	defer func() { _ = tlsClient.Close() }()
 	go func() {
 		_, _ = io.Copy(io.Discard, tlsClient)
 	}()
@@ -437,8 +441,8 @@ func TestHandleRDPRejectsMissingRoute(t *testing.T) {
 	sessionManager := session.NewManager()
 	issueUserSession(t, sessionManager, "alice", "192.0.2.101:5000")
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 	server = newServerConnWithRemoteIP(server, "192.0.2.101")
 
 	done := make(chan struct{})
@@ -448,7 +452,7 @@ func TestHandleRDPRejectsMissingRoute(t *testing.T) {
 	}()
 
 	tlsClient := performFrontHandshake(t, client, "missing.example.test")
-	defer tlsClient.Close()
+	defer func() { _ = tlsClient.Close() }()
 	go func() {
 		_, _ = io.Copy(io.Discard, tlsClient)
 	}()
@@ -465,8 +469,8 @@ func TestHandleRDPBackendDialFailure(t *testing.T) {
 	sessionManager := session.NewManager()
 	issueUserSession(t, sessionManager, "alice", "192.0.2.102:5000")
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 	server = newServerConnWithRemoteIP(server, "192.0.2.102")
 
 	done := make(chan struct{})
@@ -476,7 +480,7 @@ func TestHandleRDPBackendDialFailure(t *testing.T) {
 	}()
 
 	tlsClient := performFrontHandshake(t, client, "vmdial.example.test")
-	defer tlsClient.Close()
+	defer func() { _ = tlsClient.Close() }()
 	go func() {
 		_, _ = io.Copy(io.Discard, tlsClient)
 	}()
@@ -506,8 +510,8 @@ func TestHandleRDPRejectsBackendWithoutTLS(t *testing.T) {
 	sessionManager := session.NewManager()
 	issueUserSession(t, sessionManager, "alice", "192.0.2.103:5000")
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 	server = newServerConnWithRemoteIP(server, "192.0.2.103")
 
 	done := make(chan struct{})
@@ -517,7 +521,7 @@ func TestHandleRDPRejectsBackendWithoutTLS(t *testing.T) {
 	}()
 
 	tlsClient := performFrontHandshake(t, client, "vmbad.example.test")
-	defer tlsClient.Close()
+	defer func() { _ = tlsClient.Close() }()
 	go func() {
 		_, _ = io.Copy(io.Discard, tlsClient)
 	}()
@@ -543,8 +547,8 @@ func TestHandleRDPRejectsWithoutOwnerSessionBeforeDial(t *testing.T) {
 	sessionManager := session.NewManager()
 
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 	server = newServerConnWithRemoteIP(server, "192.0.2.104")
 
 	done := make(chan struct{})
@@ -554,7 +558,7 @@ func TestHandleRDPRejectsWithoutOwnerSessionBeforeDial(t *testing.T) {
 	}()
 
 	tlsClient := performFrontHandshake(t, client, "vmnosession.example.test")
-	defer tlsClient.Close()
+	defer func() { _ = tlsClient.Close() }()
 	_ = tlsClient.Close()
 
 	waitDone(t, done)
@@ -579,8 +583,8 @@ func TestHandleRDPRejectsDifferentOwnerSessionIPBeforeDial(t *testing.T) {
 	issueUserSession(t, sessionManager, "alice", "192.0.2.200:5000")
 
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 	server = newServerConnWithRemoteIP(server, "192.0.2.105")
 
 	done := make(chan struct{})
@@ -590,7 +594,7 @@ func TestHandleRDPRejectsDifferentOwnerSessionIPBeforeDial(t *testing.T) {
 	}()
 
 	tlsClient := performFrontHandshake(t, client, "vmdiffip.example.test")
-	defer tlsClient.Close()
+	defer func() { _ = tlsClient.Close() }()
 	_ = tlsClient.Close()
 
 	waitDone(t, done)
@@ -615,8 +619,8 @@ func TestHandleRDPRejectsOtherUserSessionFromSameIPBeforeDial(t *testing.T) {
 	issueUserSession(t, sessionManager, "bob", "192.0.2.106:5000")
 
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 	server = newServerConnWithRemoteIP(server, "192.0.2.106")
 
 	done := make(chan struct{})
@@ -626,7 +630,7 @@ func TestHandleRDPRejectsOtherUserSessionFromSameIPBeforeDial(t *testing.T) {
 	}()
 
 	tlsClient := performFrontHandshake(t, client, "vmotheruser.example.test")
-	defer tlsClient.Close()
+	defer func() { _ = tlsClient.Close() }()
 	_ = tlsClient.Close()
 
 	waitDone(t, done)
@@ -662,7 +666,7 @@ func TestHandleRDPAllowsAnyMatchingOwnerSessionIP(t *testing.T) {
 			t.Errorf("backend TLS handshake: %v", err)
 			return
 		}
-		defer tlsConn.Close()
+		defer func() { _ = tlsConn.Close() }()
 
 		if _, err := tlsConn.Write([]byte("ok")); err != nil {
 			t.Errorf("backend write proxied bytes: %v", err)
@@ -676,8 +680,8 @@ func TestHandleRDPAllowsAnyMatchingOwnerSessionIP(t *testing.T) {
 	issueUserSession(t, sessionManager, "alice", "192.0.2.107:5001")
 
 	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
 	server = newServerConnWithRemoteIP(server, "192.0.2.107")
 
 	done := make(chan struct{})
@@ -687,7 +691,7 @@ func TestHandleRDPAllowsAnyMatchingOwnerSessionIP(t *testing.T) {
 	}()
 
 	tlsClient := performFrontHandshake(t, client, "vmmulti.example.test")
-	defer tlsClient.Close()
+	defer func() { _ = tlsClient.Close() }()
 
 	reply := make([]byte, 2)
 	if _, err := io.ReadFull(tlsClient, reply); err != nil {

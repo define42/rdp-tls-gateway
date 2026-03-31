@@ -1,3 +1,4 @@
+// Package session manages authenticated browser sessions for the gateway.
 package session
 
 import (

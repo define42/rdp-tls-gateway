@@ -99,7 +99,9 @@ func VMOwner(name string) (string, bool, error) {
 	if err != nil {
 		return "", false, fmt.Errorf("connect libvirt: %w", err)
 	}
-	defer conn.Close()
+	defer func() {
+		_, _ = conn.Close()
+	}()
 
 	dom, err := conn.LookupDomainByName(name)
 	if err != nil {

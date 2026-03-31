@@ -29,7 +29,7 @@ func TestRenderDashboardPage(t *testing.T) {
 	renderDashboardPage(rec)
 
 	res := rec.Result()
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("expected %d, got %d", http.StatusOK, res.StatusCode)

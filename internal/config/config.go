@@ -1,3 +1,4 @@
+// Package config defines the gateway's environment-backed runtime settings.
 package config
 
 import (
@@ -177,7 +178,7 @@ func (s *SettingsType) Has(id string) bool {
 	return ok
 }
 
-// String form (useful for printing/logging / backwards compat)
+// Get returns the setting value as a string.
 func (s *SettingsType) Get(id string) string { return s.GetString(id) }
 
 func (s *SettingsType) GetString(id string) string {
@@ -265,29 +266,27 @@ func (s *SettingsType) GetDuration(id string) time.Duration {
 
 // ---- Keys ----
 
-const (
-	ACME_DATA_DIR          = "ACME_DATA_DIR"          //nolint:stylecheck // configuration key identifiers intentionally match environment variable names
-	ACME_EMAIL             = "ACME_EMAIL"             //nolint:stylecheck // configuration key identifiers intentionally match environment variable names
-	ACME_CA                = "ACME_CA"                //nolint:stylecheck // configuration key identifiers intentionally match environment variable names
-	ACME_ENABLE            = "ACME_ENABLE"            //nolint:stylecheck // configuration key identifiers intentionally match environment variable names
-	CERT_FILE              = "CERT_FILE"              //nolint:stylecheck // configuration key identifiers intentionally match environment variable names
-	FRONT_DOMAIN           = "FRONT_DOMAIN"           //nolint:stylecheck // configuration key identifiers intentionally match environment variable names
-	KEY_FILE               = "KEY_FILE"               //nolint:stylecheck // configuration key identifiers intentionally match environment variable names
-	LDAP_URL               = "LDAP_URL"               //nolint:stylecheck // configuration key identifiers intentionally match environment variable names
-	LDAP_BASE_DN           = "LDAP_BASE_DN"           //nolint:stylecheck // configuration key identifiers intentionally match environment variable names
-	LDAP_USER_FILTER       = "LDAP_USER_FILTER"       //nolint:stylecheck // configuration key identifiers intentionally match environment variable names
-	LDAP_USER_DOMAIN       = "LDAP_USER_DOMAIN"       //nolint:stylecheck // configuration key identifiers intentionally match environment variable names
-	LDAP_STARTTLS          = "LDAP_STARTTLS"          //nolint:stylecheck // configuration key identifiers intentionally match environment variable names
-	LDAP_SKIP_TLS_VERIFY   = "LDAP_SKIP_TLS_VERIFY"   //nolint:stylecheck // configuration key identifiers intentionally match environment variable names
-	LISTEN_ADDR            = "LISTEN_ADDR"            //nolint:stylecheck // configuration key identifiers intentionally match environment variable names
-	VDI_IMAGE_DIR          = "VDI_IMAGE_DIR"          //nolint:stylecheck // configuration key identifiers intentionally match environment variable names
-	VIRT_STORAGE_POOL_NAME = "VIRT_STORAGE_POOL_NAME" //nolint:stylecheck // configuration key identifiers intentionally match environment variable names
-	VIRT_STORAGE_POOL_PATH = "VIRT_STORAGE_POOL_PATH" //nolint:stylecheck // configuration key identifiers intentionally match environment variable names
-	VIRT_SERIAL_SOCKET_DIR = "VIRT_SERIAL_SOCKET_DIR" //nolint:stylecheck // configuration key identifiers intentionally match environment variable names
-	VIRT_VNC_SOCKET_DIR    = "VIRT_VNC_SOCKET_DIR"    //nolint:stylecheck // configuration key identifiers intentionally match environment variable names
-	BASE_IMAGE_URL         = "BASE_IMAGE_URL"         //nolint:stylecheck // configuration key identifiers intentionally match environment variable names
-	TIMEOUT                = "TIMEOUT"                //nolint:stylecheck // configuration key identifiers intentionally match environment variable names
-)
+const ACME_DATA_DIR = "ACME_DATA_DIR"                   //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
+const ACME_EMAIL = "ACME_EMAIL"                         //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
+const ACME_CA = "ACME_CA"                               //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
+const ACME_ENABLE = "ACME_ENABLE"                       //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
+const CERT_FILE = "CERT_FILE"                           //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
+const FRONT_DOMAIN = "FRONT_DOMAIN"                     //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
+const KEY_FILE = "KEY_FILE"                             //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
+const LDAP_URL = "LDAP_URL"                             //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
+const LDAP_BASE_DN = "LDAP_BASE_DN"                     //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
+const LDAP_USER_FILTER = "LDAP_USER_FILTER"             //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
+const LDAP_USER_DOMAIN = "LDAP_USER_DOMAIN"             //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
+const LDAP_STARTTLS = "LDAP_STARTTLS"                   //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
+const LDAP_SKIP_TLS_VERIFY = "LDAP_SKIP_TLS_VERIFY"     //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
+const LISTEN_ADDR = "LISTEN_ADDR"                       //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
+const VDI_IMAGE_DIR = "VDI_IMAGE_DIR"                   //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
+const VIRT_STORAGE_POOL_NAME = "VIRT_STORAGE_POOL_NAME" //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
+const VIRT_STORAGE_POOL_PATH = "VIRT_STORAGE_POOL_PATH" //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
+const VIRT_SERIAL_SOCKET_DIR = "VIRT_SERIAL_SOCKET_DIR" //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
+const VIRT_VNC_SOCKET_DIR = "VIRT_VNC_SOCKET_DIR"       //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
+const BASE_IMAGE_URL = "BASE_IMAGE_URL"                 //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
+const TIMEOUT = "TIMEOUT"                               //nolint:staticcheck // Configuration key identifiers intentionally match environment variable names.
 
 func (s *SettingsType) OverwriteForTestString(id, value string) error {
 

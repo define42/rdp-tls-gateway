@@ -82,7 +82,9 @@ func serveLogin(w http.ResponseWriter, message string) {
 	if message != "" {
 		errorHTML = `<div class="alert alert-danger mb-3" role="alert">` + html.EscapeString(message) + `</div>`
 	}
-	fmt.Fprint(w, strings.Replace(loginHTML, "{{ERROR}}", errorHTML, 1))
+	if _, err := fmt.Fprint(w, strings.Replace(loginHTML, "{{ERROR}}", errorHTML, 1)); err != nil {
+		log.Printf("serve login response: %v", err)
+	}
 }
 
 func setNoCacheHeaders(w http.ResponseWriter) {

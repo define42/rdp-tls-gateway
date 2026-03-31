@@ -1,3 +1,4 @@
+// Package types defines shared data structures used across the gateway.
 package types
 
 import "rdptlsgateway/internal/hash"

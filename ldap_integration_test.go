@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"rdptlsgateway/internal/config"
 	"rdptlsgateway/internal/ldap"
@@ -21,10 +20,10 @@ func TestLDAPAuthenticateWithGlauthConfig(t *testing.T) {
 	ldapURL, cleanup := startGlauth(ctx, t, "")
 	defer cleanup()
 
-	os.Setenv("LDAP_URL", ldapURL)
-	os.Setenv("LDAP_SKIP_TLS_VERIFY", "true")
-	os.Setenv("LDAP_STARTTLS", "false")
-	os.Setenv("LDAP_USER_DOMAIN", "@example.com")
+	t.Setenv("LDAP_URL", ldapURL)
+	t.Setenv("LDAP_SKIP_TLS_VERIFY", "true")
+	t.Setenv("LDAP_STARTTLS", "false")
+	t.Setenv("LDAP_USER_DOMAIN", "@example.com")
 
 	settings := config.NewSettingType(false)
 	u, err := ldap.LdapAuthenticateAccess("testuser", "dogood", settings)

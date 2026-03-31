@@ -1,3 +1,4 @@
+// Package ldap authenticates users against the configured LDAP directory.
 package ldap
 
 import (
@@ -15,7 +16,7 @@ func LdapAuthenticateAccess(username, password string, settings *config.Settings
 	if err != nil {
 		return nil, err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	userMailDomain := settings.Get(config.LDAP_USER_DOMAIN)
 

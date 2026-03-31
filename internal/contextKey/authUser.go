@@ -1,3 +1,4 @@
+// Package contextkey defines typed context keys used across the gateway.
 package contextkey
 
 import "context"

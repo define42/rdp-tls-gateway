@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -19,12 +18,11 @@ func TestIntegrationLogin(t *testing.T) {
 	ldapURL, cleanup := startGlauth(ctx, t, "")
 	defer cleanup()
 
-	os.Setenv("LDAP_URL", ldapURL)
-	os.Setenv("LDAP_SKIP_TLS_VERIFY", "true")
-	os.Setenv("LDAP_STARTTLS", "false")
-	os.Setenv("LDAP_USER_DOMAIN", "@example.com")
-
-	os.Setenv("LISTEN_ADDR", ":8443")
+	t.Setenv("LDAP_URL", ldapURL)
+	t.Setenv("LDAP_SKIP_TLS_VERIFY", "true")
+	t.Setenv("LDAP_STARTTLS", "false")
+	t.Setenv("LDAP_USER_DOMAIN", "@example.com")
+	t.Setenv("LISTEN_ADDR", ":8443")
 
 	if err := bootGateway(); err != nil {
 		t.Fatalf("Failed to boot gateway: %v", err)
@@ -83,7 +81,7 @@ func doRequest(t *testing.T, ctx context.Context, baseURL string, client *http.C
 	if err != nil {
 		t.Fatalf("do request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, _ := io.ReadAll(resp.Body)
 	return resp.StatusCode, string(data), resp.Header.Clone()
 }

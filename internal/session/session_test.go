@@ -28,7 +28,9 @@ func issueSession(t *testing.T, m *Manager, user *types.User, remoteAddr string)
 	handler.ServeHTTP(rec, req)
 
 	res := rec.Result()
-	defer res.Body.Close()
+	defer func() {
+		_ = res.Body.Close()
+	}()
 	for _, cookie := range res.Cookies() {
 		if cookie.Name == "cv_session" {
 			return cookie

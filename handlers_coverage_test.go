@@ -78,7 +78,7 @@ func TestServeLogin(t *testing.T) {
 	serveLogin(rec, "")
 
 	res := rec.Result()
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.StatusCode)

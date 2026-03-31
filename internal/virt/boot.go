@@ -29,7 +29,9 @@ func startVM(name, seedIso, storagePoolName, serialSocketPath, vncSocketPath, ow
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() {
+		_, _ = conn.Close()
+	}()
 
 	if err := removeSocketPath(serialSocketPath, "serial"); err != nil {
 		return err
@@ -129,7 +131,7 @@ func CopyAndResizeVolume(
 	if err != nil {
 		return fmt.Errorf("open source image: %w", err)
 	}
-	defer src.Close()
+	defer func() { _ = src.Close() }()
 
 	srcInfo, err := src.Stat()
 	if err != nil {
@@ -311,7 +313,9 @@ func InitVirt(settings *config.SettingsType) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to libvirt: %v", err)
 	}
-	defer conn.Close()
+	defer func() {
+		_, _ = conn.Close()
+	}()
 
 	poolName, poolPath := storagePoolConfig(settings)
 	pool, err := ensureStoragePool(conn, poolName, poolPath)
@@ -351,7 +355,9 @@ func BootNewVM(name string, user *types.User, settings *config.SettingsType, vcp
 	if err != nil {
 		return vmName, fmt.Errorf("failed to connect to libvirt: %v", err)
 	}
-	defer conn.Close()
+	defer func() {
+		_, _ = conn.Close()
+	}()
 
 	pool, err := ensureStoragePool(conn, poolName, poolPath)
 	if err != nil {
@@ -397,7 +403,9 @@ func RemoveVM(name string, settings *config.SettingsType) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() {
+		_, _ = conn.Close()
+	}()
 
 	poolName, _ := storagePoolConfig(settings)
 

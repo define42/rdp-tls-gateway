@@ -31,7 +31,9 @@ func cleanupStoragePool(t *testing.T, name string) {
 	if err != nil {
 		t.Fatalf("connect libvirt for cleanup: %v", err)
 	}
-	defer conn.Close()
+	defer func() {
+		_, _ = conn.Close()
+	}()
 
 	pool, err := conn.LookupStoragePoolByName(name)
 	if err != nil {

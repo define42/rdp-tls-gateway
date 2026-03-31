@@ -15,7 +15,9 @@ func UpdateVMResources(name string, vcpu int, memoryMiB int) error {
 	if err != nil {
 		return fmt.Errorf("connect libvirt: %w", err)
 	}
-	defer conn.Close()
+	defer func() {
+		_, _ = conn.Close()
+	}()
 
 	dom, err := conn.LookupDomainByName(name)
 	if err != nil {

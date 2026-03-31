@@ -1,3 +1,4 @@
+// Package hash provides password hashing helpers used by the gateway.
 package hash
 
 import (
