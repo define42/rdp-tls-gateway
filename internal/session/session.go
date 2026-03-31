@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"rdptlsgateway/internal/types"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/alexedwards/scs/v2"
@@ -24,18 +25,23 @@ type sessionData struct {
 
 const sessionKey = "session"
 
-func init() {
-	gob.Register(sessionData{})
-}
-
 const sessionTTL = 30 * time.Minute
+
+var registerSessionTypesOnce sync.Once
 
 type Manager struct {
 	*scs.SessionManager
 }
 
 func NewManager() *Manager {
+	registerSessionTypes()
 	return &Manager{SessionManager: newSessionManager()}
+}
+
+func registerSessionTypes() {
+	registerSessionTypesOnce.Do(func() {
+		gob.Register(sessionData{})
+	})
 }
 
 func newSessionManager() *scs.SessionManager {
