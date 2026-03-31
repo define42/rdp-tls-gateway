@@ -10,6 +10,7 @@ import (
 	"os"
 	"rdptlsgateway/internal/cert"
 	"rdptlsgateway/internal/config"
+	"rdptlsgateway/internal/session"
 	"rdptlsgateway/internal/virt"
 	"strings"
 	"sync"
@@ -25,6 +26,12 @@ import (
 func InitLogging() {
 	glog.SetLogger(log.New(os.Stdout, "", 0))
 	glog.SetLevel(glog.ERROR)
+}
+
+var vmOwnerLookup = virt.VMOwner
+
+var vmIPAddressLookup = func(hostname string) (string, error) {
+	return virt.GetInstance().GetIpOfVm(hostname)
 }
 
 func getSubdomain(host, root string) (string, bool) {
@@ -44,7 +51,7 @@ func getSubdomain(host, root string) (string, bool) {
 }
 
 // HandleRDP handles a single RDP connection over TLS.
-func HandleRDP(raw net.Conn, frontTLS *cert.TLSManager, settings *config.SettingsType) {
+func HandleRDP(raw net.Conn, frontTLS *cert.TLSManager, sessionManager *session.Manager, settings *config.SettingsType) {
 
 	started := time.Now()
 	log.Printf("rdp debug: new connection remote=%s local=%s", raw.RemoteAddr(), raw.LocalAddr())
@@ -110,9 +117,38 @@ func HandleRDP(raw net.Conn, frontTLS *cert.TLSManager, settings *config.Setting
 	}
 	log.Printf("rdp debug: resolved subdomain hostname=%q", hostname)
 
-	// get target from virt singleton worker
+	if sessionManager == nil {
+		log.Printf("rdp denied SNI=%q vm=%q remote=%s: session manager unavailable", sni, hostname, raw.RemoteAddr())
+		_ = clientTLS.Close()
+		return
+	}
 
-	backendAddr, err := virt.GetInstance().GetIpOfVm(hostname)
+	owner, hasOwner, err := vmOwnerLookup(hostname)
+	if err != nil {
+		log.Printf("resolve owner for VM %s: %v", hostname, err)
+		_ = clientTLS.Close()
+		return
+	}
+	if !hasOwner {
+		log.Printf("rdp denied SNI=%q vm=%q remote=%s: missing VM owner", sni, hostname, raw.RemoteAddr())
+		_ = clientTLS.Close()
+		return
+	}
+
+	clientIP, ok := session.CanonicalClientIP(raw.RemoteAddr().String())
+	if !ok {
+		log.Printf("rdp denied SNI=%q vm=%q remote=%s: invalid client IP", sni, hostname, raw.RemoteAddr())
+		_ = clientTLS.Close()
+		return
+	}
+	if !sessionManager.UserHasActiveSessionFromIP(owner, clientIP) {
+		log.Printf("rdp denied SNI=%q vm=%q owner=%q client_ip=%q remote=%s: no matching active session", sni, hostname, owner, clientIP, raw.RemoteAddr())
+		_ = clientTLS.Close()
+		return
+	}
+	log.Printf("rdp debug: authorized owner=%q client_ip=%q vm=%q", owner, clientIP, hostname)
+
+	backendAddr, err := vmIPAddressLookup(hostname)
 	if err != nil {
 		log.Printf("get IP of VM %s: %v", hostname, err)
 		_ = clientTLS.Close()

@@ -172,6 +172,13 @@ func TestStartVMAndRemoveVMManageArtifacts(t *testing.T) {
 	}
 
 	waitForDomainState(t, conn, vmName, true, bootLifecycleTimeout)
+	owner, hasOwner, err := VMOwner(vmName)
+	if err != nil {
+		t.Fatalf("VMOwner legacy owner: %v", err)
+	}
+	if !hasOwner || owner != "bootuser" {
+		t.Fatalf("expected legacy VM owner %q, got owner=%q hasOwner=%v", "bootuser", owner, hasOwner)
+	}
 	owned, err := UserOwnsVM(vmName, "bootuser")
 	if err != nil {
 		t.Fatalf("UserOwnsVM legacy owner: %v", err)
@@ -294,6 +301,13 @@ func TestBootNewVMPersistsOwnerMetadata(t *testing.T) {
 	})
 
 	waitForDomainState(t, conn, vmName, true, bootLifecycleTimeout)
+	owner, hasOwner, err := VMOwner(vmName)
+	if err != nil {
+		t.Fatalf("VMOwner(owner): %v", err)
+	}
+	if !hasOwner || owner != user.GetName() {
+		t.Fatalf("expected owner %q, got owner=%q hasOwner=%v", user.GetName(), owner, hasOwner)
+	}
 
 	owned, err := UserOwnsVM(vmName, user.GetName())
 	if err != nil {

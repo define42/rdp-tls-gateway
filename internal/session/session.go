@@ -3,8 +3,11 @@ package session
 import (
 	"context"
 	"encoding/gob"
+	"net"
 	"net/http"
+	"net/netip"
 	"rdptlsgateway/internal/types"
+	"strings"
 	"time"
 
 	"github.com/alexedwards/scs/v2"
@@ -16,6 +19,7 @@ import (
 type sessionData struct {
 	User      *types.User
 	CreatedAt time.Time
+	ClientIP  string
 }
 
 const sessionKey = "session"
@@ -46,13 +50,38 @@ func newSessionManager() *scs.SessionManager {
 	return manager
 }
 
-func (m *Manager) CreateSession(ctx context.Context, u *types.User) error {
+func CanonicalClientIP(remoteAddr string) (string, bool) {
+	remoteAddr = strings.TrimSpace(remoteAddr)
+	if remoteAddr == "" {
+		return "", false
+	}
+
+	if addrPort, err := netip.ParseAddrPort(remoteAddr); err == nil {
+		return addrPort.Addr().Unmap().String(), true
+	}
+
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err == nil {
+		remoteAddr = host
+	}
+
+	addr, err := netip.ParseAddr(remoteAddr)
+	if err != nil {
+		return "", false
+	}
+
+	return addr.Unmap().String(), true
+}
+
+func (m *Manager) CreateSession(ctx context.Context, u *types.User, clientIP string) error {
 	if err := m.RenewToken(ctx); err != nil {
 		return err
 	}
+	canonicalIP, _ := CanonicalClientIP(clientIP)
 	m.Put(ctx, sessionKey, sessionData{
 		User:      u,
 		CreatedAt: time.Now(),
+		ClientIP:  canonicalIP,
 	})
 	return nil
 }
@@ -79,25 +108,63 @@ func (m *Manager) UserFromContext(ctx context.Context) (*types.User, bool) {
 }
 
 func (m *Manager) GetSessionFromUserName(username string) (sessionData, bool) {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return sessionData{}, false
+	}
+
+	for _, sess := range m.allSessions() {
+		if sess.User != nil && sess.User.GetName() == username {
+			return sess, true
+		}
+	}
+	return sessionData{}, false
+}
+
+func (m *Manager) UserHasActiveSessionFromIP(username, clientIP string) bool {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return false
+	}
+
+	canonicalIP, ok := CanonicalClientIP(clientIP)
+	if !ok {
+		return false
+	}
+
+	for _, sess := range m.allSessions() {
+		if sess.User == nil {
+			continue
+		}
+		if sess.User.GetName() == username && sess.ClientIP == canonicalIP {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Manager) allSessions() []sessionData {
 	store, ok := m.Store.(scs.IterableStore)
 	if !ok {
-		return sessionData{}, false
+		return nil
 	}
 	sessions, err := store.All()
 	if err != nil {
-		return sessionData{}, false
+		return nil
 	}
+
+	decoded := make([]sessionData, 0, len(sessions))
 	for _, raw := range sessions {
 		_, values, err := m.Codec.Decode(raw)
 		if err != nil {
 			continue
 		}
-		if sess, ok := values[sessionKey].(sessionData); ok &&
-			sess.User != nil && sess.User.GetName() == username {
-			return sess, true
+		if sess, ok := values[sessionKey].(sessionData); ok {
+			decoded = append(decoded, sess)
 		}
 	}
-	return sessionData{}, false
+
+	return decoded
 }
 
 func (m *Manager) DestroySession(ctx context.Context) error {

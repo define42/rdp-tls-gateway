@@ -13,6 +13,16 @@ import (
 	"rdptlsgateway/internal/types"
 )
 
+func stubLoginAuthenticate(t *testing.T, fn func(username, password string, settings *config.SettingsType) (*types.User, error)) {
+	t.Helper()
+
+	originalAuthenticate := loginAuthenticate
+	loginAuthenticate = fn
+	t.Cleanup(func() {
+		loginAuthenticate = originalAuthenticate
+	})
+}
+
 func issueSessionCookie(t *testing.T, sessionManager *session.Manager, username string) *http.Cookie {
 	t.Helper()
 
@@ -23,9 +33,10 @@ func issueSessionCookie(t *testing.T, sessionManager *session.Manager, username 
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/login", nil)
+	req.RemoteAddr = "192.0.2.10:12345"
 
 	handler := sessionManager.LoadAndSave(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := sessionManager.CreateSession(r.Context(), user); err != nil {
+		if err := sessionManager.CreateSession(r.Context(), user, r.RemoteAddr); err != nil {
 			t.Fatalf("create session: %v", err)
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -42,6 +53,40 @@ func issueSessionCookie(t *testing.T, sessionManager *session.Manager, username 
 
 	t.Fatal("session cookie not set")
 	return nil
+}
+
+func TestHandleLoginPostRecordsLoginIP(t *testing.T) {
+	sessionManager := session.NewManager()
+	settings := config.NewSettingType(false)
+
+	stubLoginAuthenticate(t, func(username, password string, _ *config.SettingsType) (*types.User, error) {
+		if username != "alice" || password != "dogood" {
+			t.Fatalf("unexpected credentials %q / %q", username, password)
+		}
+		return types.NewUser(username, password)
+	})
+
+	form := url.Values{
+		"username": {"alice"},
+		"password": {"dogood"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.RemoteAddr = "[::ffff:192.0.2.60]:4321"
+	rec := httptest.NewRecorder()
+
+	handler := sessionManager.LoadAndSave(handleLoginPost(sessionManager, settings))
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected %d, got %d", http.StatusSeeOther, rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/api/dashboard" {
+		t.Fatalf("expected redirect to /api/dashboard, got %q", loc)
+	}
+	if !sessionManager.UserHasActiveSessionFromIP("alice", "192.0.2.60") {
+		t.Fatal("expected login to record the canonical client IP in session storage")
+	}
 }
 
 func TestDashboardMutationEndpointsRejectNonOwnerVM(t *testing.T) {

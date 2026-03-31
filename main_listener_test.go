@@ -12,6 +12,7 @@ import (
 
 	"rdptlsgateway/internal/cert"
 	"rdptlsgateway/internal/config"
+	"rdptlsgateway/internal/session"
 )
 
 func TestSameOriginWebsocketRequest(t *testing.T) {
@@ -144,8 +145,9 @@ func TestServeListenerReturnsWhenClosed(t *testing.T) {
 	}
 
 	done := make(chan struct{})
+	sessionManager := session.NewManager()
 	go func() {
-		serveListener(ln, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), frontTLS, settings)
+		serveListener(ln, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), frontTLS, sessionManager, settings)
 		close(done)
 	}()
 
@@ -181,8 +183,9 @@ func TestServeListenerRetriesTimeoutAccept(t *testing.T) {
 	}
 
 	done := make(chan struct{})
+	sessionManager := session.NewManager()
 	go func() {
-		serveListener(tcpLn, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), frontTLS, settings)
+		serveListener(tcpLn, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), frontTLS, sessionManager, settings)
 		close(done)
 	}()
 
@@ -209,10 +212,11 @@ func TestHandleSharedConnRoutesNonTLS(t *testing.T) {
 	defer client.Close()
 
 	done := make(chan struct{})
+	sessionManager := session.NewManager()
 	go func() {
 		handleSharedConn(server, frontTLS, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 			t.Error("HTTPS handler should not be called for non-TLS payload")
-		}), settings)
+		}), sessionManager, settings)
 		close(done)
 	}()
 
@@ -238,10 +242,11 @@ func TestHandleSharedConnPeekFailure(t *testing.T) {
 	client, server := net.Pipe()
 
 	done := make(chan struct{})
+	sessionManager := session.NewManager()
 	go func() {
 		handleSharedConn(server, frontTLS, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 			t.Error("HTTPS handler should not be called when no bytes are available")
-		}), settings)
+		}), sessionManager, settings)
 		close(done)
 	}()
 
@@ -289,8 +294,9 @@ func TestHandleSharedConnRoutesTLS(t *testing.T) {
 	defer server.Close()
 
 	done := make(chan struct{})
+	sessionManager := session.NewManager()
 	go func() {
-		handleSharedConn(server, frontTLS, handler, settings)
+		handleSharedConn(server, frontTLS, handler, sessionManager, settings)
 		close(done)
 	}()
 

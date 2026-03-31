@@ -26,6 +26,8 @@ const (
 	rdpFilename       = "rdpgw.rdp"
 )
 
+var loginAuthenticate = ldap.LdapAuthenticateAccess
+
 func extractCredentials(r *http.Request) (string, string, bool, error) {
 	username, password, ok := r.BasicAuth()
 	if ok && username != "" && password != "" {
@@ -54,14 +56,14 @@ func handleLoginPost(sessionManager *session.Manager, settings *config.SettingsT
 			return
 		}
 
-		user, err := ldap.LdapAuthenticateAccess(username, password, settings)
+		user, err := loginAuthenticate(username, password, settings)
 		if err != nil {
 			log.Printf("ldap auth failed for %s: %v", username, err)
 			serveLogin(w, "Invalid credentials.")
 			return
 		}
 
-		if err := sessionManager.CreateSession(r.Context(), user); err != nil {
+		if err := sessionManager.CreateSession(r.Context(), user, r.RemoteAddr); err != nil {
 			log.Printf("session create failed for %s: %v", username, err)
 			serveLogin(w, "Login failed.")
 			return

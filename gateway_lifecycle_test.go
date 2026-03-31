@@ -47,7 +47,7 @@ func startGatewayTestServer(t *testing.T, settings *config.SettingsType) gateway
 
 	done := make(chan struct{})
 	go func() {
-		serveListener(ln, mux, frontTLS, settings)
+		serveListener(ln, mux, frontTLS, sessionManager, settings)
 		close(done)
 	}()
 

@@ -42,7 +42,7 @@ func TestHandleRDPRejectsClientWithoutTLS(t *testing.T) {
 	done := make(chan struct{})
 	settings := config.NewSettingType(false)
 	go func() {
-		HandleRDP(server, nil, settings)
+		HandleRDP(server, nil, nil, settings)
 		close(done)
 	}()
 
@@ -72,7 +72,7 @@ func TestHandleRDPRejectsSNIMismatch(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		HandleRDP(server, frontTLS, settings)
+		HandleRDP(server, frontTLS, nil, settings)
 		close(done)
 	}()
 

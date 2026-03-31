@@ -74,11 +74,11 @@ func bootGateway() error {
 	}
 	log.Printf("listening on %s", listen)
 
-	go serveListener(ln, mux, frontTLS, settings)
+	go serveListener(ln, mux, frontTLS, sessionManager, settings)
 	return nil
 }
 
-func serveListener(ln net.Listener, mux http.Handler, frontTLS *cert.TLSManager, settings *config.SettingsType) {
+func serveListener(ln net.Listener, mux http.Handler, frontTLS *cert.TLSManager, sessionManager *session.Manager, settings *config.SettingsType) {
 	for {
 		c, err := ln.Accept()
 		if err != nil {
@@ -93,11 +93,11 @@ func serveListener(ln net.Listener, mux http.Handler, frontTLS *cert.TLSManager,
 			log.Printf("listener stopped: %v", err)
 			return
 		}
-		go handleSharedConn(c, frontTLS, mux, settings)
+		go handleSharedConn(c, frontTLS, mux, sessionManager, settings)
 	}
 }
 
-func handleSharedConn(raw net.Conn, frontTLS *cert.TLSManager, mux http.Handler, settings *config.SettingsType) {
+func handleSharedConn(raw net.Conn, frontTLS *cert.TLSManager, mux http.Handler, sessionManager *session.Manager, settings *config.SettingsType) {
 	defer raw.Close()
 
 	br := bufio.NewReader(raw)
@@ -112,7 +112,7 @@ func handleSharedConn(raw net.Conn, frontTLS *cert.TLSManager, mux http.Handler,
 		handleHTTPS(conn, frontTLS, mux, settings)
 		return
 	}
-	rdp.HandleRDP(conn, frontTLS, settings)
+	rdp.HandleRDP(conn, frontTLS, sessionManager, settings)
 }
 
 const tlsHandshakeRecordType = 0x16

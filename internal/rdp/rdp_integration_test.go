@@ -5,17 +5,112 @@ import (
 	"encoding/binary"
 	"io"
 	"net"
-	"reflect"
+	"net/http"
+	"net/http/httptest"
 	"rdptlsgateway/internal/cert"
 	"rdptlsgateway/internal/config"
+	"rdptlsgateway/internal/session"
+	"rdptlsgateway/internal/types"
 	"rdptlsgateway/internal/virt"
+	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 	"unsafe"
 
 	"github.com/tomatome/grdp/protocol/x224"
 )
+
+type addrOverrideConn struct {
+	net.Conn
+	remote net.Addr
+	local  net.Addr
+}
+
+func (c *addrOverrideConn) RemoteAddr() net.Addr {
+	return c.remote
+}
+
+func (c *addrOverrideConn) LocalAddr() net.Addr {
+	return c.local
+}
+
+func newServerConnWithRemoteIP(conn net.Conn, remoteIP string) net.Conn {
+	return &addrOverrideConn{
+		Conn:   conn,
+		remote: &net.TCPAddr{IP: net.ParseIP(remoteIP), Port: 42424},
+		local:  &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 443},
+	}
+}
+
+func issueUserSession(t *testing.T, sessionManager *session.Manager, username, remoteAddr string) {
+	t.Helper()
+
+	user, err := types.NewUser(username, "dogood")
+	if err != nil {
+		t.Fatalf("new user: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = remoteAddr
+
+	handler := sessionManager.LoadAndSave(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := sessionManager.CreateSession(r.Context(), user, r.RemoteAddr); err != nil {
+			t.Fatalf("create session: %v", err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	handler.ServeHTTP(rec, req)
+}
+
+func stubVMOwners(t *testing.T, owners map[string]string) {
+	t.Helper()
+
+	originalLookup := vmOwnerLookup
+	vmOwnerLookup = func(name string) (string, bool, error) {
+		owner, ok := owners[name]
+		if !ok {
+			return "", false, nil
+		}
+		return owner, true, nil
+	}
+	t.Cleanup(func() {
+		vmOwnerLookup = originalLookup
+	})
+}
+
+func startBackendDialTracker(t *testing.T, host string) func() bool {
+	t.Helper()
+
+	ln, err := net.Listen("tcp", net.JoinHostPort(host, "3389"))
+	if err != nil {
+		t.Fatalf("listen backend tracker: %v", err)
+	}
+
+	var accepted atomic.Bool
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		accepted.Store(true)
+		_ = conn.Close()
+	}()
+
+	return func() bool {
+		_ = ln.Close()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("backend dial tracker did not stop in time")
+		}
+		return accepted.Load()
+	}
+}
 
 func setVMInventoryForTest(t *testing.T, entries map[string]string) {
 	t.Helper()
@@ -169,6 +264,7 @@ func TestHandleRDPSuccessfulProxy(t *testing.T) {
 
 	backendHost := "127.0.0.42"
 	setVMInventoryForTest(t, map[string]string{"vm1": backendHost})
+	stubVMOwners(t, map[string]string{"vm1": "alice"})
 
 	stopBackend := startBackendServer(t, backendHost, func(raw net.Conn) {
 		req, err := readTPKT(raw)
@@ -211,14 +307,17 @@ func TestHandleRDPSuccessfulProxy(t *testing.T) {
 	defer stopBackend()
 
 	frontTLS, settings := newFrontTLSManager(t, "example.test")
+	sessionManager := session.NewManager()
+	issueUserSession(t, sessionManager, "alice", "192.0.2.100:5000")
 
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
+	server = newServerConnWithRemoteIP(server, "192.0.2.100")
 
 	done := make(chan struct{})
 	go func() {
-		HandleRDP(server, frontTLS, settings)
+		HandleRDP(server, frontTLS, sessionManager, settings)
 		close(done)
 	}()
 
@@ -251,7 +350,7 @@ func TestHandleRDPRejectsMissingSubdomain(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		HandleRDP(server, frontTLS, settings)
+		HandleRDP(server, frontTLS, nil, settings)
 		close(done)
 	}()
 
@@ -268,14 +367,18 @@ func TestHandleRDPRejectsMissingRoute(t *testing.T) {
 	InitLogging()
 
 	setVMInventoryForTest(t, map[string]string{})
+	stubVMOwners(t, map[string]string{"missing": "alice"})
 	frontTLS, settings := newFrontTLSManager(t, "example.test")
+	sessionManager := session.NewManager()
+	issueUserSession(t, sessionManager, "alice", "192.0.2.101:5000")
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
+	server = newServerConnWithRemoteIP(server, "192.0.2.101")
 
 	done := make(chan struct{})
 	go func() {
-		HandleRDP(server, frontTLS, settings)
+		HandleRDP(server, frontTLS, sessionManager, settings)
 		close(done)
 	}()
 
@@ -292,14 +395,18 @@ func TestHandleRDPBackendDialFailure(t *testing.T) {
 	InitLogging()
 
 	setVMInventoryForTest(t, map[string]string{"vmdial": "127.0.0.43"})
+	stubVMOwners(t, map[string]string{"vmdial": "alice"})
 	frontTLS, settings := newFrontTLSManager(t, "example.test")
+	sessionManager := session.NewManager()
+	issueUserSession(t, sessionManager, "alice", "192.0.2.102:5000")
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
+	server = newServerConnWithRemoteIP(server, "192.0.2.102")
 
 	done := make(chan struct{})
 	go func() {
-		HandleRDP(server, frontTLS, settings)
+		HandleRDP(server, frontTLS, sessionManager, settings)
 		close(done)
 	}()
 
@@ -317,6 +424,7 @@ func TestHandleRDPRejectsBackendWithoutTLS(t *testing.T) {
 
 	backendHost := "127.0.0.44"
 	setVMInventoryForTest(t, map[string]string{"vmbad": backendHost})
+	stubVMOwners(t, map[string]string{"vmbad": "alice"})
 
 	stopBackend := startBackendServer(t, backendHost, func(raw net.Conn) {
 		if _, err := readTPKT(raw); err != nil {
@@ -330,13 +438,16 @@ func TestHandleRDPRejectsBackendWithoutTLS(t *testing.T) {
 	defer stopBackend()
 
 	frontTLS, settings := newFrontTLSManager(t, "example.test")
+	sessionManager := session.NewManager()
+	issueUserSession(t, sessionManager, "alice", "192.0.2.103:5000")
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
+	server = newServerConnWithRemoteIP(server, "192.0.2.103")
 
 	done := make(chan struct{})
 	go func() {
-		HandleRDP(server, frontTLS, settings)
+		HandleRDP(server, frontTLS, sessionManager, settings)
 		close(done)
 	}()
 
@@ -345,6 +456,182 @@ func TestHandleRDPRejectsBackendWithoutTLS(t *testing.T) {
 	go func() {
 		_, _ = io.Copy(io.Discard, tlsClient)
 	}()
+
+	waitDone(t, done)
+}
+
+func TestHandleRDPRejectsWithoutOwnerSessionBeforeDial(t *testing.T) {
+	InitLogging()
+
+	backendHost := "127.0.0.45"
+	setVMInventoryForTest(t, map[string]string{"vmnosession": backendHost})
+	stubVMOwners(t, map[string]string{"vmnosession": "alice"})
+
+	stopTracker := startBackendDialTracker(t, backendHost)
+	defer func() {
+		if accepted := stopTracker(); accepted {
+			t.Fatal("expected unauthorized RDP connection to be rejected before backend dial")
+		}
+	}()
+
+	frontTLS, settings := newFrontTLSManager(t, "example.test")
+	sessionManager := session.NewManager()
+
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	server = newServerConnWithRemoteIP(server, "192.0.2.104")
+
+	done := make(chan struct{})
+	go func() {
+		HandleRDP(server, frontTLS, sessionManager, settings)
+		close(done)
+	}()
+
+	tlsClient := performFrontHandshake(t, client, "vmnosession.example.test")
+	defer tlsClient.Close()
+	_ = tlsClient.Close()
+
+	waitDone(t, done)
+}
+
+func TestHandleRDPRejectsDifferentOwnerSessionIPBeforeDial(t *testing.T) {
+	InitLogging()
+
+	backendHost := "127.0.0.46"
+	setVMInventoryForTest(t, map[string]string{"vmdiffip": backendHost})
+	stubVMOwners(t, map[string]string{"vmdiffip": "alice"})
+
+	stopTracker := startBackendDialTracker(t, backendHost)
+	defer func() {
+		if accepted := stopTracker(); accepted {
+			t.Fatal("expected mismatched session IP to be rejected before backend dial")
+		}
+	}()
+
+	frontTLS, settings := newFrontTLSManager(t, "example.test")
+	sessionManager := session.NewManager()
+	issueUserSession(t, sessionManager, "alice", "192.0.2.200:5000")
+
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	server = newServerConnWithRemoteIP(server, "192.0.2.105")
+
+	done := make(chan struct{})
+	go func() {
+		HandleRDP(server, frontTLS, sessionManager, settings)
+		close(done)
+	}()
+
+	tlsClient := performFrontHandshake(t, client, "vmdiffip.example.test")
+	defer tlsClient.Close()
+	_ = tlsClient.Close()
+
+	waitDone(t, done)
+}
+
+func TestHandleRDPRejectsOtherUserSessionFromSameIPBeforeDial(t *testing.T) {
+	InitLogging()
+
+	backendHost := "127.0.0.47"
+	setVMInventoryForTest(t, map[string]string{"vmotheruser": backendHost})
+	stubVMOwners(t, map[string]string{"vmotheruser": "alice"})
+
+	stopTracker := startBackendDialTracker(t, backendHost)
+	defer func() {
+		if accepted := stopTracker(); accepted {
+			t.Fatal("expected different user session to be rejected before backend dial")
+		}
+	}()
+
+	frontTLS, settings := newFrontTLSManager(t, "example.test")
+	sessionManager := session.NewManager()
+	issueUserSession(t, sessionManager, "bob", "192.0.2.106:5000")
+
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	server = newServerConnWithRemoteIP(server, "192.0.2.106")
+
+	done := make(chan struct{})
+	go func() {
+		HandleRDP(server, frontTLS, sessionManager, settings)
+		close(done)
+	}()
+
+	tlsClient := performFrontHandshake(t, client, "vmotheruser.example.test")
+	defer tlsClient.Close()
+	_ = tlsClient.Close()
+
+	waitDone(t, done)
+}
+
+func TestHandleRDPAllowsAnyMatchingOwnerSessionIP(t *testing.T) {
+	InitLogging()
+
+	backendHost := "127.0.0.48"
+	setVMInventoryForTest(t, map[string]string{"vmmulti": backendHost})
+	stubVMOwners(t, map[string]string{"vmmulti": "alice"})
+
+	stopBackend := startBackendServer(t, backendHost, func(raw net.Conn) {
+		req, err := readTPKT(raw)
+		if err != nil {
+			t.Errorf("backend read CRQ: %v", err)
+			return
+		}
+		if proto, ok := findClientRequestedProtocols(req); !ok || proto != x224.PROTOCOL_SSL {
+			t.Errorf("backend expected TLS-only CRQ, got ok=%v proto=0x%08x", ok, proto)
+			return
+		}
+		if err := writeTPKT(raw, buildServerCCFForProtocol(x224.PROTOCOL_SSL)); err != nil {
+			t.Errorf("backend write CCF: %v", err)
+			return
+		}
+
+		tlsConn := tls.Server(raw, &tls.Config{
+			Certificates: []tls.Certificate{backendTLSCert(t)},
+			MinVersion:   tls.VersionTLS10,
+		})
+		if err := tlsConn.Handshake(); err != nil {
+			t.Errorf("backend TLS handshake: %v", err)
+			return
+		}
+		defer tlsConn.Close()
+
+		if _, err := tlsConn.Write([]byte("ok")); err != nil {
+			t.Errorf("backend write proxied bytes: %v", err)
+		}
+	})
+	defer stopBackend()
+
+	frontTLS, settings := newFrontTLSManager(t, "example.test")
+	sessionManager := session.NewManager()
+	issueUserSession(t, sessionManager, "alice", "192.0.2.201:5000")
+	issueUserSession(t, sessionManager, "alice", "192.0.2.107:5001")
+
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	server = newServerConnWithRemoteIP(server, "192.0.2.107")
+
+	done := make(chan struct{})
+	go func() {
+		HandleRDP(server, frontTLS, sessionManager, settings)
+		close(done)
+	}()
+
+	tlsClient := performFrontHandshake(t, client, "vmmulti.example.test")
+	defer tlsClient.Close()
+
+	reply := make([]byte, 2)
+	if _, err := io.ReadFull(tlsClient, reply); err != nil {
+		t.Fatalf("read proxied backend bytes: %v", err)
+	}
+	if string(reply) != "ok" {
+		t.Fatalf("expected backend reply %q, got %q", "ok", string(reply))
+	}
+	_ = tlsClient.Close()
 
 	waitDone(t, done)
 }

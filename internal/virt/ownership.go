@@ -266,18 +266,35 @@ func UserOwnsVM(name, username string) (bool, error) {
 		return false, nil
 	}
 
+	owner, hasOwner, err := VMOwner(name)
+	if err != nil {
+		return false, err
+	}
+	if !hasOwner {
+		return false, nil
+	}
+
+	return owner == username, nil
+}
+
+func VMOwner(name string) (string, bool, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", false, nil
+	}
+
 	conn, err := libvirt.NewConnect(LibvirtURI())
 	if err != nil {
-		return false, fmt.Errorf("connect libvirt: %w", err)
+		return "", false, fmt.Errorf("connect libvirt: %w", err)
 	}
 	defer conn.Close()
 
 	dom, err := conn.LookupDomainByName(name)
 	if err != nil {
 		if errors.Is(err, libvirt.ERR_NO_DOMAIN) {
-			return false, nil
+			return "", false, nil
 		}
-		return false, fmt.Errorf("lookup domain %s: %w", name, err)
+		return "", false, fmt.Errorf("lookup domain %s: %w", name, err)
 	}
 	defer func() {
 		_ = dom.Free()
@@ -285,11 +302,11 @@ func UserOwnsVM(name, username string) (bool, error) {
 
 	owner, hasOwner, err := domainOwner(dom)
 	if err != nil {
-		return false, fmt.Errorf("read domain owner for %s: %w", name, err)
+		return "", false, fmt.Errorf("read domain owner for %s: %w", name, err)
 	}
 	if !hasOwner {
-		return false, nil
+		return "", false, nil
 	}
 
-	return owner == username, nil
+	return owner, true, nil
 }
