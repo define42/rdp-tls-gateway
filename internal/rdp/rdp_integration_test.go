@@ -25,6 +25,7 @@ import (
 
 type addrOverrideConn struct {
 	net.Conn
+
 	remote net.Addr
 	local  net.Addr
 }

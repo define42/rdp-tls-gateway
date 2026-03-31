@@ -132,6 +132,13 @@ func TestStorageVolCreateXML(t *testing.T) {
 		t.Fatalf("unmarshal generated xml: %v", err)
 	}
 
+	assertStorageVolXMLCore(t, parsed, poolPath)
+	assertStorageVolXMLPermissions(t, parsed.Target.Permissions)
+}
+
+func assertStorageVolXMLCore(t *testing.T, parsed storageVolumeXML, poolPath string) {
+	t.Helper()
+
 	if parsed.Name != "disk.qcow2" {
 		t.Fatalf("expected volume name %q, got %q", "disk.qcow2", parsed.Name)
 	}
@@ -141,21 +148,27 @@ func TestStorageVolCreateXML(t *testing.T) {
 	if parsed.Target.Format.Type != "qcow2" {
 		t.Fatalf("expected format %q, got %q", "qcow2", parsed.Target.Format.Type)
 	}
+
 	wantPath := filepath.Join(filepath.Clean(poolPath), "disk.qcow2")
 	if filepath.Clean(parsed.Target.Path) != wantPath {
 		t.Fatalf("expected path %q, got %q", wantPath, parsed.Target.Path)
 	}
-	if parsed.Target.Permissions == nil {
+}
+
+func assertStorageVolXMLPermissions(t *testing.T, permissions *storageVolumePermissionsXML) {
+	t.Helper()
+
+	if permissions == nil {
 		t.Fatal("expected permissions to be present")
 	}
-	if parsed.Target.Permissions.Owner == nil || *parsed.Target.Permissions.Owner != 1000 {
-		t.Fatalf("expected owner %d, got %+v", 1000, parsed.Target.Permissions.Owner)
+	if permissions.Owner == nil || *permissions.Owner != 1000 {
+		t.Fatalf("expected owner %d, got %+v", 1000, permissions.Owner)
 	}
-	if parsed.Target.Permissions.Group == nil || *parsed.Target.Permissions.Group != 1001 {
-		t.Fatalf("expected group %d, got %+v", 1001, parsed.Target.Permissions.Group)
+	if permissions.Group == nil || *permissions.Group != 1001 {
+		t.Fatalf("expected group %d, got %+v", 1001, permissions.Group)
 	}
-	if parsed.Target.Permissions.Mode == nil || *parsed.Target.Permissions.Mode != "0660" {
-		t.Fatalf("expected mode %q, got %+v", "0660", parsed.Target.Permissions.Mode)
+	if permissions.Mode == nil || *permissions.Mode != "0660" {
+		t.Fatalf("expected mode %q, got %+v", "0660", permissions.Mode)
 	}
 }
 

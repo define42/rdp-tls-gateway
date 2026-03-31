@@ -14,12 +14,23 @@ linters:
     - gocognit
     - nestif
     - funlen
+    - decorder
+    - embeddedstructfieldcheck
+    - recvcheck
+    - interfacebloat
+    - cyclop
+    - gofmt
+    - gofumpt
+    - goimports
 
   settings:
     gocognit:
       min-complexity: 15
     nestif:
       min-complexity: 4
+    cyclop:
+      max-complexity: 15
+      package-average: 10.0
 
   exclusions:
     rules:

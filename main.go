@@ -119,6 +119,7 @@ const tlsHandshakeRecordType = 0x16
 
 type bufferedConn struct {
 	net.Conn
+
 	r *bufio.Reader
 }
 
@@ -196,6 +197,7 @@ func (l *singleConnListener) Addr() net.Addr {
 
 type closeNotifyConn struct {
 	net.Conn
+
 	done chan struct{}
 	once *sync.Once
 }
