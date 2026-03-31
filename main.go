@@ -65,23 +65,29 @@ func bootGateway() error {
 	if err != nil {
 		return fmt.Errorf("tls setup: %v", err)
 	}
-	//go listenServer(routes, mux, frontTLS, settings, ":3389")
-	go listenServer(mux, frontTLS, settings)
-	return nil
-}
 
-func listenServer(mux http.Handler, frontTLS *cert.TLSManager, settings *config.SettingsType) {
 	listen := settings.Get(config.LISTEN_ADDR)
 	ln, err := net.Listen("tcp", listen)
 	if err != nil {
-		log.Fatalf("listen: %v", err)
+		return fmt.Errorf("listen on %s: %w", listen, err)
 	}
 	log.Printf("listening on %s", listen)
+
+	go serveListener(ln, mux, frontTLS, settings)
+	return nil
+}
+
+func serveListener(ln net.Listener, mux http.Handler, frontTLS *cert.TLSManager, settings *config.SettingsType) {
 	for {
 		c, err := ln.Accept()
 		if err != nil {
-			log.Printf("accept: %v", err)
-			continue
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Temporary() {
+				log.Printf("accept: %v", err)
+				continue
+			}
+			log.Printf("listener stopped: %v", err)
+			return
 		}
 		go handleSharedConn(c, frontTLS, mux, settings)
 	}

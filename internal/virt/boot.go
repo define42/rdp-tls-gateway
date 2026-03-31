@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net/url"
 	"os"
-	"path"
 	"path/filepath"
 	"rdptlsgateway/internal/config"
 	"rdptlsgateway/internal/types"
@@ -316,14 +314,6 @@ func InitVirt(settings *config.SettingsType) error {
 	}
 	defer conn.Close()
 
-	baseImageUrl := settings.Get(config.BASE_IMAGE_URL)
-
-	u, err := url.Parse(baseImageUrl)
-	if err != nil {
-		return fmt.Errorf("Failed to parse base image URL: %v", err)
-	}
-	base_image := path.Base(u.Path)
-
 	poolName, poolPath := storagePoolConfig(settings)
 	pool, err := ensureStoragePool(conn, poolName, poolPath)
 	if err != nil {
@@ -333,19 +323,8 @@ func InitVirt(settings *config.SettingsType) error {
 		_ = pool.Free()
 	}()
 
-	baseImage := filepath.Join(settings.Get(config.VDI_IMAGE_DIR), base_image)
-
-	// check image exists
-	if _, err := os.Stat(baseImage); os.IsNotExist(err) {
-
-		if err := os.MkdirAll(settings.Get(config.VDI_IMAGE_DIR), 0o755); err != nil {
-			return fmt.Errorf("Failed to create image directory: %v", err)
-		}
-
-		log.Printf("Base image %s not found, downloading...", baseImageUrl)
-		if err := downloadWithProgress(baseImageUrl, baseImage); err != nil {
-			return fmt.Errorf("Failed to download base image: %v", err)
-		}
+	if _, err := ensureBaseImage(settings); err != nil {
+		return fmt.Errorf("Failed to ensure base image: %v", err)
 	}
 
 	return nil
@@ -359,16 +338,6 @@ func BootNewVM(name string, user *types.User, settings *config.SettingsType, vcp
 	}
 
 	seedIso := vmName + "_seed.iso"
-
-	baseImageUrl := settings.Get(config.BASE_IMAGE_URL)
-
-	u, err := url.Parse(baseImageUrl)
-	if err != nil {
-		return vmName, fmt.Errorf("Failed to parse base image URL: %v", err)
-	}
-	base_image := path.Base(u.Path)
-
-	baseImage := filepath.Join(settings.Get(config.VDI_IMAGE_DIR), base_image)
 	poolName, poolPath := storagePoolConfig(settings)
 	if _, err := ensureSerialSocketDir(settings); err != nil {
 		return vmName, fmt.Errorf("Failed to ensure serial socket directory: %v", err)
@@ -402,6 +371,11 @@ func BootNewVM(name string, user *types.User, settings *config.SettingsType, vcp
 	}
 	if err := removeVNCSocket(settings, vmName); err != nil {
 		return vmName, fmt.Errorf("Failed to remove existing VNC socket: %v", err)
+	}
+
+	baseImage, err := ensureBaseImage(settings)
+	if err != nil {
+		return vmName, fmt.Errorf("Failed to ensure base image: %v", err)
 	}
 
 	if err := CopyAndResizeVolume(conn, poolName, vmName, baseImage, 40*1024*1024*1024); err != nil {

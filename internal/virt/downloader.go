@@ -44,6 +44,9 @@ func downloadWithProgress(url, path string) error {
 		return err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download %s: unexpected status %s", url, resp.Status)
+	}
 
 	fmt.Println("write file to:", path)
 	out, err := os.Create(path)
