@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"rdptlsgateway/internal/dashboard"
 	"rdptlsgateway/internal/session"
 	"rdptlsgateway/internal/types"
 	"testing"
@@ -79,7 +80,7 @@ func assertDashboardOwnershipErrorResponse(t *testing.T, verb string, err error,
 		t.Fatalf("expected %d, got %d with body %s", wantCode, rec.Code, rec.Body.String())
 	}
 
-	var resp dashboardActionResponse
+	var resp dashboard.ActionResponse
 	if decodeErr := json.NewDecoder(rec.Body).Decode(&resp); decodeErr != nil {
 		t.Fatalf("decode response: %v", decodeErr)
 	}

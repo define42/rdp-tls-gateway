@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/url"
 	"rdptlsgateway/internal/config"
+	"rdptlsgateway/internal/dashboard"
 	"strconv"
 	"strings"
 	"testing"
@@ -71,26 +72,26 @@ func createGatewayVM(t *testing.T, server gatewayTestServer, shortName string) s
 	return fullName
 }
 
-func waitForGatewayVMState(t *testing.T, server gatewayTestServer, vmName, state string) dashboardVM {
+func waitForGatewayVMState(t *testing.T, server gatewayTestServer, vmName, state string) dashboard.VM {
 	t.Helper()
 
-	return waitForDashboardVMRow(t, server.client, server.baseURL, vmName, func(vm dashboardVM) bool {
+	return waitForDashboardVMRow(t, server.client, server.baseURL, vmName, func(vm dashboard.VM) bool {
 		return vm.State == state
 	})
 }
 
-func waitForGatewayVMReady(t *testing.T, server gatewayTestServer, vmName string) dashboardVM {
+func waitForGatewayVMReady(t *testing.T, server gatewayTestServer, vmName string) dashboard.VM {
 	t.Helper()
 
-	return waitForDashboardVMRow(t, server.client, server.baseURL, vmName, func(vm dashboardVM) bool {
+	return waitForDashboardVMRow(t, server.client, server.baseURL, vmName, func(vm dashboard.VM) bool {
 		return vm.State == "running" && vm.TTYReady && vm.VNCReady
 	})
 }
 
-func waitForGatewayVMResources(t *testing.T, server gatewayTestServer, vmName string, vcpu, memoryMiB int) dashboardVM {
+func waitForGatewayVMResources(t *testing.T, server gatewayTestServer, vmName string, vcpu, memoryMiB int) dashboard.VM {
 	t.Helper()
 
-	return waitForDashboardVMRow(t, server.client, server.baseURL, vmName, func(vm dashboardVM) bool {
+	return waitForDashboardVMRow(t, server.client, server.baseURL, vmName, func(vm dashboard.VM) bool {
 		return vm.State == "shut off" && vm.VCPU == vcpu && vm.MemoryMiB == memoryMiB
 	})
 }

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"rdptlsgateway/internal/config"
 	consolepkg "rdptlsgateway/internal/console"
+	dashboard "rdptlsgateway/internal/dashboard"
 	"rdptlsgateway/internal/ldap"
 	"rdptlsgateway/internal/session"
 	"rdptlsgateway/internal/types"
@@ -185,7 +186,7 @@ func registerHiddenPost(group huma.API, path string, body dashboardRouteBody) {
 func registerDashboardPageRoute(group huma.API) {
 	registerHiddenGet(group, "/dashboard", func(ctx huma.Context) {
 		_, w := humachi.Unwrap(ctx)
-		renderDashboardPage(w)
+		dashboard.RenderDashboardPage(w, staticFiles)
 	})
 }
 
@@ -197,16 +198,16 @@ func registerDashboardDataRoute(group huma.API, sessionManager *session.Manager,
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		vmRows, err := listDashboardVMs(settings, user.Name)
+		vmRows, err := dashboard.ListDashboardVMs(settings, user.Name)
 		if err != nil {
 			log.Printf("list vms: %v", err)
-			writeJSON(w, http.StatusInternalServerError, dashboardDataResponse{
+			dashboard.WriteJSON(w, http.StatusInternalServerError, dashboard.DataResponse{
 				Filename: rdpFilename,
 				Error:    "Unable to load virtual machines right now.",
 			})
 			return
 		}
-		writeJSON(w, http.StatusOK, dashboardDataResponse{
+		dashboard.WriteJSON(w, http.StatusOK, dashboard.DataResponse{
 			Filename: rdpFilename,
 			VMs:      vmRows,
 		})
@@ -218,7 +219,7 @@ func registerDashboardCreateRoute(group huma.API, sessionManager *session.Manage
 		req, w := humachi.Unwrap(ctx)
 		if err := req.ParseForm(); err != nil {
 			log.Printf("dashboard form parse failed: %v", err)
-			writeJSON(w, http.StatusBadRequest, dashboardActionResponse{
+			dashboard.WriteJSON(w, http.StatusBadRequest, dashboard.ActionResponse{
 				OK:    false,
 				Error: "Invalid form submission.",
 			})
@@ -239,7 +240,7 @@ func registerDashboardCreateRoute(group huma.API, sessionManager *session.Manage
 		}
 		user, ok := sessionManager.UserFromContext(req.Context())
 		if !ok {
-			writeJSON(w, http.StatusUnauthorized, dashboardActionResponse{
+			dashboard.WriteJSON(w, http.StatusUnauthorized, dashboard.ActionResponse{
 				OK:    false,
 				Error: "Login required.",
 			})
@@ -248,14 +249,14 @@ func registerDashboardCreateRoute(group huma.API, sessionManager *session.Manage
 
 		if vmName, err := virt.BootNewVM(name, user, settings, vcpu, memoryMiB); err != nil {
 			log.Printf("boot new vm %q failed: %v", vmName, err)
-			writeJSON(w, http.StatusInternalServerError, dashboardActionResponse{
+			dashboard.WriteJSON(w, http.StatusInternalServerError, dashboard.ActionResponse{
 				OK:    false,
 				Error: "Failed to create VM.",
 			})
 			return
 		}
 
-		writeJSON(w, http.StatusOK, dashboardActionResponse{
+		dashboard.WriteJSON(w, http.StatusOK, dashboard.ActionResponse{
 			OK:      true,
 			Message: "VM creation started.",
 		})
@@ -281,14 +282,14 @@ func registerDashboardResourcesRoute(group huma.API, sessionManager *session.Man
 
 		if err := virt.UpdateVMResources(name, vcpu, memoryMiB); err != nil {
 			log.Printf("update resources for vm %q failed: %v", name, err)
-			writeJSON(w, http.StatusBadRequest, dashboardActionResponse{
+			dashboard.WriteJSON(w, http.StatusBadRequest, dashboard.ActionResponse{
 				OK:    false,
 				Error: err.Error(),
 			})
 			return
 		}
 
-		writeJSON(w, http.StatusOK, dashboardActionResponse{
+		dashboard.WriteJSON(w, http.StatusOK, dashboard.ActionResponse{
 			OK:      true,
 			Message: "VM resources updated.",
 		})
@@ -313,13 +314,13 @@ func registerDashboardVMActionRoute(
 		}
 		if err := run(name); err != nil {
 			log.Printf("%s vm %q failed: %v", verb, name, err)
-			writeJSON(w, http.StatusInternalServerError, dashboardActionResponse{
+			dashboard.WriteJSON(w, http.StatusInternalServerError, dashboard.ActionResponse{
 				OK:    false,
 				Error: failureMessage,
 			})
 			return
 		}
-		writeJSON(w, http.StatusOK, dashboardActionResponse{
+		dashboard.WriteJSON(w, http.StatusOK, dashboard.ActionResponse{
 			OK:      true,
 			Message: successMessage,
 		})
@@ -329,7 +330,7 @@ func registerDashboardVMActionRoute(
 func authorizeDashboardVMAction(req *http.Request, w http.ResponseWriter, sessionManager *session.Manager, dashboardAction string, verb string) (string, bool) {
 	user, ok := sessionManager.UserFromContext(req.Context())
 	if !ok {
-		writeJSON(w, http.StatusUnauthorized, dashboardActionResponse{
+		dashboard.WriteJSON(w, http.StatusUnauthorized, dashboard.ActionResponse{
 			OK:    false,
 			Error: "Login required.",
 		})
@@ -358,7 +359,7 @@ func authorizeDashboardVMAction(req *http.Request, w http.ResponseWriter, sessio
 func writeDashboardVMActionOwnershipError(w http.ResponseWriter, name, username, verb string, err error) {
 	if err != nil {
 		log.Printf("verify ownership for user %q %s vm %q failed: %v", username, verb, name, err)
-		writeJSON(w, http.StatusInternalServerError, dashboardActionResponse{
+		dashboard.WriteJSON(w, http.StatusInternalServerError, dashboard.ActionResponse{
 			OK:    false,
 			Error: "Unable to verify VM ownership.",
 		})
@@ -366,7 +367,7 @@ func writeDashboardVMActionOwnershipError(w http.ResponseWriter, name, username,
 	}
 
 	log.Printf("user %q attempted to %s vm %q not owned by them", username, verb, name)
-	writeJSON(w, http.StatusForbidden, dashboardActionResponse{
+	dashboard.WriteJSON(w, http.StatusForbidden, dashboard.ActionResponse{
 		OK:    false,
 		Error: fmt.Sprintf("You do not have permission to %s this VM.", verb),
 	})
@@ -460,13 +461,13 @@ func handleDashboardFormError(w http.ResponseWriter, action string, err error) b
 	}
 	if errors.Is(err, errInvalidDashboardForm) {
 		log.Printf("%s form parse failed: %v", action, err)
-		writeJSON(w, http.StatusBadRequest, dashboardActionResponse{
+		dashboard.WriteJSON(w, http.StatusBadRequest, dashboard.ActionResponse{
 			OK:    false,
 			Error: "Invalid form submission.",
 		})
 		return true
 	}
-	writeJSON(w, http.StatusBadRequest, dashboardActionResponse{
+	dashboard.WriteJSON(w, http.StatusBadRequest, dashboard.ActionResponse{
 		OK:    false,
 		Error: err.Error(),
 	})

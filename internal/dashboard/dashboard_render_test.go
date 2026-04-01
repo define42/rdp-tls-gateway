@@ -1,4 +1,4 @@
-package main
+package dashboard
 
 import (
 	"embed"
@@ -7,6 +7,8 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"rdptlsgateway/internal/config"
 	"rdptlsgateway/internal/types"
 	"rdptlsgateway/internal/virt"
@@ -19,13 +21,13 @@ import (
 const dashboardVMTestTimeout = 30 * time.Second
 
 func TestRenderDashboardPage(t *testing.T) {
-	expected, err := fs.ReadFile(staticFiles, dashboardHTMLPath)
+	expected, err := os.ReadFile(filepath.Clean(filepath.Join("..", "..", "static", "dashboard.html")))
 	if err != nil {
-		t.Fatalf("read embedded dashboard page: %v", err)
+		t.Fatalf("read dashboard page from static directory: %v", err)
 	}
 
 	rec := httptest.NewRecorder()
-	renderDashboardPage(rec)
+	RenderDashboardPage(rec, os.DirFS(filepath.Clean(filepath.Join("..", ".."))))
 
 	res := rec.Result()
 	defer func() { _ = res.Body.Close() }()
@@ -72,7 +74,7 @@ func (w *errResponseWriter) Write([]byte) (int, error) {
 
 func TestRenderDashboardPageWriteError(t *testing.T) {
 	writer := &errResponseWriter{}
-	renderDashboardPage(writer)
+	RenderDashboardPage(writer, os.DirFS(filepath.Clean(filepath.Join("..", ".."))))
 
 	if ct := writer.Header().Get("Content-Type"); !strings.Contains(ct, "text/html") {
 		t.Fatalf("expected text/html content type, got %q", ct)
@@ -80,14 +82,8 @@ func TestRenderDashboardPageWriteError(t *testing.T) {
 }
 
 func TestRenderDashboardPageMissingTemplate(t *testing.T) {
-	originalStaticFiles := staticFiles
-	staticFiles = embed.FS{}
-	t.Cleanup(func() {
-		staticFiles = originalStaticFiles
-	})
-
 	rec := httptest.NewRecorder()
-	renderDashboardPage(rec)
+	RenderDashboardPage(rec, embed.FS{})
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected %d, got %d", http.StatusInternalServerError, rec.Code)
@@ -97,12 +93,12 @@ func TestRenderDashboardPageMissingTemplate(t *testing.T) {
 	}
 }
 
-func waitForDashboardVM(t *testing.T, settings *config.SettingsType, user, name string, timeout time.Duration) dashboardVM {
+func waitForDashboardVM(t *testing.T, settings *config.SettingsType, user, name string, timeout time.Duration) VM {
 	t.Helper()
 
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		rows, err := listDashboardVMs(settings, user)
+		rows, err := ListDashboardVMs(settings, user)
 		if err != nil {
 			t.Fatalf("listDashboardVMs(%q): %v", user, err)
 		}
@@ -117,7 +113,7 @@ func waitForDashboardVM(t *testing.T, settings *config.SettingsType, user, name 
 	}
 
 	t.Fatalf("VM %s was not visible in dashboard data for user %s within %s", name, user, timeout)
-	return dashboardVM{}
+	return VM{}
 }
 
 func newDashboardVMSettings(t *testing.T) *config.SettingsType {
@@ -161,7 +157,7 @@ func createDashboardVM(t *testing.T, settings *config.SettingsType) (string, str
 	return username, vmName
 }
 
-func assertDashboardVMRow(t *testing.T, row dashboardVM, wantDisplayName string) {
+func assertDashboardVMRow(t *testing.T, row VM, wantDisplayName string) {
 	t.Helper()
 
 	if row.DisplayName != wantDisplayName {
@@ -218,4 +214,10 @@ func TestListDashboardVMs(t *testing.T) {
 
 	assertDashboardVMRow(t, row, wantDisplayName)
 	assertDashboardRDPConnect(t, row.RDPConnect, wantDisplayName, username)
+}
+
+func TestListDashboardVMsFromFS(t *testing.T) {
+	if valid := fs.ValidPath(DashboardHTMLPath); !valid {
+		t.Fatalf("invalid dashboard HTML embedded path: %q", DashboardHTMLPath)
+	}
 }

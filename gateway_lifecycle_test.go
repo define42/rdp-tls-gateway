@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"rdptlsgateway/internal/cert"
 	"rdptlsgateway/internal/config"
+	"rdptlsgateway/internal/dashboard"
 	"rdptlsgateway/internal/session"
 	"rdptlsgateway/internal/virt"
 	"strings"
@@ -113,7 +114,7 @@ func gatewayRequest(t *testing.T, client *http.Client, method, rawURL string, fo
 	return resp, string(data)
 }
 
-func waitForDashboardVMRow(t *testing.T, client *http.Client, baseURL, vmName string, predicate func(dashboardVM) bool) dashboardVM {
+func waitForDashboardVMRow(t *testing.T, client *http.Client, baseURL, vmName string, predicate func(dashboard.VM) bool) dashboard.VM {
 	t.Helper()
 
 	deadline := time.Now().Add(gatewayTestTimeout)
@@ -123,7 +124,7 @@ func waitForDashboardVMRow(t *testing.T, client *http.Client, baseURL, vmName st
 			t.Fatalf("expected dashboard data 200, got %d with body %s", resp.StatusCode, body)
 		}
 
-		var payload dashboardDataResponse
+		var payload dashboard.DataResponse
 		if err := json.Unmarshal([]byte(body), &payload); err != nil {
 			t.Fatalf("decode dashboard data: %v", err)
 		}
@@ -136,7 +137,7 @@ func waitForDashboardVMRow(t *testing.T, client *http.Client, baseURL, vmName st
 	}
 
 	t.Fatalf("VM %s did not reach expected dashboard state in time", vmName)
-	return dashboardVM{}
+	return dashboard.VM{}
 }
 
 func waitForDashboardVMRemoval(t *testing.T, client *http.Client, baseURL, vmName string) {
@@ -149,7 +150,7 @@ func waitForDashboardVMRemoval(t *testing.T, client *http.Client, baseURL, vmNam
 			t.Fatalf("expected dashboard data 200, got %d with body %s", resp.StatusCode, body)
 		}
 
-		var payload dashboardDataResponse
+		var payload dashboard.DataResponse
 		if err := json.Unmarshal([]byte(body), &payload); err != nil {
 			t.Fatalf("decode dashboard data: %v", err)
 		}

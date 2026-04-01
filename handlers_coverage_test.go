@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"rdptlsgateway/internal/config"
+	"rdptlsgateway/internal/dashboard"
 	"rdptlsgateway/internal/session"
 	"strings"
 	"testing"
@@ -304,7 +305,7 @@ func TestHandleDashboardFormError(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
 	}
-	var resp dashboardActionResponse
+	var resp dashboard.ActionResponse
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -330,7 +331,7 @@ func (e errorString) Error() string { return string(e) }
 
 func TestWriteJSON(t *testing.T) {
 	rec := httptest.NewRecorder()
-	writeJSON(rec, http.StatusOK, dashboardActionResponse{OK: true, Message: "done"})
+	dashboard.WriteJSON(rec, http.StatusOK, dashboard.ActionResponse{OK: true, Message: "done"})
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
@@ -348,7 +349,7 @@ func TestWriteJSON(t *testing.T) {
 		t.Fatalf("expected Expires %q, got %q", expiresValue, got)
 	}
 
-	var resp dashboardActionResponse
+	var resp dashboard.ActionResponse
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -358,7 +359,7 @@ func TestWriteJSON(t *testing.T) {
 }
 
 func TestGenerateRDP(t *testing.T) {
-	rdp := generateRDP("vm1.desktop.local.gd", "alice")
+	rdp := dashboard.GenerateRDP("vm1.desktop.local.gd", "alice")
 	if rdp == "" {
 		t.Fatal("expected non-empty RDP data URI")
 	}
