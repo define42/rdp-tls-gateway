@@ -8,7 +8,8 @@ lint2:
 gosec:
 	go run github.com/securego/gosec/v2/cmd/gosec@latest ./...
 test:
-	 go test ./...  -coverpkg=./... -cover
+	go test ./... -coverprofile=coverage.out -coverpkg=./...
+	go tool cover -html=coverage.out -o coverage.html
 run: 
 	docker compose stop
 	docker compose build

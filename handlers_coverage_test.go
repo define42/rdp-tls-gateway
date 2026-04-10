@@ -285,13 +285,18 @@ func TestParseDashboardMemoryMiB(t *testing.T) {
 
 func TestParseDashboardVMName(t *testing.T) {
 	tests := []struct {
-		name    string
-		vmName  string
-		wantErr bool
+		name     string
+		username string
+		vmName   string
+		want     string
+		wantErr  bool
 	}{
-		{"valid", "alice-desktop", false},
-		{"empty", "", true},
-		{"too long", strings.Repeat("x", 129), true},
+		{name: "valid owned vm name", username: "alice", vmName: "alice-desktop", want: "alice-desktop"},
+		{name: "valid owned vm name with email prefix", username: "alice@example.com", vmName: "alice@example.com-desktop", want: "alice@example.com-desktop"},
+		{name: "owned suffix too long", username: "alice", vmName: "alice-" + strings.Repeat("x", maxVMNameLength+1), wantErr: true},
+		{name: "legacy unprefixed name", username: "alice", vmName: "legacy-imported-vm", want: "legacy-imported-vm"},
+		{name: "empty", username: "alice", vmName: "", wantErr: true},
+		{name: "too long", username: "alice", vmName: strings.Repeat("x", maxVMNameFieldLen+1), wantErr: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -300,12 +305,15 @@ func TestParseDashboardVMName(t *testing.T) {
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			rec := httptest.NewRecorder()
 
-			_, err := parseDashboardVMName(rec, req)
+			got, err := parseDashboardVMName(rec, req, tc.username)
 			if tc.wantErr && err == nil {
 				t.Fatal("expected error")
 			}
 			if !tc.wantErr && err != nil {
 				t.Fatalf("unexpected error: %v", err)
+			}
+			if !tc.wantErr && got != tc.want {
+				t.Fatalf("expected %q, got %q", tc.want, got)
 			}
 		})
 	}
@@ -317,7 +325,7 @@ func TestParseDashboardVMNameRejectsOversizedForm(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 
-	_, err := parseDashboardVMName(rec, req)
+	_, err := parseDashboardVMName(rec, req, "alice")
 	if !errors.Is(err, errInvalidDashboardForm) {
 		t.Fatalf("expected invalid dashboard form error, got %v", err)
 	}

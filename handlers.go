@@ -28,6 +28,8 @@ const (
 	expiresValue      = "0"
 	rdpFilename       = "rdpgw.rdp"
 	maxFormBodyBytes  = 1 << 20
+	maxVMNameLength   = 63
+	maxVMNameFieldLen = 128
 )
 
 func parseFormWithBodyLimit(w http.ResponseWriter, req *http.Request) error {
@@ -346,7 +348,7 @@ func authorizeDashboardVMAction(req *http.Request, w http.ResponseWriter, sessio
 		return "", false
 	}
 
-	name, err := parseDashboardVMName(w, req)
+	name, err := parseDashboardVMName(w, req, user.GetName())
 	if handleDashboardFormError(w, dashboardAction, err) {
 		return "", false
 	}
@@ -387,8 +389,8 @@ func validateVMName(name string) (string, error) {
 	if name == "" {
 		return "", fmt.Errorf("vm name is required")
 	}
-	if len(name) > 63 {
-		return "", fmt.Errorf("vm name must be 63 characters or fewer")
+	if len(name) > maxVMNameLength {
+		return "", fmt.Errorf("vm name must be %d characters or fewer", maxVMNameLength)
 	}
 	if strings.HasPrefix(name, "-") || strings.HasSuffix(name, "-") {
 		return "", fmt.Errorf("vm name cannot start or end with a hyphen")
@@ -405,7 +407,7 @@ func validateVMName(name string) (string, error) {
 	return name, nil
 }
 
-func parseDashboardVMName(w http.ResponseWriter, req *http.Request) (string, error) {
+func parseDashboardVMName(w http.ResponseWriter, req *http.Request, username string) (string, error) {
 	if err := parseFormWithBodyLimit(w, req); err != nil {
 		return "", fmt.Errorf("%w: %w", errInvalidDashboardForm, err)
 	}
@@ -413,7 +415,18 @@ func parseDashboardVMName(w http.ResponseWriter, req *http.Request) (string, err
 	if name == "" {
 		return "", fmt.Errorf("vm name is required")
 	}
-	if len(name) > 128 {
+	username = strings.TrimSpace(username)
+	if username != "" {
+		prefix := username + "-"
+		if suffix, ok := strings.CutPrefix(name, prefix); ok {
+			validatedSuffix, err := validateVMName(suffix)
+			if err != nil {
+				return "", err
+			}
+			return prefix + validatedSuffix, nil
+		}
+	}
+	if len(name) > maxVMNameFieldLen {
 		return "", fmt.Errorf("vm name is too long")
 	}
 	return name, nil
