@@ -55,7 +55,7 @@ func TestCompleteLoginRecordsLoginIP(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	handler := sessionManager.LoadAndSave(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		completeLogin(sessionManager, w, r, user)
+		completeLogin(sessionManager, w, r, user, "dogood")
 	}))
 	handler.ServeHTTP(rec, req)
 

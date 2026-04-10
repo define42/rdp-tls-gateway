@@ -1,6 +1,7 @@
 package session
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"rdptlsgateway/internal/types"
@@ -22,6 +23,35 @@ func issueSession(t *testing.T, m *Manager, user *types.User, remoteAddr string)
 	handler := m.LoadAndSave(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := m.CreateSession(r.Context(), user, r.RemoteAddr); err != nil {
 			t.Fatalf("create session: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	handler.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	defer func() {
+		_ = res.Body.Close()
+	}()
+	for _, cookie := range res.Cookies() {
+		if cookie.Name == "cv_session" {
+			return cookie
+		}
+	}
+
+	t.Fatal("session cookie not set")
+	return nil
+}
+
+func issueAuthenticatedSession(t *testing.T, m *Manager, user *types.User, remoteAddr string, password string) *http.Cookie {
+	t.Helper()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = remoteAddr
+
+	handler := m.LoadAndSave(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := m.CreateAuthenticatedSession(r.Context(), user, r.RemoteAddr, password); err != nil {
+			t.Fatalf("create authenticated session: %v", err)
 		}
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -378,5 +408,97 @@ func TestSessionMiddlewareCallsNextWithSession(t *testing.T) {
 	}
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("expected %d, got %d", http.StatusNoContent, rec.Code)
+	}
+}
+
+func TestLoadAndSaveInvalidatesRejectedSessionBeforeHandler(t *testing.T) {
+	m := NewManager()
+	m.SetSessionValidator(func(username, password string) (bool, error) {
+		if username != "ivan" {
+			t.Fatalf("expected validator username %q, got %q", "ivan", username)
+		}
+		if password != "pass" {
+			t.Fatalf("expected validator password %q, got %q", "pass", password)
+		}
+		return false, nil
+	})
+
+	user, err := types.NewUser("ivan", "pass")
+	if err != nil {
+		t.Fatalf("new user: %v", err)
+	}
+
+	sessionCookie := issueAuthenticatedSession(t, m, user, "192.0.2.91:5000", "pass")
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req.AddCookie(sessionCookie)
+
+	handler := m.LoadAndSave(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if u, ok := m.UserFromContext(r.Context()); ok || u != nil {
+			t.Fatalf("expected invalidated session to be removed before handler, got %#v", u)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected %d, got %d", http.StatusNoContent, rec.Code)
+	}
+	if _, ok := m.getSessionFromUserName("ivan"); ok {
+		t.Fatal("expected invalidated session to be removed from storage")
+	}
+}
+
+func TestLoadAndSaveKeepsSessionWhenValidationErrors(t *testing.T) {
+	m := NewManager()
+	m.SetSessionValidator(func(_ string, _ string) (bool, error) {
+		return false, errors.New("ldap unavailable")
+	})
+
+	user, err := types.NewUser("judy", "pass")
+	if err != nil {
+		t.Fatalf("new user: %v", err)
+	}
+
+	sessionCookie := issueAuthenticatedSession(t, m, user, "192.0.2.92:5000", "pass")
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req.AddCookie(sessionCookie)
+
+	handler := m.LoadAndSave(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u, ok := m.UserFromContext(r.Context())
+		if !ok || u == nil || u.GetName() != "judy" {
+			t.Fatalf("expected session to remain available on validator error, got %#v", u)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected %d, got %d", http.StatusNoContent, rec.Code)
+	}
+	if !m.UserHasActiveSessionFromIP("judy", "192.0.2.92") {
+		t.Fatal("expected validator errors to fail open for active session checks")
+	}
+}
+
+func TestUserHasActiveSessionFromIPDropsRejectedSessions(t *testing.T) {
+	m := NewManager()
+	m.SetSessionValidator(func(_ string, _ string) (bool, error) {
+		return false, nil
+	})
+
+	user, err := types.NewUser("kate", "pass")
+	if err != nil {
+		t.Fatalf("new user: %v", err)
+	}
+
+	issueAuthenticatedSession(t, m, user, "192.0.2.93:5000", "pass")
+
+	if m.UserHasActiveSessionFromIP("kate", "192.0.2.93") {
+		t.Fatal("expected rejected session to be excluded from active session checks")
+	}
+	if _, ok := m.getSessionFromUserName("kate"); ok {
+		t.Fatal("expected rejected session to be purged from storage")
 	}
 }

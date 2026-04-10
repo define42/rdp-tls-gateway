@@ -36,6 +36,7 @@ func startGatewayTestServer(t *testing.T, settings *config.SettingsType) gateway
 	virt.GetInstance()
 
 	sessionManager := session.NewManager()
+	configureSessionManager(sessionManager, settings)
 	mux := getRemoteGatewayRotuer(sessionManager, settings)
 	frontTLS, err := cert.NewTLSManager(settings)
 	if err != nil {

@@ -75,12 +75,12 @@ func handleLoginPost(sessionManager *session.Manager, settings *config.SettingsT
 			return
 		}
 
-		completeLogin(sessionManager, w, r, user)
+		completeLogin(sessionManager, w, r, user, password)
 	}
 }
 
-func completeLogin(sessionManager *session.Manager, w http.ResponseWriter, r *http.Request, user *types.User) {
-	if err := sessionManager.CreateSession(r.Context(), user, r.RemoteAddr); err != nil {
+func completeLogin(sessionManager *session.Manager, w http.ResponseWriter, r *http.Request, user *types.User, password string) {
+	if err := sessionManager.CreateAuthenticatedSession(r.Context(), user, r.RemoteAddr, password); err != nil {
 		log.Printf("session create failed for %s: %v", user.GetName(), err)
 		serveLogin(w, "Login failed.")
 		return
