@@ -85,7 +85,10 @@ func GenerateRDP(server, username string) string {
 // ListDashboardVMs returns VM rows visible to the given user.
 func ListDashboardVMs(settings *config.SettingsType, user string) ([]VM, error) {
 	vmList := virt.GetInstance().GetVMs(user)
+	return buildDashboardRows(vmList, settings, user), nil
+}
 
+func buildDashboardRows(vmList []virt.VMInfo, settings *config.SettingsType, user string) []VM {
 	rows := make([]VM, 0, len(vmList))
 	for _, vm := range vmList {
 		displayName := vm.Name
@@ -105,7 +108,7 @@ func ListDashboardVMs(settings *config.SettingsType, user string) ([]VM, error) 
 			VNCReady:    vm.VNCReady,
 		})
 	}
-	return rows, nil
+	return rows
 }
 
 // WriteJSON serializes a payload as JSON with cache-control headers.

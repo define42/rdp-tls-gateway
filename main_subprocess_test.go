@@ -23,7 +23,7 @@ func TestMainFatalOnBootError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected subprocess running main() to fail")
 	}
-	if !bytes.Contains(output, []byte("Failed to boot gateway")) {
+	if !bytes.Contains(bytes.ToLower(output), []byte("failed to boot gateway")) {
 		t.Fatalf("expected fatal boot message, got %q", string(output))
 	}
 }

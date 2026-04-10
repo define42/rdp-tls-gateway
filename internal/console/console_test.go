@@ -38,6 +38,59 @@ func TestDashboardConsoleRouteRejectsUnauthorizedRequests(t *testing.T) {
 	}
 }
 
+func TestDashboardVNCRouteRejectsUnauthorizedRequests(t *testing.T) {
+	sessionManager := session.NewManager()
+	settings := config.NewSettingType(false)
+
+	router := chi.NewRouter()
+	router.Use(sessionManager.LoadAndSave)
+	router.Get("/api/dashboard/vnc/{name}/ws", HandleDashboardVNCWS(sessionManager, settings))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/vnc/alice-devbox/ws", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected %d, got %d with body %s", http.StatusUnauthorized, rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Login required.") {
+		t.Fatalf("expected login required message, got %q", rec.Body.String())
+	}
+}
+
+func TestParseDashboardVMPathParam(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{name: "valid", input: "alice-devbox", want: "alice-devbox"},
+		{name: "trimmed", input: "  alice-devbox  ", want: "alice-devbox"},
+		{name: "empty", input: "", wantErr: true},
+		{name: "too long", input: strings.Repeat("a", 129), wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseDashboardVMPathParam(tc.input)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error for %q", tc.input)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("expected %q, got %q", tc.want, got)
+			}
+		})
+	}
+}
+
 func TestDialDashboardSerialSocket(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "dashboard.serial.sock")
 	listener, err := net.Listen("unix", socketPath)

@@ -2,12 +2,16 @@ package dashboard
 
 import (
 	"embed"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"rdptlsgateway/internal/config"
+	"rdptlsgateway/internal/virt"
 	"strings"
 	"testing"
 )
@@ -88,5 +92,102 @@ func TestRenderDashboardPageMissingTemplate(t *testing.T) {
 func TestDashboardHTMLPathValid(t *testing.T) {
 	if valid := fs.ValidPath(DashboardHTMLPath); !valid {
 		t.Fatalf("invalid dashboard HTML embedded path: %q", DashboardHTMLPath)
+	}
+}
+
+func TestGenerateRDP(t *testing.T) {
+	got := GenerateRDP("vm1.example.test", "alice")
+	if !strings.HasPrefix(got, "data:application/x-rdp;base64,") {
+		t.Fatalf("expected RDP data URI, got %q", got)
+	}
+
+	encoded := strings.TrimPrefix(got, "data:application/x-rdp;base64,")
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatalf("decode RDP payload: %v", err)
+	}
+
+	payload := string(decoded)
+	for _, want := range []string{
+		"full address:s:vm1.example.test:443",
+		"username:s:alice",
+		"prompt for credentials:i:1",
+		"administrative session:i:1",
+		"enablecredsspsupport:i:0",
+	} {
+		if !strings.Contains(payload, want) {
+			t.Fatalf("expected payload to contain %q, got %q", want, payload)
+		}
+	}
+}
+
+func TestBuildDashboardRows(t *testing.T) {
+	t.Setenv(config.FRONT_DOMAIN, "example.test")
+	settings := config.NewSettingType(false)
+
+	rows := buildDashboardRows([]virt.VMInfo{
+		{
+			Name:      "alice-vm",
+			IP:        "192.0.2.10",
+			State:     "running",
+			MemoryMiB: 4096,
+			VCPU:      2,
+			VolumeGB:  40,
+			TTYReady:  true,
+			VNCReady:  false,
+		},
+	}, settings, "alice")
+
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	row := rows[0]
+	if row.DisplayName != "alice-vm.example.test" {
+		t.Fatalf("expected display name with front domain, got %q", row.DisplayName)
+	}
+	if row.Name != "alice-vm" || row.IP != "192.0.2.10" || row.State != "running" {
+		t.Fatalf("unexpected row data: %+v", row)
+	}
+	if !strings.Contains(row.RDPConnect, "data:application/x-rdp;base64,") {
+		t.Fatalf("expected RDP data URI, got %q", row.RDPConnect)
+	}
+}
+
+func TestBuildDashboardRowsWithoutFrontDomain(t *testing.T) {
+	t.Setenv(config.FRONT_DOMAIN, "")
+	settings := config.NewSettingType(false)
+
+	rows := buildDashboardRows([]virt.VMInfo{{Name: "plain-vm"}}, settings, "alice")
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	if rows[0].DisplayName != "plain-vm" {
+		t.Fatalf("expected display name without domain, got %q", rows[0].DisplayName)
+	}
+}
+
+func TestWriteJSON(t *testing.T) {
+	rec := httptest.NewRecorder()
+	WriteJSON(rec, http.StatusCreated, ActionResponse{
+		OK:      true,
+		Message: "created",
+	})
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected %d, got %d", http.StatusCreated, rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json; charset=utf-8" {
+		t.Fatalf("expected JSON content type, got %q", ct)
+	}
+	if got := rec.Header().Get("Cache-Control"); got != cacheControlValue {
+		t.Fatalf("expected Cache-Control %q, got %q", cacheControlValue, got)
+	}
+
+	var payload ActionResponse
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode JSON response: %v", err)
+	}
+	if !payload.OK || payload.Message != "created" {
+		t.Fatalf("unexpected payload: %+v", payload)
 	}
 }
