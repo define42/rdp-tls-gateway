@@ -122,6 +122,17 @@ func CopyAndResizeVolume(
 	sourceImagePath string,
 	capacityBytes uint64,
 ) error {
+	return copyAndResizeVolumeWithSettings(conn, nil, storagePoolName, volumeName, sourceImagePath, capacityBytes)
+}
+
+func copyAndResizeVolumeWithSettings(
+	conn *libvirt.Connect,
+	settings *config.SettingsType,
+	storagePoolName string,
+	volumeName string,
+	sourceImagePath string,
+	capacityBytes uint64,
+) error {
 	pool, err := conn.LookupStoragePoolByName(storagePoolName)
 	if err != nil {
 		return fmt.Errorf("lookup pool %s: %w", storagePoolName, err)
@@ -132,7 +143,7 @@ func CopyAndResizeVolume(
 		}
 	}()
 
-	vol, err := createQCOW2Volume(pool, volumeName, capacityBytes)
+	vol, err := createQCOW2Volume(settings, pool, volumeName, capacityBytes)
 	if err != nil {
 		return err
 	}
@@ -144,7 +155,11 @@ func CopyAndResizeVolume(
 		return err
 	}
 
-	return resizeVolumeIfNeeded(vol, capacityBytes)
+	if err := resizeVolumeIfNeeded(vol, capacityBytes); err != nil {
+		return err
+	}
+
+	return applyStorageVolPermissions(settings, vol)
 }
 
 // DestroyExistingDomain force-stops and undefines the named domain when it exists.
@@ -306,8 +321,8 @@ func RemoveVM(name string, settings *config.SettingsType) error {
 	return nil
 }
 
-func createQCOW2Volume(pool *libvirt.StoragePool, volumeName string, capacityBytes uint64) (*libvirt.StorageVol, error) {
-	volXML, err := storageVolCreateXML(pool, volumeName, capacityBytes, "qcow2")
+func createQCOW2Volume(settings *config.SettingsType, pool *libvirt.StoragePool, volumeName string, capacityBytes uint64) (*libvirt.StorageVol, error) {
+	volXML, err := storageVolCreateXMLWithSettings(settings, pool, volumeName, capacityBytes, "qcow2")
 	if err != nil {
 		return nil, err
 	}
@@ -397,7 +412,7 @@ func normalizeStoragePoolConfig(storagePoolName, storagePoolPath string) (string
 func lookupOrDefineStoragePool(conn *libvirt.Connect, storagePoolName, storagePoolPath string) (*libvirt.StoragePool, error) {
 	pool, err := conn.LookupStoragePoolByName(storagePoolName)
 	if err == nil {
-		return pool, nil
+		return reconcileStoragePoolTargetPath(conn, pool, storagePoolName, storagePoolPath)
 	}
 
 	var libErr libvirt.Error
@@ -410,6 +425,44 @@ func lookupOrDefineStoragePool(conn *libvirt.Connect, storagePoolName, storagePo
 		return nil, fmt.Errorf("define storage pool %s at %s: %w", storagePoolName, storagePoolPath, err)
 	}
 	log.Printf("Storage pool %s defined at %s", storagePoolName, storagePoolPath)
+	return pool, nil
+}
+
+func reconcileStoragePoolTargetPath(conn *libvirt.Connect, pool *libvirt.StoragePool, storagePoolName, storagePoolPath string) (*libvirt.StoragePool, error) {
+	targetPath, err := storagePoolTargetPath(pool)
+	if err != nil {
+		_ = pool.Free()
+		return nil, fmt.Errorf("get storage pool %s target path: %w", storagePoolName, err)
+	}
+
+	targetPath = filepath.Clean(targetPath)
+	if targetPath == storagePoolPath {
+		return pool, nil
+	}
+
+	active, err := pool.IsActive()
+	if err != nil {
+		_ = pool.Free()
+		return nil, fmt.Errorf("check if storage pool %s is active before reconciling target path: %w", storagePoolName, err)
+	}
+	if active {
+		_ = pool.Free()
+		return nil, fmt.Errorf("storage pool %s already exists at %s but configured path is %s", storagePoolName, targetPath, storagePoolPath)
+	}
+
+	if err := pool.Undefine(); err != nil {
+		_ = pool.Free()
+		return nil, fmt.Errorf("undefine storage pool %s at %s: %w", storagePoolName, targetPath, err)
+	}
+	if err := pool.Free(); err != nil {
+		return nil, fmt.Errorf("free storage pool %s after undefine: %w", storagePoolName, err)
+	}
+
+	pool, err = conn.StoragePoolDefineXML(storagePoolDefinitionXML(storagePoolName, storagePoolPath), 0)
+	if err != nil {
+		return nil, fmt.Errorf("redefine storage pool %s from %s to %s: %w", storagePoolName, targetPath, storagePoolPath, err)
+	}
+	log.Printf("Storage pool %s redefined from %s to %s", storagePoolName, targetPath, storagePoolPath)
 	return pool, nil
 }
 
@@ -505,10 +558,10 @@ func provisionBootVolumes(conn *libvirt.Connect, settings *config.SettingsType, 
 	if err != nil {
 		return fmt.Errorf("failed to ensure base image: %w", err)
 	}
-	if err := CopyAndResizeVolume(conn, poolName, vmName, baseImage, 40*1024*1024*1024); err != nil {
+	if err := copyAndResizeVolumeWithSettings(conn, settings, poolName, vmName, baseImage, 40*1024*1024*1024); err != nil {
 		return fmt.Errorf("failed to copy and resize base image: %w", err)
 	}
-	if err := CreateUbuntuSeedISOToPool(conn, poolName, seedIso, user.GetName(), user.GetCloudInitPasswordHash(), vmName); err != nil {
+	if err := createUbuntuSeedISOToPoolWithSettings(settings, conn, poolName, seedIso, user.GetName(), user.GetCloudInitPasswordHash(), vmName); err != nil {
 		return fmt.Errorf("failed to create seed ISO: %w", err)
 	}
 	return nil

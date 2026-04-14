@@ -213,13 +213,26 @@ func findExistingBaseImageSourcePath(imageName string) (string, bool) {
 	candidates := []string{
 		filepath.Join(config.ImageDir(nil), imageName),
 		filepath.Join(legacyDefaultImageDir, imageName),
+		filepath.Join(os.TempDir(), "rdptlsgateway-test-base-image-cache", imageName),
 	}
 	for _, candidate := range candidates {
-		if _, err := os.Stat(candidate); err == nil {
+		if canUseBaseImageSourcePath(candidate) {
 			return candidate, true
 		}
 	}
 	return "", false
+}
+
+func canUseBaseImageSourcePath(path string) bool {
+	if _, err := os.Stat(path); err != nil {
+		return false
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	_ = file.Close()
+	return true
 }
 
 func waitForRunningVM(t *testing.T, username, vmName string, conn *libvirt.Connect, timeout time.Duration) {

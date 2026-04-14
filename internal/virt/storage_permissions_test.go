@@ -13,34 +13,31 @@ import (
 )
 
 func TestStoragePermissionHelpers(t *testing.T) {
-	t.Setenv(volumeOwnerEnv, "1000")
-	t.Setenv(volumeGroupEnv, "1001")
-	t.Setenv(volumeModeEnv, "0666")
-
 	xml, err := storageVolPermissionsXML()
 	if err != nil {
 		t.Fatalf("storageVolPermissionsXML: %v", err)
 	}
-	if !strings.Contains(xml, "<owner>1000</owner>") {
-		t.Fatalf("expected owner in permissions xml, got %q", xml)
-	}
-	if !strings.Contains(xml, "<group>1001</group>") {
-		t.Fatalf("expected group in permissions xml, got %q", xml)
-	}
 	if !strings.Contains(xml, "<mode>0666</mode>") {
 		t.Fatalf("expected mode in permissions xml, got %q", xml)
 	}
+	if strings.Contains(xml, "<owner>") || strings.Contains(xml, "<group>") {
+		t.Fatalf("did not expect owner/group in permissions xml, got %q", xml)
+	}
 }
 
-func TestEnvModeXMLAndEnvUintXMLErrors(t *testing.T) {
-	t.Setenv(volumeModeEnv, "invalid")
-	if _, err := envModeXML(); err == nil {
-		t.Fatal("expected invalid mode error")
+func TestStorageVolPermissionsDefaultMode(t *testing.T) {
+	perms, err := storageVolPermissions()
+	if err != nil {
+		t.Fatalf("storageVolPermissions default: %v", err)
 	}
-
-	t.Setenv(volumeOwnerEnv, "invalid")
-	if _, err := envUintXML(volumeOwnerEnv, "owner", 10); err == nil {
-		t.Fatal("expected invalid owner error")
+	if perms == nil {
+		t.Fatal("expected default permissions to be present")
+	}
+	if perms.Owner != nil || perms.Group != nil {
+		t.Fatalf("expected default owner/group to be unset, got %+v", perms)
+	}
+	if perms.Mode == nil || *perms.Mode != "0666" {
+		t.Fatalf("expected default mode %q, got %+v", "0666", perms.Mode)
 	}
 }
 
@@ -101,6 +98,74 @@ func TestEnsureStoragePoolAndPathXML(t *testing.T) {
 	}
 }
 
+func TestEnsureStoragePoolRedefinesInactivePoolWithStalePath(t *testing.T) {
+	conn := newTestLibvirtConn(t)
+	stalePoolPath := t.TempDir()
+	poolPath := t.TempDir()
+	poolName := uniquePoolName("stale-pool")
+	t.Cleanup(func() { cleanupStoragePool(t, poolName) })
+
+	pool, err := conn.StoragePoolDefineXML(storagePoolDefinitionXML(poolName, stalePoolPath), 0)
+	if err != nil {
+		t.Fatalf("define stale storage pool: %v", err)
+	}
+	if err := pool.Free(); err != nil {
+		t.Fatalf("free stale storage pool: %v", err)
+	}
+
+	pool, err = ensureStoragePool(conn, poolName, poolPath)
+	if err != nil {
+		t.Fatalf("ensureStoragePool with stale path: %v", err)
+	}
+	defer func() {
+		_ = pool.Free()
+	}()
+
+	targetPath, err := storagePoolTargetPath(pool)
+	if err != nil {
+		t.Fatalf("storagePoolTargetPath: %v", err)
+	}
+	if filepath.Clean(targetPath) != filepath.Clean(poolPath) {
+		t.Fatalf("expected redefined pool target path %q, got %q", filepath.Clean(poolPath), targetPath)
+	}
+
+	active, err := pool.IsActive()
+	if err != nil {
+		t.Fatalf("check pool active: %v", err)
+	}
+	if !active {
+		t.Fatal("expected redefined storage pool to be active")
+	}
+}
+
+func TestEnsureStoragePoolRejectsActivePoolWithStalePath(t *testing.T) {
+	conn := newTestLibvirtConn(t)
+	stalePoolPath := t.TempDir()
+	poolPath := t.TempDir()
+	poolName := uniquePoolName("active-stale-pool")
+	t.Cleanup(func() { cleanupStoragePool(t, poolName) })
+
+	pool, err := conn.StoragePoolDefineXML(storagePoolDefinitionXML(poolName, stalePoolPath), 0)
+	if err != nil {
+		t.Fatalf("define stale storage pool: %v", err)
+	}
+	if err := pool.Create(0); err != nil {
+		_ = pool.Free()
+		t.Fatalf("start stale storage pool: %v", err)
+	}
+	if err := pool.Free(); err != nil {
+		t.Fatalf("free stale storage pool: %v", err)
+	}
+
+	_, err = ensureStoragePool(conn, poolName, poolPath)
+	if err == nil {
+		t.Fatal("expected active stale storage pool to be rejected")
+	}
+	if !strings.Contains(err.Error(), "already exists at") {
+		t.Fatalf("expected active stale path error, got %v", err)
+	}
+}
+
 func TestStorageVolCreateXML(t *testing.T) {
 	conn := newTestLibvirtConn(t)
 	poolPath := t.TempDir()
@@ -114,10 +179,6 @@ func TestStorageVolCreateXML(t *testing.T) {
 	defer func() {
 		_ = pool.Free()
 	}()
-
-	t.Setenv(volumeOwnerEnv, "1000")
-	t.Setenv(volumeGroupEnv, "1001")
-	t.Setenv(volumeModeEnv, "0660")
 
 	volXML, err := storageVolCreateXML(pool, "disk.qcow2", 12345, "qcow2")
 	if err != nil {
@@ -158,14 +219,14 @@ func assertStorageVolXMLPermissions(t *testing.T, permissions *storageVolumePerm
 	if permissions == nil {
 		t.Fatal("expected permissions to be present")
 	}
-	if permissions.Owner == nil || *permissions.Owner != 1000 {
-		t.Fatalf("expected owner %d, got %+v", 1000, permissions.Owner)
+	if permissions.Owner != nil {
+		t.Fatalf("expected owner to be unset, got %+v", permissions.Owner)
 	}
-	if permissions.Group == nil || *permissions.Group != 1001 {
-		t.Fatalf("expected group %d, got %+v", 1001, permissions.Group)
+	if permissions.Group != nil {
+		t.Fatalf("expected group to be unset, got %+v", permissions.Group)
 	}
-	if permissions.Mode == nil || *permissions.Mode != "0660" {
-		t.Fatalf("expected mode %q, got %+v", "0660", permissions.Mode)
+	if permissions.Mode == nil || *permissions.Mode != "0666" {
+		t.Fatalf("expected mode %q, got %+v", "0666", permissions.Mode)
 	}
 }
 

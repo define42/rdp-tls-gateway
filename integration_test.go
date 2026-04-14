@@ -18,10 +18,7 @@ func TestIntegrationLogin(t *testing.T) {
 	ldapURL, cleanup := startGlauth(ctx, t, "")
 	defer cleanup()
 
-	t.Setenv("LDAP_URL", ldapURL)
-	t.Setenv("LDAP_SKIP_TLS_VERIFY", "true")
-	t.Setenv("LDAP_STARTTLS", "false")
-	t.Setenv("LDAP_USER_DOMAIN", "@example.com")
+	_ = newGatewayIntegrationSettings(t, ldapURL)
 	t.Setenv("LISTEN_ADDR", ":8443")
 
 	gateway, err := bootGateway()

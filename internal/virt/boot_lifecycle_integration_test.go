@@ -34,13 +34,11 @@ func configureIsolatedBootStorage(t *testing.T, settings *config.SettingsType) {
 	rootDir := newLibvirtAccessibleTempDir(t, "rdptlsgateway-root-")
 	poolName := uniquePoolName("boot-lifecycle-pool")
 	baseSettings := config.NewSettingType(false)
-	baseImageURL, baseImagePath, err := baseImageURLAndPath(baseSettings)
+	baseImageURL, _, err := baseImageURLAndPath(baseSettings)
 	if err != nil {
 		t.Fatalf("baseImageURLAndPath: %v", err)
 	}
-	if _, err := os.Stat(baseImagePath); err != nil {
-		t.Skipf("skipping boot lifecycle coverage test; base image unavailable at %s: %v", baseImagePath, err)
-	}
+	baseImagePath := ensureAccessibleBaseImageSourcePath(t, baseImageURL)
 	t.Cleanup(func() { cleanupStoragePool(t, poolName) })
 	usePermissiveLibvirtVolumeMode(t)
 
@@ -61,14 +59,11 @@ func existingBootBaseImagePath(t *testing.T) string {
 	t.Helper()
 
 	settings := config.NewSettingType(false)
-	_, baseImagePath, err := baseImageURLAndPath(settings)
+	baseImageURL, _, err := baseImageURLAndPath(settings)
 	if err != nil {
 		t.Fatalf("baseImageURLAndPath: %v", err)
 	}
-	if _, err := os.Stat(baseImagePath); err != nil {
-		t.Skipf("skipping boot lifecycle coverage test; base image unavailable at %s: %v", baseImagePath, err)
-	}
-	return baseImagePath
+	return ensureAccessibleBaseImageSourcePath(t, baseImageURL)
 }
 
 func stageBootBaseImage(t *testing.T, sourcePath, targetPath string) {

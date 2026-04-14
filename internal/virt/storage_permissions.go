@@ -2,19 +2,23 @@ package virt
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
-	"strconv"
+	"rdptlsgateway/internal/config"
 	"strings"
+	"syscall"
 
 	"libvirt.org/go/libvirt"
 )
 
 const (
-	volumeModeEnv  = "LIBVIRT_VOLUME_MODE"
-	volumeOwnerEnv = "LIBVIRT_VOLUME_OWNER"
-	volumeGroupEnv = "LIBVIRT_VOLUME_GROUP"
+	fixedLibvirtVolumeMode     = "0666"
+	fixedLibvirtVolumeFileMode = 0o666
+	volumeOwnerEnv             = "LIBVIRT_VOLUME_OWNER"
+	volumeGroupEnv             = "LIBVIRT_VOLUME_GROUP"
 )
 
 type storagePoolXML struct {
@@ -52,21 +56,18 @@ type storageVolumePermissionsXML struct {
 }
 
 func storageVolCreateXML(pool *libvirt.StoragePool, volumeName string, capacityBytes uint64, formatType string) (string, error) {
-	target := storageVolumeTargetXML{
-		Format: storageVolumeFormatXML{Type: formatType},
+	return storageVolCreateXMLWithSettings(nil, pool, volumeName, capacityBytes, formatType)
+}
+
+func storageVolCreateXMLWithSettings(_ *config.SettingsType, pool *libvirt.StoragePool, volumeName string, capacityBytes uint64, formatType string) (string, error) {
+	poolPath, err := storagePoolTargetPath(pool)
+	if err != nil {
+		return "", err
 	}
 
 	permissions, err := storageVolPermissions()
 	if err != nil {
 		return "", err
-	}
-	if permissions != nil {
-		poolPath, err := storagePoolTargetPath(pool)
-		if err != nil {
-			return "", err
-		}
-		target.Path = filepath.Join(poolPath, volumeName)
-		target.Permissions = permissions
 	}
 
 	volXML, err := xml.MarshalIndent(storageVolumeXML{
@@ -75,7 +76,11 @@ func storageVolCreateXML(pool *libvirt.StoragePool, volumeName string, capacityB
 			Unit:  "bytes",
 			Value: capacityBytes,
 		},
-		Target: target,
+		Target: storageVolumeTargetXML{
+			Format:      storageVolumeFormatXML{Type: formatType},
+			Path:        filepath.Join(poolPath, volumeName),
+			Permissions: permissions,
+		},
 	}, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("marshal storage volume xml: %w", err)
@@ -85,45 +90,12 @@ func storageVolCreateXML(pool *libvirt.StoragePool, volumeName string, capacityB
 }
 
 func storageVolPermissions() (*storageVolumePermissionsXML, error) {
-	owner, err := envUintValue(volumeOwnerEnv, 10)
-	if err != nil {
-		return nil, err
-	}
-	group, err := envUintValue(volumeGroupEnv, 10)
-	if err != nil {
-		return nil, err
-	}
-	mode, err := envModeValue()
-	if err != nil {
-		return nil, err
-	}
-	if owner == nil && group == nil && mode == nil {
-		return nil, nil
-	}
-	return &storageVolumePermissionsXML{
-		Owner: owner,
-		Group: group,
-		Mode:  mode,
-	}, nil
+	mode := fixedLibvirtVolumeMode
+	return &storageVolumePermissionsXML{Mode: &mode}, nil
 }
 
 func storageVolPermissionsXML() (string, error) {
-	ownerXML, err := envUintXML(volumeOwnerEnv, "owner", 10)
-	if err != nil {
-		return "", err
-	}
-	groupXML, err := envUintXML(volumeGroupEnv, "group", 10)
-	if err != nil {
-		return "", err
-	}
-	modeXML, err := envModeXML()
-	if err != nil {
-		return "", err
-	}
-	if ownerXML == "" && groupXML == "" && modeXML == "" {
-		return "", nil
-	}
-	return fmt.Sprintf("\n    <permissions>%s%s%s\n    </permissions>", ownerXML, groupXML, modeXML), nil
+	return fmt.Sprintf("\n    <permissions>\n      <mode>%s</mode>\n    </permissions>", fixedLibvirtVolumeMode), nil
 }
 
 func storageVolPathXML(pool *libvirt.StoragePool, volumeName string) (string, error) {
@@ -150,53 +122,21 @@ func storagePoolTargetPath(pool *libvirt.StoragePool) (string, error) {
 	return path, nil
 }
 
-func envModeXML() (string, error) {
-	modeStr := strings.TrimSpace(os.Getenv(volumeModeEnv))
-	if modeStr == "" {
-		return "", nil
-	}
-	modeStr = strings.TrimPrefix(modeStr, "0o")
-	mode, err := strconv.ParseUint(modeStr, 8, 32)
+func applyStorageVolPermissions(_ *config.SettingsType, vol *libvirt.StorageVol) error {
+	volPath, err := vol.GetPath()
 	if err != nil {
-		return "", fmt.Errorf("invalid %s %q: %w", volumeModeEnv, modeStr, err)
+		return fmt.Errorf("get volume path: %w", err)
 	}
-	return fmt.Sprintf("\n      <mode>%04o</mode>", mode), nil
+	if err := os.Chmod(volPath, fixedLibvirtVolumeFileMode); err != nil {
+		if canIgnoreVolumeModeError(err) {
+			log.Printf("Skipping chmod for volume %s: %v", volPath, err)
+			return nil
+		}
+		return fmt.Errorf("chmod volume %s to %04o: %w", volPath, fixedLibvirtVolumeFileMode, err)
+	}
+	return nil
 }
 
-func envModeValue() (*string, error) {
-	modeStr := strings.TrimSpace(os.Getenv(volumeModeEnv))
-	if modeStr == "" {
-		return nil, nil
-	}
-	modeStr = strings.TrimPrefix(modeStr, "0o")
-	mode, err := strconv.ParseUint(modeStr, 8, 32)
-	if err != nil {
-		return nil, fmt.Errorf("invalid %s %q: %w", volumeModeEnv, modeStr, err)
-	}
-	formatted := fmt.Sprintf("%04o", mode)
-	return &formatted, nil
-}
-
-func envUintXML(envVar, tag string, base int) (string, error) {
-	raw := strings.TrimSpace(os.Getenv(envVar))
-	if raw == "" {
-		return "", nil
-	}
-	val, err := strconv.ParseUint(raw, base, 32)
-	if err != nil {
-		return "", fmt.Errorf("invalid %s %q: %w", envVar, raw, err)
-	}
-	return fmt.Sprintf("\n      <%s>%d</%s>", tag, val, tag), nil
-}
-
-func envUintValue(envVar string, base int) (*uint64, error) {
-	raw := strings.TrimSpace(os.Getenv(envVar))
-	if raw == "" {
-		return nil, nil
-	}
-	val, err := strconv.ParseUint(raw, base, 32)
-	if err != nil {
-		return nil, fmt.Errorf("invalid %s %q: %w", envVar, raw, err)
-	}
-	return &val, nil
+func canIgnoreVolumeModeError(err error) bool {
+	return errors.Is(err, os.ErrPermission) || errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EACCES)
 }

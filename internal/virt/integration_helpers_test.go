@@ -2,6 +2,7 @@ package virt
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -9,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"rdptlsgateway/internal/config"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,6 +18,8 @@ import (
 )
 
 const legacyDefaultImageDir = "/data/desktop"
+
+var testBaseImageCacheMu sync.Mutex
 
 func newTestLibvirtConn(t *testing.T) *libvirt.Connect {
 	t.Helper()
@@ -78,7 +82,6 @@ func newLibvirtAccessibleTempDir(t *testing.T, prefix string) string {
 
 func usePermissiveLibvirtVolumeMode(t *testing.T) {
 	t.Helper()
-	t.Setenv(volumeModeEnv, "0666")
 }
 
 func newInitVirtSettings(t *testing.T, rootDir string) *config.SettingsType {
@@ -101,33 +104,110 @@ func stageExistingBaseImageFromDefaultRoot(t *testing.T, settings *config.Settin
 	if settings == nil {
 		return
 	}
-	parsedURL, err := url.Parse(settings.Get(config.BASE_IMAGE_URL))
-	if err != nil {
+	sourcePath := ensureAccessibleBaseImageSourcePath(t, settings.Get(config.BASE_IMAGE_URL))
+	if sourcePath == "" {
 		return
+	}
+	stageBootBaseImage(t, sourcePath, filepath.Join(config.ImageDir(settings), filepath.Base(sourcePath)))
+}
+
+func ensureAccessibleBaseImageSourcePath(t *testing.T, baseImageURL string) string {
+	t.Helper()
+
+	parsedURL, err := url.Parse(baseImageURL)
+	if err != nil {
+		return ""
 	}
 	imageName := path.Base(parsedURL.Path)
 	if imageName == "." || imageName == "/" || imageName == "" {
-		return
+		return ""
 	}
 
 	sourcePath, ok := findExistingBaseImageSourcePath(imageName)
-	if !ok {
-		return
+	if ok {
+		return sourcePath
 	}
-	stageBootBaseImage(t, sourcePath, filepath.Join(config.ImageDir(settings), imageName))
+
+	return ensureCachedBaseImageSourcePath(t, baseImageURL, imageName)
+}
+
+func ensureCachedBaseImageSourcePath(t *testing.T, baseImageURL, imageName string) string {
+	t.Helper()
+
+	cacheDir := filepath.Join(os.TempDir(), "rdptlsgateway-test-base-image-cache")
+	cachedPath := filepath.Join(cacheDir, imageName)
+
+	testBaseImageCacheMu.Lock()
+	defer testBaseImageCacheMu.Unlock()
+
+	ok, err := nonEmptyFileExists(cachedPath)
+	if err != nil {
+		t.Fatalf("stat cached base image %s: %v", cachedPath, err)
+	}
+	if ok {
+		return cachedPath
+	}
+
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatalf("create cached base image dir %s: %v", cacheDir, err)
+	}
+
+	resp, err := http.Get(baseImageURL)
+	if err != nil {
+		t.Fatalf("download cached base image %s: %v", baseImageURL, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("download cached base image %s: unexpected status %s", baseImageURL, resp.Status)
+	}
+
+	tmpPath := cachedPath + ".part"
+	out, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		t.Fatalf("create cached base image %s: %v", tmpPath, err)
+	}
+	if _, err := io.Copy(out, resp.Body); err != nil {
+		_ = out.Close()
+		_ = os.Remove(tmpPath)
+		t.Fatalf("copy cached base image %s: %v", tmpPath, err)
+	}
+	if err := out.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		t.Fatalf("close cached base image %s: %v", tmpPath, err)
+	}
+	if err := os.Rename(tmpPath, cachedPath); err != nil {
+		_ = os.Remove(tmpPath)
+		t.Fatalf("move cached base image into place %s: %v", cachedPath, err)
+	}
+
+	return cachedPath
 }
 
 func findExistingBaseImageSourcePath(imageName string) (string, bool) {
 	candidates := []string{
 		filepath.Join(config.ImageDir(nil), imageName),
 		filepath.Join(legacyDefaultImageDir, imageName),
+		filepath.Join(os.TempDir(), "rdptlsgateway-test-base-image-cache", imageName),
 	}
 	for _, candidate := range candidates {
-		if _, err := os.Stat(candidate); err == nil {
+		if canUseBaseImageSourcePath(candidate) {
 			return candidate, true
 		}
 	}
 	return "", false
+}
+
+func canUseBaseImageSourcePath(path string) bool {
+	if _, err := os.Stat(path); err != nil {
+		return false
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	_ = file.Close()
+	return true
 }
 
 func newImageServer(t *testing.T, payload []byte, status int) *httptest.Server {

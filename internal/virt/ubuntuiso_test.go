@@ -1,6 +1,7 @@
 package virt
 
 import (
+	"os"
 	"path/filepath"
 	"rdptlsgateway/internal/config"
 	"rdptlsgateway/internal/types"
@@ -53,7 +54,13 @@ func TestSeedISOCreate(t *testing.T) {
 func TestCreateUbuntuSeedISOToPool(t *testing.T) {
 	conn := newTestLibvirtConn(t)
 	rootDir := t.TempDir()
-	settings := newInitVirtSettings(t, rootDir)
+	settings := config.NewSettingType(false)
+	if err := settings.OverwriteForTestString(config.DATA_ROOT_DIR, rootDir); err != nil {
+		t.Fatalf("overwrite DATA_ROOT_DIR: %v", err)
+	}
+	if err := settings.OverwriteForTestString(config.VIRT_STORAGE_POOL_NAME, uniquePoolName("seed-iso-pool")); err != nil {
+		t.Fatalf("overwrite VIRT_STORAGE_POOL_NAME: %v", err)
+	}
 	poolName, poolPath := storagePoolConfig(settings)
 	t.Cleanup(func() { cleanupStoragePool(t, poolName) })
 
@@ -88,6 +95,17 @@ func TestCreateUbuntuSeedISOToPool(t *testing.T) {
 	}
 	if info.Capacity == 0 {
 		t.Fatal("expected created seed iso volume to have non-zero capacity")
+	}
+	volPath, err := vol.GetPath()
+	if err != nil {
+		t.Fatalf("get seed iso volume path: %v", err)
+	}
+	stat, err := os.Stat(volPath)
+	if err != nil {
+		t.Fatalf("stat seed iso volume path: %v", err)
+	}
+	if got := stat.Mode().Perm(); got != 0o666 {
+		t.Fatalf("expected seed iso volume mode %04o, got %04o", 0o666, got)
 	}
 }
 

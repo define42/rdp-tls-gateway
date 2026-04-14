@@ -3,6 +3,7 @@ package virt
 import (
 	"bytes"
 	"fmt"
+	"rdptlsgateway/internal/config"
 
 	"github.com/google/uuid"
 	"libvirt.org/go/libvirt"
@@ -10,6 +11,18 @@ import (
 
 // CreateUbuntuSeedISOToPool builds a cloud-init seed ISO and uploads it to the storage pool.
 func CreateUbuntuSeedISOToPool(
+	conn *libvirt.Connect,
+	storagePoolName string,
+	volumeName string,
+	username string,
+	cloudInitPasswordHash string,
+	hostname string,
+) error {
+	return createUbuntuSeedISOToPoolWithSettings(nil, conn, storagePoolName, volumeName, username, cloudInitPasswordHash, hostname)
+}
+
+func createUbuntuSeedISOToPoolWithSettings(
+	settings *config.SettingsType,
 	conn *libvirt.Connect,
 	storagePoolName string,
 	volumeName string,
@@ -33,7 +46,7 @@ func CreateUbuntuSeedISOToPool(
 		}
 	}()
 
-	volXML, err := storageVolCreateXML(pool, volumeName, uint64(len(seedISOData)), "raw")
+	volXML, err := storageVolCreateXMLWithSettings(settings, pool, volumeName, uint64(len(seedISOData)), "raw")
 	if err != nil {
 		return err
 	}
@@ -46,7 +59,11 @@ func CreateUbuntuSeedISOToPool(
 		_ = vol.Free()
 	}()
 
-	return uploadSeedISO(conn, vol, seedISOData)
+	if err := uploadSeedISO(conn, vol, seedISOData); err != nil {
+		return err
+	}
+
+	return applyStorageVolPermissions(settings, vol)
 }
 
 func ubuntuSeedData(username, cloudInitPasswordHash, hostname string) (*SeedUserData, *SeedMetaData, *SeedNetworkConfig) {
@@ -67,7 +84,6 @@ func ubuntuSeedData(username, cloudInitPasswordHash, hostname string) (*SeedUser
 				Passwd:     cloudInitPasswordHash,
 			},
 		},
-		SSHPwAuth: true,
 		RunCmd: []string{
 			"systemctl enable --now serial-getty@ttyS0.service",
 		},

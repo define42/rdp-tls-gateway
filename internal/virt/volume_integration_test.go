@@ -33,13 +33,26 @@ func TestCopyAndResizeVolumeAndRemoveVolumes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lookup copied volume: %v", err)
 	}
-	info, err := vol.GetInfo()
-	_ = vol.Free()
+	volPath, err := vol.GetPath()
 	if err != nil {
+		_ = vol.Free()
+		t.Fatalf("get copied volume path: %v", err)
+	}
+	info, err := vol.GetInfo()
+	if err != nil {
+		_ = vol.Free()
 		t.Fatalf("get copied volume info: %v", err)
 	}
+	_ = vol.Free()
 	if info.Capacity < 2*1024*1024 {
 		t.Fatalf("expected resized capacity >= 2 MiB, got %d", info.Capacity)
+	}
+	stat, err := os.Stat(volPath)
+	if err != nil {
+		t.Fatalf("stat copied volume path: %v", err)
+	}
+	if got := stat.Mode().Perm(); got != 0o666 {
+		t.Fatalf("expected copied volume mode %04o, got %04o", 0o666, got)
 	}
 
 	if err := RemoveVolumes(conn, poolName, "vmdisk"); err != nil {
