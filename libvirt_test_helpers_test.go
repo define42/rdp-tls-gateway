@@ -8,13 +8,11 @@ import (
 	"path"
 	"path/filepath"
 	"rdptlsgateway/internal/config"
-	"sync"
+	"syscall"
 	"testing"
 )
 
 const legacyDefaultImageDir = "/data/desktop"
-
-var testBaseImageCacheMu sync.Mutex
 
 func newLibvirtAccessibleTempDir(t *testing.T, prefix string) string {
 	t.Helper()
@@ -85,51 +83,17 @@ func ensureCachedBaseImageSourcePath(t *testing.T, settings *config.SettingsType
 	cacheDir := filepath.Join(os.TempDir(), "rdptlsgateway-test-base-image-cache")
 	cachedPath := filepath.Join(cacheDir, imageName)
 
-	testBaseImageCacheMu.Lock()
-	defer testBaseImageCacheMu.Unlock()
+	withTestBaseImageCacheLock(t, cacheDir, func() {
+		ok, err := nonEmptyFileExists(cachedPath)
+		if err != nil {
+			t.Fatalf("stat cached base image %s: %v", cachedPath, err)
+		}
+		if ok {
+			return
+		}
 
-	ok, err := nonEmptyFileExists(cachedPath)
-	if err != nil {
-		t.Fatalf("stat cached base image %s: %v", cachedPath, err)
-	}
-	if ok {
-		return cachedPath
-	}
-
-	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
-		t.Fatalf("create cached base image dir %s: %v", cacheDir, err)
-	}
-
-	baseImageURL := settings.Get(config.BASE_IMAGE_URL)
-	resp, err := http.Get(baseImageURL)
-	if err != nil {
-		t.Fatalf("download cached base image %s: %v", baseImageURL, err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("download cached base image %s: unexpected status %s", baseImageURL, resp.Status)
-	}
-
-	tmpPath := cachedPath + ".part"
-	out, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-	if err != nil {
-		t.Fatalf("create cached base image %s: %v", tmpPath, err)
-	}
-
-	if _, err := io.Copy(out, resp.Body); err != nil {
-		_ = out.Close()
-		_ = os.Remove(tmpPath)
-		t.Fatalf("copy cached base image %s: %v", tmpPath, err)
-	}
-	if err := out.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		t.Fatalf("close cached base image %s: %v", tmpPath, err)
-	}
-	if err := os.Rename(tmpPath, cachedPath); err != nil {
-		_ = os.Remove(tmpPath)
-		t.Fatalf("move cached base image into place %s: %v", cachedPath, err)
-	}
+		downloadCachedBaseImage(t, settings.Get(config.BASE_IMAGE_URL), cachedPath)
+	})
 
 	return cachedPath
 }
@@ -168,5 +132,69 @@ func nonEmptyFileExists(path string) (bool, error) {
 		return false, nil
 	default:
 		return false, err
+	}
+}
+
+func withTestBaseImageCacheLock(t *testing.T, cacheDir string, fn func()) {
+	t.Helper()
+
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatalf("create cached base image dir %s: %v", cacheDir, err)
+	}
+
+	lockPath := filepath.Join(cacheDir, ".lock")
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		t.Fatalf("open cached base image lock %s: %v", lockPath, err)
+	}
+	defer func() { _ = lockFile.Close() }()
+
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatalf("lock cached base image dir %s: %v", cacheDir, err)
+	}
+	defer func() {
+		_ = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+	}()
+
+	fn()
+}
+
+func downloadCachedBaseImage(t *testing.T, baseImageURL, cachedPath string) {
+	t.Helper()
+
+	resp, err := http.Get(baseImageURL)
+	if err != nil {
+		t.Fatalf("download cached base image %s: %v", baseImageURL, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("download cached base image %s: unexpected status %s", baseImageURL, resp.Status)
+	}
+
+	writeCachedBaseImage(t, cachedPath, resp.Body)
+}
+
+func writeCachedBaseImage(t *testing.T, cachedPath string, body io.Reader) {
+	t.Helper()
+
+	tmpPath := cachedPath + ".part"
+	out, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		t.Fatalf("create cached base image %s: %v", tmpPath, err)
+	}
+
+	if _, err := io.Copy(out, body); err != nil {
+		_ = out.Close()
+		_ = os.Remove(tmpPath)
+		t.Fatalf("copy cached base image %s: %v", tmpPath, err)
+	}
+	if err := out.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		t.Fatalf("close cached base image %s: %v", tmpPath, err)
+	}
+	if err := os.Rename(tmpPath, cachedPath); err != nil {
+		_ = os.Remove(tmpPath)
+		t.Fatalf("move cached base image into place %s: %v", cachedPath, err)
 	}
 }
