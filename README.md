@@ -2,17 +2,194 @@
 
 [![codecov](https://codecov.io/gh/define42/rdp-tls-gateway/graph/badge.svg?token=HS2KD8YHNG)](https://codecov.io/gh/define42/rdp-tls-gateway)
 
-## UI (TypeScript)
+`rdp-tls-gateway` is a self-hosted gateway that publishes libvirt-managed virtual
+desktops over a single HTTPS port. It combines three things on TCP `:443`:
 
-Dashboard UI source lives in `ui/dashboard.ts`. Rebuild the embedded asset with:
+1. An **RDP-over-TLS reverse proxy** that terminates TLS from the client, picks
+   a backend VM based on the client's TLS SNI, and re-establishes TLS to that
+   backend. The proxy speaks raw RDP (X.224 / TPKT), not the Microsoft RD
+   Gateway HTTP/UDP transports.
+2. An **HTTPS web dashboard** for end users to create, start, stop, restart and
+   delete their own virtual machines, download an `.rdp` connection file, and
+   open an in-browser serial console or noVNC session.
+3. **LDAP-backed authentication** so the same credentials gate both the
+   dashboard and any RDP session that traverses the gateway.
 
-```sh
-tsc -p tsconfig.json
+Connections are demultiplexed by sniffing the first byte on the accepted TCP
+socket: a TLS handshake record (`0x16`) is routed to the HTTPS handler, anything
+else is treated as an RDP X.224 Connection Request.
+
+> ⚠️ This is **not** Microsoft RD Gateway. It is a TLS-to-TLS RDP proxy plus a
+> companion management UI. There is no HTTP- or UDP-tunneled RDP transport.
+
+---
+
+## Table of contents
+
+- [Features](#features)
+- [Architecture](#architecture)
+- [Quick start (Docker Compose)](#quick-start-docker-compose)
+- [Login flow](#login-flow)
+- [Connecting an RDP client](#connecting-an-rdp-client)
+- [Configuration](#configuration)
+  - [Disabling clipboard and drive redirection](#disabling-clipboard-and-drive-redirection)
+  - [TLS certificates](#tls-certificates)
+  - [LDAP](#ldap)
+  - [Libvirt and VM storage](#libvirt-and-vm-storage)
+- [Building from source](#building-from-source)
+- [Testing and linting](#testing-and-linting)
+- [Repository layout](#repository-layout)
+- [Security notes](#security-notes)
+- [License](#license)
+
+---
+
+## Features
+
+- **RDP-over-TLS reverse proxy** with SNI-based backend routing.
+- **HTTPS dashboard** for self-service VM lifecycle management (create, start,
+  restart, shutdown, remove, resize CPU/RAM).
+- **In-browser consoles**: serial console and noVNC streamed over WebSocket.
+- **LDAP authentication** with optional StartTLS and optional certificate
+  verification.
+- **ACME / Let's Encrypt** support for automatic public TLS certificates, with
+  a self-signed fallback for local development.
+- **Per-session RDP hardening**: optionally strip the `cliprdr` (clipboard) and
+  `rdpdr` (drive/printer/smart-card redirection) static virtual channels from
+  every proxied session, regardless of client or VM Group Policy.
+- **Libvirt integration** for managing QEMU/KVM virtual machines from a
+  configurable storage pool, with base image auto-download.
+- **Single port** (`:443`) for everything: dashboard, websockets, and RDP.
+
+## Architecture
+
+```
+                  ┌──────────────────────── TCP :443 ────────────────────────┐
+client ──TLS──►   │  byte-sniff: 0x16 → HTTPS, else → RDP X.224              │
+                  └──────────────┬──────────────────────────┬────────────────┘
+                                 │                          │
+                       HTTPS / WebSocket                 RDP / TLS
+                                 │                          │
+                ┌────────────────▼─────────────┐  ┌─────────▼─────────────────┐
+                │ chi router + Huma API        │  │ TLS terminate, read SNI   │
+                │  /login, /logout             │  │ → dial backend VM         │
+                │  /api/dashboard/*            │  │ → new RDP TLS handshake   │
+                │  /api/dashboard/console/...  │  │ → bidirectional proxy     │
+                │  /api/dashboard/vnc/...      │  │ (with optional channel    │
+                │  static assets               │  │  stripping for cliprdr /  │
+                └────────────────┬─────────────┘  │  rdpdr in MCS Connect)    │
+                                 │                └─────────┬─────────────────┘
+                       LDAP bind / session                  │
+                                 │                          │
+                  ┌──────────────▼──────────────────────────▼────────────────┐
+                  │              libvirt (QEMU/KVM) on the host              │
+                  └──────────────────────────────────────────────────────────┘
 ```
 
-The compiled output is `static/dashboard.js`.
+The RDP flow on the front side is:
 
-## Disabling clipboard and drive redirection
+1. Read the client's X.224 Connection Request (TPKT).
+2. Reply with an X.224 Connection Confirm selecting `PROTOCOL_SSL` (TLS).
+3. Complete the TLS handshake with the client and read SNI.
+4. TCP-connect to the chosen backend.
+5. Send a fresh Connection Request to the backend requesting TLS only.
+6. Read the backend's Connection Confirm and require `PROTOCOL_SSL`.
+7. Complete the backend TLS handshake (backend cert verification is skipped).
+8. Splice bytes between client TLS and backend TLS for the rest of the session.
+
+## Quick start (Docker Compose)
+
+Requirements on the host:
+
+- Docker and Docker Compose v2.
+- A libvirt daemon reachable at `/var/run/libvirt` (the compose file
+  bind-mounts it into the gateway container).
+- A `virbr0` bridge for the macvlan network (the default libvirt NAT bridge).
+- Write access to `/data/` on the host (used for ACME data, VM images, and
+  serial / VNC sockets).
+
+Start the stack:
+
+```sh
+make run
+```
+
+This stops any previous stack, rebuilds the images, and starts:
+
+- `gateway` — the Go binary, listening on `https://localhost` (port `443`).
+- `ldap` — a `glauth/glauth` LDAP server pre-populated from
+  `testldap/default-config.cfg` for local development.
+
+To stop everything: `docker compose stop`.
+
+## Login flow
+
+Open `https://localhost` in a browser. If the gateway generated a self-signed
+certificate (the default for local runs without `CERT_FILE` / `KEY_FILE`), the
+browser will warn — choose **Advanced** → **Proceed to localhost (unsafe)**.
+
+Sign in with the seeded test account:
+
+- username: `johndoe`
+- password: `dogood`
+
+A successful login redirects to `/api/dashboard`, where you can:
+
+- Create a new VM (name, vCPU count, memory).
+- Start / restart / shutdown / remove existing VMs that you own.
+- Update CPU and memory allocation.
+- Open a serial console or noVNC session in the browser.
+- Download an `.rdp` file (`rdpgw.rdp`) preconfigured for the gateway.
+
+The same `johndoe` / `dogood` credentials are exercised by the LDAP
+integration tests, so they are also the recommended local smoke-test account.
+
+## Connecting an RDP client
+
+Use any standard RDP client (mstsc, FreeRDP, Remmina, …) and point it at the
+gateway's host on port `443`, with the **server name** set to the SNI value
+the gateway expects for your target VM (typically `<vmname>.<FRONT_DOMAIN>`,
+for example `myvm.desktop.local.gd`).
+
+The easiest path is to download the `rdpgw.rdp` file from the dashboard — it
+already contains the correct hostname and TLS settings.
+
+The gateway requires TLS-protected RDP (`PROTOCOL_SSL`); clients that only
+offer the legacy Standard RDP Security will be rejected.
+
+## Configuration
+
+All runtime configuration is read from environment variables and registered in
+[`internal/config/config.go`](internal/config/config.go). On start-up the
+gateway prints a table of every setting and its effective value.
+
+| Variable                  | Default                                                                                                          | Description                                                                                       |
+|---------------------------|------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|
+| `LISTEN_ADDR`             | `:443`                                                                                                           | Address the gateway listens on (HTTPS + RDP multiplexed).                                         |
+| `TIMEOUT`                 | `10s`                                                                                                            | Handshake / dial / read timeout for connection setup.                                             |
+| `CERT_FILE`               | _(empty)_                                                                                                        | PEM-encoded TLS certificate for the front side. Empty → self-signed cert is generated.            |
+| `KEY_FILE`                | _(empty)_                                                                                                        | PEM-encoded unencrypted private key matching `CERT_FILE`.                                         |
+| `ACME_ENABLE`             | `false`                                                                                                          | Enable ACME (Let's Encrypt) certificate management via certmagic on the front side.               |
+| `ACME_EMAIL`              | _(empty)_                                                                                                        | ACME account contact email (recommended when `ACME_ENABLE=true`).                                 |
+| `ACME_CA`                 | _(empty)_                                                                                                        | ACME directory URL, or `staging` for the Let's Encrypt staging endpoint.                          |
+| `FRONT_DOMAIN`            | `desktop.local.gd`                                                                                               | Domain served by the dashboard and used as a suffix for VM SNI names.                             |
+| `DATA_ROOT_DIR`           | `/data`                                                                                                          | Root directory for gateway-managed state (ACME data, images, serial sockets, VNC sockets).        |
+| `VIRT_STORAGE_POOL_NAME`  | `desktop`                                                                                                        | Libvirt storage pool to allocate VM volumes in.                                                   |
+| `BASE_IMAGE_URL`          | `https://github.com/define42/rocky9-desktop-cloud-image/releases/download/v0.0.18/rocky9-desktop-cloudimg-amd64-v0.0.18.img` | Base disk image URL used when bootstrapping a new VM that has no local backing image. |
+| `LDAP_URL`                | `ldaps://ldap:389`                                                                                               | LDAP server URL.                                                                                  |
+| `LDAP_BASE_DN`            | `dc=glauth,dc=com`                                                                                               | LDAP search base.                                                                                 |
+| `LDAP_USER_FILTER`        | `(mail=%s)`                                                                                                      | LDAP search filter; `%s` is replaced with `<username>@LDAP_USER_DOMAIN`.                          |
+| `LDAP_USER_DOMAIN`        | `@example.com`                                                                                                   | Domain appended to bare usernames before they are substituted into `LDAP_USER_FILTER`.            |
+| `LDAP_STARTTLS`           | `false`                                                                                                          | When `true`, upgrade plain LDAP connections with StartTLS.                                        |
+| `LDAP_SKIP_TLS_VERIFY`    | `true`                                                                                                           | When `true`, skip TLS certificate verification against the LDAP server.                           |
+| `RDP_DISABLE_CLIPBOARD`   | `false`                                                                                                          | When `true`, strip the `cliprdr` virtual channel from every proxied session.                      |
+| `RDP_DISABLE_DRIVES`      | `false`                                                                                                          | When `true`, strip the `rdpdr` virtual channel from every proxied session.                        |
+
+Booleans accept anything `strconv.ParseBool` recognises (`true`, `false`,
+`1`, `0`, `yes`, `no`, …). Durations accept Go's `time.ParseDuration`
+syntax (e.g. `15s`, `2m`, `500ms`).
+
+### Disabling clipboard and drive redirection
 
 The gateway can enforce a "no clipboard" and/or "no local drive mapping"
 policy on every RDP session it proxies, independently of the client
@@ -23,8 +200,142 @@ unused names. The server allocates MCS channel IDs as usual (so the RDP
 connection still establishes) but no clipboard or drive redirection service is
 ever bound to the renamed channels.
 
-| Environment variable     | Default | Effect                                                                          |
-|--------------------------|---------|---------------------------------------------------------------------------------|
-| `RDP_DISABLE_CLIPBOARD`  | `false` | When `true`, strip the `cliprdr` virtual channel so clipboard redirection is disabled. |
-| `RDP_DISABLE_DRIVES`     | `false` | When `true`, strip the `rdpdr` virtual channel so local drive mapping (and other RDPDR redirections such as printers and smart cards over RDPDR) is disabled. |
+| Environment variable     | Default | Effect                                                                                                                                                          |
+|--------------------------|---------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `RDP_DISABLE_CLIPBOARD`  | `false` | When `true`, strip the `cliprdr` virtual channel so clipboard redirection is disabled.                                                                          |
+| `RDP_DISABLE_DRIVES`     | `false` | When `true`, strip the `rdpdr` virtual channel so local drive mapping (and other RDPDR redirections such as printers and smart cards over RDPDR) is disabled.   |
+
+### TLS certificates
+
+There are three supported modes for the front-side certificate:
+
+1. **Self-signed (default for local dev).** Leave `CERT_FILE`, `KEY_FILE` and
+   `ACME_ENABLE` empty. A self-signed certificate is generated in-memory on
+   start.
+2. **Static PEM files.** Set `CERT_FILE` and `KEY_FILE` to readable PEM files
+   inside the container/process.
+3. **ACME.** Set `ACME_ENABLE=true`, set `FRONT_DOMAIN` to the public hostname,
+   and set `ACME_EMAIL`. Optionally set `ACME_CA=staging` while testing. ACME
+   state is persisted under `$DATA_ROOT_DIR/acme`.
+
+Backend (VM) TLS certificates are intentionally **not** validated — VMs
+typically present per-host self-signed certs.
+
+### LDAP
+
+For local development, the bundled `glauth` container is configured in
+`testldap/default-config.cfg` and is reachable from the gateway container at
+`ldaps://ldap:389`. For production, point `LDAP_URL` at your own directory and
+adjust `LDAP_BASE_DN`, `LDAP_USER_FILTER`, and `LDAP_USER_DOMAIN` to match.
+Prefer `ldaps://` or `LDAP_STARTTLS=true` and set
+`LDAP_SKIP_TLS_VERIFY=false` once your CA chain is trusted.
+
+### Libvirt and VM storage
+
+The dashboard manages VMs through libvirt. The gateway expects:
+
+- A libvirt socket bind-mounted at `/var/run/libvirt` (already wired up in
+  `docker-compose.yml`).
+- A storage pool named by `VIRT_STORAGE_POOL_NAME` (default `desktop`) backed
+  by `$DATA_ROOT_DIR/image` on the host.
+- Network reachability from the gateway container to each VM's RDP port over
+  the `virbr0` bridge. The compose file attaches the gateway to a macvlan on
+  `virbr0` with a fixed address of `192.168.122.254`.
+
+When a VM is created from the dashboard and the configured base image is not
+present locally, it is downloaded from `BASE_IMAGE_URL` into
+`$DATA_ROOT_DIR/image`.
+
+## Building from source
+
+Requirements:
+
+- Go (see `go.mod` for the minimum version).
+- A C toolchain and `libvirt-dev` headers (the binary is built with
+  `CGO_ENABLED=1`).
+- Node.js + TypeScript 5.x for the dashboard bundle.
+
+Build the dashboard bundle and the binary locally:
+
+```sh
+tsc -p tsconfig.json          # compile ui/dashboard.ts → static/dashboard.js
+CGO_ENABLED=1 go build -o remotegateway
+```
+
+Or build the production container image:
+
+```sh
+docker compose build
+```
+
+The multi-stage `Dockerfile` compiles the TypeScript UI and the Go binary in a
+`golang:1.25-alpine` builder and ships only the resulting binary plus
+`libvirt-libs` and `ca-certificates` in the runtime image.
+
+### UI (TypeScript)
+
+The dashboard UI source lives in `ui/dashboard.ts`. Rebuild the embedded asset
+with:
+
+```sh
+tsc -p tsconfig.json
+```
+
+The compiled output is `static/dashboard.js` and is embedded into the binary
+via Go's `embed` package.
+
+## Testing and linting
+
+```sh
+make test     # go test ./... with coverage; writes coverage.out and coverage.html
+make lint     # run golangci-lint
+make gosec    # run gosec security scanner
+go test -race ./...
+```
+
+Some integration tests (e.g. `ldap_integration_test.go`,
+`dashboard_vm_integration_test.go`) start temporary services via
+`testcontainers-go`, so Docker needs to be available locally to run them.
+
+## Repository layout
+
+```
+.
+├── main.go, handlers.go, dashboard.go, console.go, html.go, assets.go
+│       Top-level HTTP/RDP entrypoints and request handlers.
+├── internal/
+│   ├── cert/        TLS certificate management (self-signed + ACME via certmagic).
+│   ├── config/      Environment-backed settings registry (the only place env
+│   │                vars may be read from).
+│   ├── console/     Serial console and noVNC WebSocket handlers.
+│   ├── contextKey/  Typed context-key helpers.
+│   ├── dashboard/   Dashboard HTML / JSON rendering and VM listing.
+│   ├── hash/        Password/credential hashing helpers.
+│   ├── ldap/        LDAP authentication and session validation.
+│   ├── rdp/         RDP/X.224/MCS parsing, TLS-to-TLS proxy, channel stripping.
+│   ├── session/     Cookie session manager and middleware.
+│   ├── types/       Shared types (e.g. authenticated user).
+│   └── virt/        Libvirt VM lifecycle (create/start/stop/remove/resize).
+├── ui/              TypeScript sources for the dashboard.
+├── static/          Static assets, including the compiled dashboard.js.
+├── testldap/        glauth config + cert/key used for local LDAP.
+├── Dockerfile, docker-compose.yml, makefile, tsconfig.json
+└── *_test.go        Unit and integration tests.
+```
+
+## Security notes
+
+- Do **not** commit real certificates, private keys, or production LDAP
+  endpoints. The files under `testldap/` are intended for local development
+  only.
+- Backend TLS verification is disabled by design (VMs typically use self-signed
+  certs). Treat the network between the gateway and its VMs as trusted.
+- All environment-backed parameters must be defined in
+  `internal/config/config.go`. Reading `os.Getenv` directly from feature code
+  is not allowed and is enforced by `make lint`.
+- The gateway listens on `:443` only. There is no plaintext HTTP listener.
+
+## License
+
+See the repository for license details.
 
