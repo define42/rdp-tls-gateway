@@ -12,7 +12,7 @@ require (
 	github.com/go-ldap/ldap/v3 v3.4.12
 	github.com/goccy/go-yaml v1.19.2
 	github.com/google/uuid v1.6.0
-	github.com/gorilla/websocket v1.4.2
+	github.com/gorilla/websocket v1.5.3
 	github.com/kdomanski/iso9660 v0.4.0
 	github.com/mholt/acmez v1.2.0
 	github.com/olekukonko/tablewriter v1.1.2
