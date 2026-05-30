@@ -16,15 +16,15 @@ import (
 
 // StartVM defines and starts a VM without attaching owner metadata.
 func StartVM(name, seedIso, storagePoolName, serialSocketPath, vncSocketPath string, vcpu int, memoryMiB int) error {
-	return startVM(name, seedIso, storagePoolName, serialSocketPath, vncSocketPath, "", vcpu, memoryMiB)
+	return startVM(name, seedIso, storagePoolName, serialSocketPath, vncSocketPath, "", "", vcpu, memoryMiB)
 }
 
-// StartVMWithOwner defines and starts a VM while attaching owner metadata.
-func StartVMWithOwner(name, seedIso, storagePoolName, serialSocketPath, vncSocketPath, owner string, vcpu int, memoryMiB int) error {
-	return startVM(name, seedIso, storagePoolName, serialSocketPath, vncSocketPath, owner, vcpu, memoryMiB)
+// StartVMWithOwner defines and starts a VM while attaching owner and guest-user metadata.
+func StartVMWithOwner(name, seedIso, storagePoolName, serialSocketPath, vncSocketPath, owner, guestUser string, vcpu int, memoryMiB int) error {
+	return startVM(name, seedIso, storagePoolName, serialSocketPath, vncSocketPath, owner, guestUser, vcpu, memoryMiB)
 }
 
-func startVM(name, seedIso, storagePoolName, serialSocketPath, vncSocketPath, owner string, vcpu int, memoryMiB int) error {
+func startVM(name, seedIso, storagePoolName, serialSocketPath, vncSocketPath, owner, guestUser string, vcpu int, memoryMiB int) error {
 	conn, err := libvirt.NewConnect(LibvirtURI())
 	if err != nil {
 		return err
@@ -51,6 +51,12 @@ func startVM(name, seedIso, storagePoolName, serialSocketPath, vncSocketPath, ow
 	if strings.TrimSpace(owner) != "" {
 		if err := setDomainOwnerMetadata(dom, owner); err != nil {
 			return fmt.Errorf("set owner metadata for %s: %w", name, err)
+		}
+	}
+
+	if strings.TrimSpace(guestUser) != "" {
+		if err := setDomainGuestUserMetadata(dom, guestUser); err != nil {
+			return fmt.Errorf("set guest user metadata for %s: %w", name, err)
 		}
 	}
 
@@ -256,8 +262,14 @@ func InitVirt(settings *config.SettingsType) error {
 }
 
 // BootNewVM creates or recreates a VM for the user and starts it with owner metadata.
-func BootNewVM(name string, user *types.User, settings *config.SettingsType, vcpu int, memoryMiB int) (vmName string, err error) {
+// guestUsername is the login account provisioned inside the guest (and used for RDP);
+// it falls back to the owning user's name when empty.
+func BootNewVM(name string, user *types.User, guestUsername string, settings *config.SettingsType, vcpu int, memoryMiB int) (vmName string, err error) {
 	vmName = user.GetName() + "-" + name
+	guestUsername = strings.TrimSpace(guestUsername)
+	if guestUsername == "" {
+		guestUsername = user.GetName()
+	}
 	if err := validateBootResources(vcpu, memoryMiB); err != nil {
 		return vmName, err
 	}
@@ -283,10 +295,10 @@ func BootNewVM(name string, user *types.User, settings *config.SettingsType, vcp
 	if err := resetExistingVMArtifacts(conn, settings, poolName, vmName, seedIso); err != nil {
 		return vmName, err
 	}
-	if err := provisionBootVolumes(conn, settings, poolName, vmName, seedIso, name, user); err != nil {
+	if err := provisionBootVolumes(conn, settings, poolName, vmName, seedIso, name, guestUsername, user); err != nil {
 		return vmName, err
 	}
-	if err := StartVMWithOwner(vmName, seedIso, poolName, vmSerialSocketPath, vmVNCSocketPath, user.GetName(), vcpu, memoryMiB); err != nil {
+	if err := StartVMWithOwner(vmName, seedIso, poolName, vmSerialSocketPath, vmVNCSocketPath, user.GetName(), guestUsername, vcpu, memoryMiB); err != nil {
 		return vmName, fmt.Errorf("failed to start VM: %w", err)
 	}
 
@@ -553,7 +565,7 @@ func resetExistingVMArtifacts(conn *libvirt.Connect, settings *config.SettingsTy
 	return nil
 }
 
-func provisionBootVolumes(conn *libvirt.Connect, settings *config.SettingsType, poolName, vmName, seedIso, hostname string, user *types.User) error {
+func provisionBootVolumes(conn *libvirt.Connect, settings *config.SettingsType, poolName, vmName, seedIso, hostname, guestUsername string, user *types.User) error {
 	baseImage, err := ensureBaseImage(settings)
 	if err != nil {
 		return fmt.Errorf("failed to ensure base image: %w", err)
@@ -561,7 +573,7 @@ func provisionBootVolumes(conn *libvirt.Connect, settings *config.SettingsType, 
 	if err := copyAndResizeVolumeWithSettings(conn, settings, poolName, vmName, baseImage, 40*1024*1024*1024); err != nil {
 		return fmt.Errorf("failed to copy and resize base image: %w", err)
 	}
-	if err := createUbuntuSeedISOToPoolWithSettings(settings, conn, poolName, seedIso, user.GetName(), user.GetCloudInitPasswordHash(), hostname); err != nil {
+	if err := createUbuntuSeedISOToPoolWithSettings(settings, conn, poolName, seedIso, guestUsername, user.GetCloudInitPasswordHash(), hostname); err != nil {
 		return fmt.Errorf("failed to create seed ISO: %w", err)
 	}
 	return nil

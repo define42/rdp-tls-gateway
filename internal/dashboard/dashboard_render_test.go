@@ -153,6 +153,47 @@ func TestBuildDashboardRows(t *testing.T) {
 	}
 }
 
+func rdpUsername(t *testing.T, rdpConnect string) string {
+	t.Helper()
+	const prefix = "data:application/x-rdp;base64,"
+	if !strings.HasPrefix(rdpConnect, prefix) {
+		t.Fatalf("expected RDP data URI prefix, got %q", rdpConnect)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(rdpConnect, prefix))
+	if err != nil {
+		t.Fatalf("decode RDP payload: %v", err)
+	}
+	for _, line := range strings.Split(string(decoded), "\n") {
+		if rest, ok := strings.CutPrefix(line, "username:s:"); ok {
+			return rest
+		}
+	}
+	t.Fatalf("no username line in RDP payload %q", string(decoded))
+	return ""
+}
+
+func TestBuildDashboardRowsRDPUsername(t *testing.T) {
+	t.Setenv(config.FRONT_DOMAIN, "example.test")
+	settings := config.NewSettingType(false)
+
+	rows := buildDashboardRows([]virt.VMInfo{
+		{Name: "with-guest", Owner: "alice", GuestUser: "bob"},
+		{Name: "legacy", Owner: "alice"},
+	}, settings, "alice")
+
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+	// The chosen guest account is used for RDP when present.
+	if got := rdpUsername(t, rows[0].RDPConnect); got != "bob" {
+		t.Fatalf("expected RDP username %q, got %q", "bob", got)
+	}
+	// Older VMs without guest-user metadata fall back to the requesting user.
+	if got := rdpUsername(t, rows[1].RDPConnect); got != "alice" {
+		t.Fatalf("expected fallback RDP username %q, got %q", "alice", got)
+	}
+}
+
 func TestBuildDashboardRowsWithoutFrontDomain(t *testing.T) {
 	t.Setenv(config.FRONT_DOMAIN, "")
 	settings := config.NewSettingType(false)

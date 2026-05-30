@@ -30,6 +30,8 @@ const (
 	maxFormBodyBytes  = 1 << 20
 	maxVMNameLength   = 63
 	maxVMNameFieldLen = 128
+	// maxGuestUsernameLength matches the conventional Linux useradd limit.
+	maxGuestUsernameLength = 32
 )
 
 func parseFormWithBodyLimit(w http.ResponseWriter, req *http.Request) error {
@@ -220,6 +222,7 @@ func registerDashboardDataRoute(group huma.API, sessionManager *session.Manager,
 		}
 		dashboard.WriteJSON(w, http.StatusOK, dashboard.DataResponse{
 			Filename: rdpFilename,
+			Username: user.Name,
 			VMs:      vmRows,
 		})
 	})
@@ -258,7 +261,12 @@ func registerDashboardCreateRoute(group huma.API, sessionManager *session.Manage
 			return
 		}
 
-		if vmName, err := virt.BootNewVM(name, user, settings, vcpu, memoryMiB); err != nil {
+		guestUsername, err := validateGuestUsername(req.FormValue("vm_username"), user.GetName())
+		if handleDashboardFormError(w, "dashboard create", err) {
+			return
+		}
+
+		if vmName, err := virt.BootNewVM(name, user, guestUsername, settings, vcpu, memoryMiB); err != nil {
 			log.Printf("boot new vm %q failed: %v", vmName, err)
 			dashboard.WriteJSON(w, http.StatusInternalServerError, dashboard.ActionResponse{
 				OK:    false,
@@ -405,6 +413,30 @@ func validateVMName(name string) (string, error) {
 		}
 	}
 	return name, nil
+}
+
+// validateGuestUsername validates the optional guest login name provisioned
+// inside the VM. An empty value falls back to the owning user's name, matching
+// the previous behavior where the guest account always mirrored the login user.
+func validateGuestUsername(raw, fallback string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return fallback, nil
+	}
+	if len(raw) > maxGuestUsernameLength {
+		return "", fmt.Errorf("username must be %d characters or fewer", maxGuestUsernameLength)
+	}
+	for i, r := range raw {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r == '_':
+		case i > 0 && r >= '0' && r <= '9':
+		case i > 0 && r == '-':
+		default:
+			return "", fmt.Errorf("username must start with a lowercase letter or underscore and use only lowercase letters, numbers, hyphens, or underscores")
+		}
+	}
+	return raw, nil
 }
 
 func parseDashboardVMName(w http.ResponseWriter, req *http.Request, username string) (string, error) {

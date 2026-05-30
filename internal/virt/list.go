@@ -15,6 +15,7 @@ import (
 type VMInfo struct {
 	Name      string
 	Owner     string
+	GuestUser string
 	State     string
 	MemoryMiB int
 	VCPU      int
@@ -73,6 +74,7 @@ func domainVMInfo(d libvirt.Domain, user string) (VMInfo, bool) {
 	return VMInfo{
 		Name:      name,
 		Owner:     owner,
+		GuestUser: domainGuestUserForVMInfo(name, &d),
 		State:     formatState(state),
 		MemoryMiB: mem,
 		VCPU:      vcpu,
@@ -94,6 +96,18 @@ func domainOwnerForVMInfo(name string, d *libvirt.Domain) string {
 		return ""
 	}
 	return owner
+}
+
+func domainGuestUserForVMInfo(name string, d *libvirt.Domain) string {
+	guestUser, hasGuestUser, err := domainGuestUser(d)
+	if err != nil {
+		log.Printf("domain guest user %s: %v", name, err)
+		return ""
+	}
+	if !hasGuestUser {
+		return ""
+	}
+	return guestUser
 }
 
 func domainDisplayIPs(d libvirt.Domain, state libvirt.DomainState) (string, string) {

@@ -40,6 +40,7 @@ type VM struct {
 // DataResponse is the API response for /api/dashboard/data.
 type DataResponse struct {
 	Filename string `json:"filename"`
+	Username string `json:"username,omitempty"`
 	VMs      []VM   `json:"vms"`
 	Error    string `json:"error,omitempty"`
 }
@@ -95,10 +96,16 @@ func buildDashboardRows(vmList []virt.VMInfo, settings *config.SettingsType, use
 		if domain := strings.TrimSpace(settings.GetString(config.FRONT_DOMAIN)); domain != "" {
 			displayName = vm.Name + "." + domain
 		}
+		// Prefer the guest account stored on the VM; older VMs without that
+		// metadata fall back to the requesting user's own name.
+		rdpUser := strings.TrimSpace(vm.GuestUser)
+		if rdpUser == "" {
+			rdpUser = user
+		}
 		rows = append(rows, VM{
 			Name:        vm.Name,
 			DisplayName: displayName,
-			RDPConnect:  GenerateRDP(displayName, user),
+			RDPConnect:  GenerateRDP(displayName, rdpUser),
 			IP:          vm.IP,
 			State:       vm.State,
 			MemoryMiB:   vm.MemoryMiB,

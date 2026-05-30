@@ -89,9 +89,13 @@ function bootstrap() {
             <a class="btn btn-outline-secondary btn-sm" href="/logout">Logout</a>
           </div>
           <form class="row g-3 align-items-end" id="create-form">
-            <div class="col-12 col-md-6 col-lg-5">
+            <div class="col-12 col-md-6 col-lg-3">
               <label class="form-label" for="vm-name">New DevBox Name</label>
               <input class="form-control" id="vm-name" name="vm_name" autocomplete="off" pattern="[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?" maxlength="63" title="Lowercase letters, numbers, and hyphens only. Must start/end with a letter or number. Max 63 characters." autocapitalize="none" spellcheck="false" required>
+            </div>
+            <div class="col-12 col-md-6 col-lg-3">
+              <label class="form-label" for="vm-username">Username</label>
+              <input class="form-control" id="vm-username" name="vm_username" autocomplete="off" pattern="[a-z_][a-z0-9_-]*" maxlength="32" title="Login user created inside the DevBox. Lowercase letters, numbers, hyphens, or underscores. Must start with a letter or underscore. Max 32 characters." autocapitalize="none" spellcheck="false">
             </div>
             <div class="col-6 col-md-3 col-lg-2">
               <label class="form-label" for="vm-cpu">vCPU</label>
@@ -111,7 +115,7 @@ function bootstrap() {
                 <option value="32768">32 GB</option>
               </select>
             </div>
-            <div class="col-12 col-md-12 col-lg-3 d-grid">
+            <div class="col-12 col-md-12 col-lg-2 d-grid">
               <button class="btn btn-outline-primary" id="create-button" type="submit">Create DevBox</button>
             </div>
           </form>
@@ -161,6 +165,7 @@ function bootstrap() {
   `;
     const form = root.querySelector("#create-form");
     const input = root.querySelector("#vm-name");
+    const usernameInput = root.querySelector("#vm-username");
     const cpuSelect = root.querySelector("#vm-cpu");
     const memorySelect = root.querySelector("#vm-memory");
     const createButton = root.querySelector("#create-button");
@@ -183,6 +188,7 @@ function bootstrap() {
     const vncClose = root.querySelector("#vnc-close");
     if (!form ||
         !input ||
+        !usernameInput ||
         !cpuSelect ||
         !memorySelect ||
         !createButton ||
@@ -207,6 +213,7 @@ function bootstrap() {
     }
     const formEl = form;
     const inputEl = input;
+    const usernameInputEl = usernameInput;
     const cpuSelectEl = cpuSelect;
     const memorySelectEl = memorySelect;
     const createButtonEl = createButton;
@@ -233,6 +240,8 @@ function bootstrap() {
     let terminalInputDisposable = null;
     let terminalClosing = false;
     let terminalResizeFrame = 0;
+    let defaultUsername = "";
+    let usernameInitialized = false;
     const terminalResizeObserver = new ResizeObserver(() => {
         requestTerminalFit();
     });
@@ -749,6 +758,7 @@ function bootstrap() {
     function setBusy(isBusy) {
         state.busy = isBusy;
         inputEl.disabled = isBusy;
+        usernameInputEl.disabled = isBusy;
         cpuSelectEl.disabled = isBusy;
         memorySelectEl.disabled = isBusy;
         createButtonEl.disabled = isBusy;
@@ -878,6 +888,16 @@ function bootstrap() {
             if (result.data.filename) {
                 state.filename = result.data.filename;
             }
+            if (typeof result.data.username === "string" && result.data.username !== "") {
+                defaultUsername = result.data.username;
+                usernameInputEl.placeholder = defaultUsername;
+                // Prefill the default once so the field shows the logged-in user
+                // without clobbering anything the user has already typed.
+                if (!usernameInitialized && document.activeElement !== usernameInputEl) {
+                    usernameInputEl.value = defaultUsername;
+                    usernameInitialized = true;
+                }
+            }
             if (result.data.error) {
                 state.vmError = result.data.error;
             }
@@ -891,7 +911,7 @@ function bootstrap() {
             loadInFlight = false;
         }
     }
-    async function createVM(name, vcpu, memoryMiB) {
+    async function createVM(name, username, vcpu, memoryMiB) {
         if (state.busy) {
             return;
         }
@@ -900,6 +920,7 @@ function bootstrap() {
         try {
             const body = new URLSearchParams({
                 vm_name: name,
+                vm_username: username,
                 vm_vcpu: vcpu,
                 vm_memory_mib: memoryMiB,
             });
@@ -923,6 +944,7 @@ function bootstrap() {
             }
             setActionMessage(result.data.message || "VM creation started.");
             inputEl.value = "";
+            usernameInputEl.value = defaultUsername;
             cpuSelectEl.value = DEFAULT_VCPU;
             memorySelectEl.value = DEFAULT_MEMORY_MIB;
             await loadVMs();
@@ -1018,7 +1040,7 @@ function bootstrap() {
         if (!formEl.reportValidity()) {
             return;
         }
-        void createVM(inputEl.value.trim(), cpuSelectEl.value, memorySelectEl.value);
+        void createVM(inputEl.value.trim(), usernameInputEl.value.trim(), cpuSelectEl.value, memorySelectEl.value);
     });
     terminalBackdropEl.addEventListener("click", () => {
         closeTerminal();
