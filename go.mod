@@ -19,7 +19,7 @@ require (
 	github.com/testcontainers/testcontainers-go v0.40.0
 	github.com/tomatome/grdp v0.1.0
 	github.com/tredoe/osutil v1.5.0
-	libvirt.org/go/libvirt v1.11010.0
+	libvirt.org/go/libvirt v1.12003.0
 )
 
 require (
