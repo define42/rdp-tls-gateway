@@ -8,7 +8,7 @@ require (
 	github.com/alexedwards/scs/v2 v2.9.0
 	github.com/caddyserver/certmagic v0.19.2
 	github.com/danielgtaylor/huma/v2 v2.34.1
-	github.com/go-chi/chi/v5 v5.2.2
+	github.com/go-chi/chi/v5 v5.3.0
 	github.com/go-ldap/ldap/v3 v3.4.12
 	github.com/goccy/go-yaml v1.19.2
 	github.com/google/uuid v1.6.0
