@@ -283,7 +283,7 @@ func BootNewVM(name string, user *types.User, settings *config.SettingsType, vcp
 	if err := resetExistingVMArtifacts(conn, settings, poolName, vmName, seedIso); err != nil {
 		return vmName, err
 	}
-	if err := provisionBootVolumes(conn, settings, poolName, vmName, seedIso, user); err != nil {
+	if err := provisionBootVolumes(conn, settings, poolName, vmName, seedIso, name, user); err != nil {
 		return vmName, err
 	}
 	if err := StartVMWithOwner(vmName, seedIso, poolName, vmSerialSocketPath, vmVNCSocketPath, user.GetName(), vcpu, memoryMiB); err != nil {
@@ -553,7 +553,7 @@ func resetExistingVMArtifacts(conn *libvirt.Connect, settings *config.SettingsTy
 	return nil
 }
 
-func provisionBootVolumes(conn *libvirt.Connect, settings *config.SettingsType, poolName, vmName, seedIso string, user *types.User) error {
+func provisionBootVolumes(conn *libvirt.Connect, settings *config.SettingsType, poolName, vmName, seedIso, hostname string, user *types.User) error {
 	baseImage, err := ensureBaseImage(settings)
 	if err != nil {
 		return fmt.Errorf("failed to ensure base image: %w", err)
@@ -561,7 +561,7 @@ func provisionBootVolumes(conn *libvirt.Connect, settings *config.SettingsType, 
 	if err := copyAndResizeVolumeWithSettings(conn, settings, poolName, vmName, baseImage, 40*1024*1024*1024); err != nil {
 		return fmt.Errorf("failed to copy and resize base image: %w", err)
 	}
-	if err := createUbuntuSeedISOToPoolWithSettings(settings, conn, poolName, seedIso, user.GetName(), user.GetCloudInitPasswordHash(), vmName); err != nil {
+	if err := createUbuntuSeedISOToPoolWithSettings(settings, conn, poolName, seedIso, user.GetName(), user.GetCloudInitPasswordHash(), hostname); err != nil {
 		return fmt.Errorf("failed to create seed ISO: %w", err)
 	}
 	return nil
