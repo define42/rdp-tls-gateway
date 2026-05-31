@@ -151,6 +151,25 @@ func TestBuildDashboardRows(t *testing.T) {
 	if !strings.Contains(row.RDPConnect, "data:application/x-rdp;base64,") {
 		t.Fatalf("expected RDP data URI, got %q", row.RDPConnect)
 	}
+	if row.RDPFilename != "alice-vm.rdp" {
+		t.Fatalf("expected per-VM download filename %q, got %q", "alice-vm.rdp", row.RDPFilename)
+	}
+}
+
+func TestRDPDownloadFilename(t *testing.T) {
+	cases := map[string]string{
+		"alice-desktop":       "alice-desktop.rdp",
+		"bob_dev.box":         "bob_dev.box.rdp",
+		"weird/../name space": "weird-..-name-space.rdp",
+		"-edge-":              "edge.rdp",
+		"":                    "rdpgw.rdp",
+		"...":                 "rdpgw.rdp",
+	}
+	for in, want := range cases {
+		if got := rdpDownloadFilename(in); got != want {
+			t.Fatalf("rdpDownloadFilename(%q) = %q, want %q", in, got, want)
+		}
+	}
 }
 
 func rdpUsername(t *testing.T, rdpConnect string) string {

@@ -154,9 +154,10 @@ the gateway expects for your target VM: an opaque routing label of the form
 The label is `HMAC-SHA256(SNI_HASH_SECRET, vmName)` truncated to a DNS-safe
 length, so the VM name (which embeds the username) is never sent in cleartext
 in the TLS ClientHello. Because the label is one-way and keyed, you cannot
-construct it by hand — download the `rdpgw.rdp` file from the dashboard, which
-already contains the correct hostname and TLS settings. (DNS is unaffected: a
-wildcard `*.<FRONT_DOMAIN>` record still points every label at the gateway.)
+construct it by hand — download the per-VM `.rdp` file from the dashboard
+(named after the VM, e.g. `alice-desktop.rdp`), which already contains the
+correct hostname and TLS settings. (DNS is unaffected: a wildcard
+`*.<FRONT_DOMAIN>` record still points every label at the gateway.)
 
 The gateway requires TLS-protected RDP (`PROTOCOL_SSL`); clients that only
 offer the legacy Standard RDP Security will be rejected.

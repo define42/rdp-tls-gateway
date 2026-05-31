@@ -578,7 +578,7 @@ function bootstrap() {
                         connectButton.className = "btn btn-sm btn-success";
                         connectButton.href = vm.rdpConnect;
                         connectButton.textContent = "RDP";
-                        connectButton.setAttribute("download", state.filename);
+                        connectButton.setAttribute("download", vm.rdpFilename || state.filename);
                         connectActions.appendChild(connectButton);
                     }
                     else {

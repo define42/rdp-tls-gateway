@@ -29,6 +29,7 @@ type VM struct {
 	Name        string `json:"name"`
 	DisplayName string `json:"displayName"`
 	RDPConnect  string `json:"rdpConnect"`
+	RDPFilename string `json:"rdpFilename"`
 	IP          string `json:"ip"`
 	State       string `json:"state"`
 	MemoryMiB   int    `json:"memoryMiB"`
@@ -66,6 +67,29 @@ func RenderDashboardPage(w http.ResponseWriter, staticFiles fs.FS) {
 	if _, err := w.Write(dashboardHTML); err != nil {
 		log.Printf("render dashboard page: %v", err)
 	}
+}
+
+// rdpDownloadFilename derives a friendly per-VM download filename (e.g.
+// "alice-desktop.rdp") so the saved file and many RDP clients label the
+// connection by VM name. The on-wire SNI is unaffected — it still uses the
+// hashed connect host. The VM name is sanitized to safe filename characters
+// because the username portion is not otherwise constrained.
+func rdpDownloadFilename(vmName string) string {
+	name := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			return r
+		case r == '-', r == '_', r == '.':
+			return r
+		default:
+			return '-'
+		}
+	}, vmName)
+	name = strings.Trim(name, "-._")
+	if name == "" {
+		return "rdpgw.rdp"
+	}
+	return name + ".rdp"
 }
 
 // GenerateRDP builds a base64-encoded RDP payload for the provided server/user pair.
@@ -113,6 +137,7 @@ func buildDashboardRows(vmList []virt.VMInfo, settings *config.SettingsType, use
 			Name:        vm.Name,
 			DisplayName: displayName,
 			RDPConnect:  GenerateRDP(connectHost, rdpUser),
+			RDPFilename: rdpDownloadFilename(vm.Name),
 			IP:          vm.IP,
 			State:       vm.State,
 			MemoryMiB:   vm.MemoryMiB,

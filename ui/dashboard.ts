@@ -47,6 +47,7 @@ type DashboardVM = {
     name: string;
     displayName: string;
     rdpConnect: string;
+    rdpFilename?: string;
     ip: string;
     state: string;
     memoryMiB: number;
@@ -718,7 +719,7 @@ function bootstrap(): void {
                         connectButton.className = "btn btn-sm btn-success";
                         connectButton.href = vm.rdpConnect;
                         connectButton.textContent = "RDP";
-                        connectButton.setAttribute("download", state.filename);
+                        connectButton.setAttribute("download", vm.rdpFilename || state.filename);
                         connectActions.appendChild(connectButton);
                     } else {
                         const offlineBadge = document.createElement("span");
