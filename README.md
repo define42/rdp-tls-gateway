@@ -147,12 +147,16 @@ integration tests, so they are also the recommended local smoke-test account.
 ## Connecting an RDP client
 
 Use any standard RDP client (mstsc, FreeRDP, Remmina, …) and point it at the
-gateway's host on port `443`, with the **server name** set to the SNI value
-the gateway expects for your target VM (typically `<vmname>.<FRONT_DOMAIN>`,
-for example `myvm.desktop.local.gd`).
+gateway's host on port `443`. The **server name** must be set to the SNI value
+the gateway expects for your target VM: an opaque routing label of the form
+`<label>.<FRONT_DOMAIN>`, for example `a1b2c3d4….desktop.local.gd`.
 
-The easiest path is to download the `rdpgw.rdp` file from the dashboard — it
-already contains the correct hostname and TLS settings.
+The label is `HMAC-SHA256(SNI_HASH_SECRET, vmName)` truncated to a DNS-safe
+length, so the VM name (which embeds the username) is never sent in cleartext
+in the TLS ClientHello. Because the label is one-way and keyed, you cannot
+construct it by hand — download the `rdpgw.rdp` file from the dashboard, which
+already contains the correct hostname and TLS settings. (DNS is unaffected: a
+wildcard `*.<FRONT_DOMAIN>` record still points every label at the gateway.)
 
 The gateway requires TLS-protected RDP (`PROTOCOL_SSL`); clients that only
 offer the legacy Standard RDP Security will be rejected.
@@ -172,7 +176,8 @@ gateway prints a table of every setting and its effective value.
 | `ACME_ENABLE`             | `false`                                                                                                          | Enable ACME (Let's Encrypt) certificate management via certmagic on the front side.               |
 | `ACME_EMAIL`              | _(empty)_                                                                                                        | ACME account contact email (recommended when `ACME_ENABLE=true`).                                 |
 | `ACME_CA`                 | _(empty)_                                                                                                        | ACME directory URL, or `staging` for the Let's Encrypt staging endpoint.                          |
-| `FRONT_DOMAIN`            | `desktop.local.gd`                                                                                               | Domain served by the dashboard and used as a suffix for VM SNI names.                             |
+| `FRONT_DOMAIN`            | `desktop.local.gd`                                                                                               | Domain served by the dashboard and used as the suffix for VM SNI routing labels.                  |
+| `SNI_HASH_SECRET`         | _(empty)_                                                                                                        | Secret keying the HMAC that turns VM names into opaque SNI labels. Empty → auto-generated once and persisted to `<DATA_ROOT_DIR>/sni_hash.secret` so labels stay stable across restarts. |
 | `DATA_ROOT_DIR`           | `/data`                                                                                                          | Root directory for gateway-managed state (ACME data, images, serial sockets, VNC sockets).        |
 | `VIRT_STORAGE_POOL_NAME`  | `desktop`                                                                                                        | Libvirt storage pool to allocate VM volumes in.                                                   |
 | `BASE_IMAGE_URL`          | `https://github.com/define42/rocky9-desktop-cloud-image/releases/download/v0.0.18/rocky9-desktop-cloudimg-amd64-v0.0.18.img` | Base disk image URL used when bootstrapping a new VM that has no local backing image. |

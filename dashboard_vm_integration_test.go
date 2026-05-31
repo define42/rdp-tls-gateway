@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"rdptlsgateway/internal/config"
 	dashboard "rdptlsgateway/internal/dashboard"
+	"rdptlsgateway/internal/hash"
 	"rdptlsgateway/internal/types"
 	"rdptlsgateway/internal/virt"
 	"strconv"
@@ -103,7 +104,7 @@ func assertDashboardVMRow(t *testing.T, row dashboard.VM, wantDisplayName string
 	}
 }
 
-func assertDashboardRDPConnect(t *testing.T, rdpConnect, wantDisplayName, username string) {
+func assertDashboardRDPConnect(t *testing.T, rdpConnect, wantConnectHost, username string) {
 	t.Helper()
 
 	const prefix = "data:application/x-rdp;base64,"
@@ -116,8 +117,8 @@ func assertDashboardRDPConnect(t *testing.T, rdpConnect, wantDisplayName, userna
 		t.Fatalf("decode RDP payload: %v", err)
 	}
 	rdp := string(decodedRDP)
-	if !strings.Contains(rdp, "full address:s:"+wantDisplayName+":443") {
-		t.Fatalf("expected RDP payload to contain display name %q, got %q", wantDisplayName, rdp)
+	if !strings.Contains(rdp, "full address:s:"+wantConnectHost+":443") {
+		t.Fatalf("expected RDP payload to contain connect host %q, got %q", wantConnectHost, rdp)
 	}
 	if !strings.Contains(rdp, "username:s:"+username) {
 		t.Fatalf("expected RDP payload to contain username %q, got %q", username, rdp)
@@ -131,7 +132,8 @@ func TestListDashboardVMs(t *testing.T) {
 	username, vmName := createDashboardVM(t, settings)
 	row := waitForDashboardVM(t, settings, username, vmName, dashboardVMTestTimeout)
 	wantDisplayName := vmName + ".dashboard.test"
+	wantConnectHost := hash.RoutingLabel([]byte(settings.Get(config.SNI_HASH_SECRET)), vmName) + ".dashboard.test"
 
 	assertDashboardVMRow(t, row, wantDisplayName)
-	assertDashboardRDPConnect(t, row.RDPConnect, wantDisplayName, username)
+	assertDashboardRDPConnect(t, row.RDPConnect, wantConnectHost, username)
 }

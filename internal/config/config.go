@@ -86,6 +86,7 @@ func NewSettingType(printSettings bool) *SettingsType {
 	s.SetString(ACME_EMAIL, "ACME account email (recommended)", "")
 	s.SetString(ACME_CA, "ACME CA directory URL or 'staging'", "")
 	s.SetString(FRONT_DOMAIN, "Front domain to serve front page on HTTPS requests and also the prefix for vm names", "desktop.local.gd")
+	s.SetString(SNI_HASH_SECRET, "Secret keying the HMAC that turns VM names into opaque SNI routing labels; auto-generated and persisted under the data root when empty", "")
 
 	s.SetBool(RDP_DISABLE_CLIPBOARD, "Strip clipboard (cliprdr) channel from RDP sessions so the gateway prevents clipboard redirection regardless of client/VM policy", false)
 	s.SetBool(RDP_DISABLE_DRIVES, "Strip drive redirection (rdpdr) channel from RDP sessions so the gateway prevents local drive mapping regardless of client/VM policy", false)
@@ -346,6 +347,7 @@ const (
 	LISTEN_ADDR            = "LISTEN_ADDR"
 	RDP_DISABLE_CLIPBOARD  = "RDP_DISABLE_CLIPBOARD"
 	RDP_DISABLE_DRIVES     = "RDP_DISABLE_DRIVES"
+	SNI_HASH_SECRET        = "SNI_HASH_SECRET"
 	VIRT_STORAGE_POOL_NAME = "VIRT_STORAGE_POOL_NAME"
 	BASE_IMAGE_URL         = "BASE_IMAGE_URL"
 	TIMEOUT                = "TIMEOUT"

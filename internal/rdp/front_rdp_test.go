@@ -3,6 +3,7 @@ package rdp
 import (
 	"net"
 	"rdptlsgateway/internal/config"
+	"rdptlsgateway/internal/hash"
 	"strings"
 	"testing"
 	"time"
@@ -165,14 +166,41 @@ func TestValidateFrontSNIRequiresSubdomain(t *testing.T) {
 
 func TestValidateFrontSNIAcceptsValidSubdomain(t *testing.T) {
 	t.Setenv(config.FRONT_DOMAIN, "example.test")
+	t.Setenv(config.SNI_HASH_SECRET, "test-secret")
 	settings := config.NewSettingType(false)
 	addr := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1}
-	got, ok := validateFrontSNI("vm.example.test", addr, settings)
+
+	label := hash.RoutingLabel([]byte("test-secret"), "vm")
+	original := vmNameByLabelLookup
+	t.Cleanup(func() { vmNameByLabelLookup = original })
+	vmNameByLabelLookup = func(secret []byte, gotLabel string) (string, bool) {
+		if string(secret) != "test-secret" || gotLabel != label {
+			return "", false
+		}
+		return "vm", true
+	}
+
+	got, ok := validateFrontSNI(label+".example.test", addr, settings)
 	if !ok {
-		t.Fatal("expected valid subdomain to be accepted")
+		t.Fatal("expected valid routing label to be accepted")
 	}
 	if got != "vm" {
 		t.Fatalf("expected hostname %q, got %q", "vm", got)
+	}
+}
+
+func TestValidateFrontSNIRejectsUnknownLabel(t *testing.T) {
+	t.Setenv(config.FRONT_DOMAIN, "example.test")
+	t.Setenv(config.SNI_HASH_SECRET, "test-secret")
+	settings := config.NewSettingType(false)
+	addr := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1}
+
+	original := vmNameByLabelLookup
+	t.Cleanup(func() { vmNameByLabelLookup = original })
+	vmNameByLabelLookup = func([]byte, string) (string, bool) { return "", false }
+
+	if _, ok := validateFrontSNI("deadbeef.example.test", addr, settings); ok {
+		t.Fatal("expected an unknown routing label to be rejected")
 	}
 }
 

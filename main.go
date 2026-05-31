@@ -112,6 +112,10 @@ func bootGateway() (*gatewayRuntime, error) {
 		return nil, fmt.Errorf("failed to initialize virtualization: %w", err)
 	}
 
+	if err := config.EnsureSNIHashSecret(settings); err != nil {
+		return nil, fmt.Errorf("failed to resolve SNI hash secret: %w", err)
+	}
+
 	mux := getRemoteGatewayRotuer(sessionManager, settings)
 
 	frontTLS, err := cert.NewTLSManager(settings)

@@ -2,6 +2,7 @@ package virt
 
 import (
 	"fmt"
+	"rdptlsgateway/internal/hash"
 	"sync"
 	"testing"
 
@@ -149,6 +150,32 @@ func TestGetIPOfVM(t *testing.T) {
 	_, err = worker.GetIPOfVM("nonexistent")
 	if err == nil {
 		t.Fatal("expected error for nonexistent VM")
+	}
+}
+
+func TestResolveVMNameByLabel(t *testing.T) {
+	secret := []byte("routing-secret")
+	worker := &SingletonWorker{}
+	worker.setVMs([]VMInfo{
+		{Name: "alice-desktop", PrimaryIP: "192.168.1.10"},
+		{Name: "bob-devbox", PrimaryIP: "192.168.1.11"},
+	})
+
+	label := hash.RoutingLabel(secret, "bob-devbox")
+	name, ok := worker.ResolveVMNameByLabel(secret, label)
+	if !ok {
+		t.Fatal("expected label to resolve to a VM")
+	}
+	if name != "bob-devbox" {
+		t.Fatalf("expected bob-devbox, got %q", name)
+	}
+
+	if _, ok := worker.ResolveVMNameByLabel(secret, "unknownlabel"); ok {
+		t.Fatal("expected unknown label to not resolve")
+	}
+	// The same name under a different secret must not resolve.
+	if _, ok := worker.ResolveVMNameByLabel([]byte("other-secret"), label); ok {
+		t.Fatal("expected label to be secret-specific")
 	}
 }
 

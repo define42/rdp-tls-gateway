@@ -181,8 +181,18 @@ func stubVMIPs(t *testing.T, entries map[string]string) {
 		}
 		return ip, nil
 	}
+
+	// These tests use the plaintext VM name as the SNI label, so resolve a
+	// label back to itself when it names a known VM.
+	originalLabel := vmNameByLabelLookup
+	vmNameByLabelLookup = func(_ []byte, label string) (string, bool) {
+		_, ok := entries[label]
+		return label, ok
+	}
+
 	t.Cleanup(func() {
 		vmIPAddressLookup = originalLookup
+		vmNameByLabelLookup = originalLabel
 	})
 }
 

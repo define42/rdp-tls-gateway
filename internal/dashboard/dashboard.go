@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"rdptlsgateway/internal/config"
+	"rdptlsgateway/internal/hash"
 	"rdptlsgateway/internal/virt"
 	"strings"
 )
@@ -91,10 +92,16 @@ func ListDashboardVMs(settings *config.SettingsType, user string) ([]VM, error) 
 
 func buildDashboardRows(vmList []virt.VMInfo, settings *config.SettingsType, user string) []VM {
 	rows := make([]VM, 0, len(vmList))
+	secret := []byte(settings.Get(config.SNI_HASH_SECRET))
 	for _, vm := range vmList {
+		// displayName stays friendly for the (authenticated, encrypted) UI;
+		// connectHost uses the opaque HMAC routing label so the cleartext TLS
+		// SNI on the wire never reveals the username-hostname.
 		displayName := vm.Name
+		connectHost := vm.Name
 		if domain := strings.TrimSpace(settings.GetString(config.FRONT_DOMAIN)); domain != "" {
 			displayName = vm.Name + "." + domain
+			connectHost = hash.RoutingLabel(secret, vm.Name) + "." + domain
 		}
 		// Prefer the guest account stored on the VM; older VMs without that
 		// metadata fall back to the requesting user's own name.
@@ -105,7 +112,7 @@ func buildDashboardRows(vmList []virt.VMInfo, settings *config.SettingsType, use
 		rows = append(rows, VM{
 			Name:        vm.Name,
 			DisplayName: displayName,
-			RDPConnect:  GenerateRDP(displayName, rdpUser),
+			RDPConnect:  GenerateRDP(connectHost, rdpUser),
 			IP:          vm.IP,
 			State:       vm.State,
 			MemoryMiB:   vm.MemoryMiB,

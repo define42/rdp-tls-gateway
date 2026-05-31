@@ -34,6 +34,11 @@ var vmIPAddressLookup = func(hostname string) (string, error) {
 	return virt.GetInstance().GetIPOfVM(hostname)
 }
 
+//nolint:gochecknoglobals // package-level singleton needed for one-time registration
+var vmNameByLabelLookup = func(secret []byte, label string) (string, bool) {
+	return virt.GetInstance().ResolveVMNameByLabel(secret, label)
+}
+
 func getSubdomain(host, root string) (string, bool) {
 	suffix := "." + root
 
@@ -390,13 +395,22 @@ func validateFrontSNI(sni string, remoteAddr net.Addr, settings *config.Settings
 		return "", false
 	}
 
-	hostname, ok := getSubdomain(sni, frontDomain)
+	label, ok := getSubdomain(sni, frontDomain)
 	if !ok {
 		log.Printf("client SNI=%q does not have valid subdomain for domain %q from %s", sni, frontDomain, remoteAddr)
 		return "", false
 	}
 
-	log.Printf("rdp debug: resolved subdomain hostname=%q", hostname)
+	// The subdomain is an opaque HMAC routing label, not the VM name. Map it
+	// back to the real name via the cached VM list; an unknown label is denied.
+	secret := []byte(settings.Get(config.SNI_HASH_SECRET))
+	hostname, ok := vmNameByLabelLookup(secret, label)
+	if !ok {
+		log.Printf("client SNI=%q routing label %q from %s did not match any VM", sni, label, remoteAddr)
+		return "", false
+	}
+
+	log.Printf("rdp debug: resolved routing label %q to vm=%q", label, hostname)
 	return hostname, true
 }
 
