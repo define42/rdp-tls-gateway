@@ -31,11 +31,10 @@ func StartExistingVM(name string) error {
 	if active {
 		return nil
 	}
+	// The VNC socket is libvirt-managed; only the gateway-owned serial socket may
+	// linger from a previous run and must be cleared before the domain re-binds it.
 	if err := cleanupDomainSerialSocket(dom); err != nil {
 		return fmt.Errorf("cleanup serial socket for %s: %w", name, err)
-	}
-	if err := cleanupDomainVNCSocket(dom); err != nil {
-		return fmt.Errorf("cleanup vnc socket for %s: %w", name, err)
 	}
 	if err := dom.Create(); err != nil {
 		return fmt.Errorf("start domain %s: %w", name, err)
@@ -102,11 +101,10 @@ func RestartVM(name string) error {
 		}
 		return nil
 	}
+	// The VNC socket is libvirt-managed; only the gateway-owned serial socket may
+	// linger from a previous run and must be cleared before the domain re-binds it.
 	if err := cleanupDomainSerialSocket(dom); err != nil {
 		return fmt.Errorf("cleanup serial socket for %s: %w", name, err)
-	}
-	if err := cleanupDomainVNCSocket(dom); err != nil {
-		return fmt.Errorf("cleanup vnc socket for %s: %w", name, err)
 	}
 	if err := dom.Create(); err != nil {
 		return fmt.Errorf("start domain %s: %w", name, err)

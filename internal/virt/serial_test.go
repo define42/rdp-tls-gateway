@@ -8,7 +8,7 @@ import (
 )
 
 func TestUbuntuDomainWithSerialSocketIncludesUnixSerial(t *testing.T) {
-	xml := UbuntuDomain("alice-devbox", "alice-devbox_seed.iso", "desktop", "/tmp/alice-devbox.serial.sock", "/tmp/alice-devbox.vnc.sock", 4, 4096)
+	xml := UbuntuDomain("alice-devbox", "alice-devbox_seed.iso", "desktop", "/tmp/alice-devbox.serial.sock", 4, 4096)
 
 	if !strings.Contains(xml, "<serial type='unix'>") {
 		t.Fatalf("expected unix serial device in domain XML, got %s", xml)

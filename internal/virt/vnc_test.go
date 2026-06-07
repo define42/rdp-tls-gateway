@@ -2,30 +2,23 @@ package virt
 
 import (
 	"path/filepath"
-	"rdptlsgateway/internal/config"
 	"strings"
 	"testing"
 )
 
-func TestUbuntuDomainIncludesVNCSocket(t *testing.T) {
-	xml := UbuntuDomain("alice-devbox", "alice-devbox_seed.iso", "desktop", "/tmp/alice-devbox.serial.sock", "/tmp/alice-devbox.vnc.sock", 4, 4096)
+func TestUbuntuDomainUsesManagedVNCSocket(t *testing.T) {
+	xml := UbuntuDomain("alice-devbox", "alice-devbox_seed.iso", "desktop", "/tmp/alice-devbox.serial.sock", 4, 4096)
 
-	if !strings.Contains(xml, "<graphics type='vnc' autoport='no' socket='/tmp/alice-devbox.vnc.sock'>") {
-		t.Fatalf("expected VNC graphics socket in domain XML, got %s", xml)
+	// libvirt allocates and labels the VNC socket; the domain XML must not pin an
+	// explicit graphics socket path (that is what broke socket bind under SELinux).
+	if !strings.Contains(xml, "<graphics type='vnc' autoport='no'>") {
+		t.Fatalf("expected managed VNC graphics in domain XML, got %s", xml)
 	}
-	if !strings.Contains(xml, "<listen type='socket' socket='/tmp/alice-devbox.vnc.sock'/>") {
-		t.Fatalf("expected VNC listen socket in domain XML, got %s", xml)
+	if !strings.Contains(xml, "<listen type='socket'/>") {
+		t.Fatalf("expected managed VNC listen socket in domain XML, got %s", xml)
 	}
-}
-
-func TestVNCSocketDirUsesDerivedDataRoot(t *testing.T) {
-	t.Setenv(config.DATA_ROOT_DIR, "/srv/libvirt/devboxes")
-
-	settings := config.NewSettingType(false)
-	got := vncSocketDir(settings)
-	want := filepath.Join("/srv/libvirt/devboxes", vncSocketSubdir)
-	if got != want {
-		t.Fatalf("expected VNC socket dir %q, got %q", want, got)
+	if strings.Contains(xml, "graphics type='vnc' autoport='no' socket=") {
+		t.Fatalf("domain XML must not pin an explicit graphics socket path, got %s", xml)
 	}
 }
 

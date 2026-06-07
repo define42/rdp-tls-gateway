@@ -152,14 +152,6 @@ func assertUnownedVM(t *testing.T, vmName string) {
 	}
 }
 
-func assertSocketPlaceholderRemoved(t *testing.T, path, label string) {
-	t.Helper()
-
-	if info, err := os.Lstat(path); err == nil && info.Mode().IsRegular() {
-		t.Fatalf("expected stale %s placeholder file to be replaced or removed before VM start", label)
-	}
-}
-
 func assertMissingVolumes(t *testing.T, pool *libvirt.StoragePool, volumeNames ...string) {
 	t.Helper()
 
@@ -217,29 +209,6 @@ func assertListExcludesVM(t *testing.T, vms []VMInfo, vmName string) {
 	}
 }
 
-func writeStaleSocketPlaceholders(t *testing.T, serialPath, vncPath string) {
-	t.Helper()
-
-	if err := os.MkdirAll(filepath.Dir(serialPath), 0o755); err != nil {
-		t.Fatalf("create stale serial socket dir: %v", err)
-	}
-	if err := os.Chmod(filepath.Dir(serialPath), 0o777); err != nil {
-		t.Fatalf("chmod stale serial socket dir: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(vncPath), 0o755); err != nil {
-		t.Fatalf("create stale vnc socket dir: %v", err)
-	}
-	if err := os.Chmod(filepath.Dir(vncPath), 0o777); err != nil {
-		t.Fatalf("chmod stale vnc socket dir: %v", err)
-	}
-	if err := os.WriteFile(serialPath, []byte("stale"), 0o644); err != nil {
-		t.Fatalf("write stale serial socket placeholder: %v", err)
-	}
-	if err := os.WriteFile(vncPath, []byte("stale"), 0o644); err != nil {
-		t.Fatalf("write stale vnc socket placeholder: %v", err)
-	}
-}
-
 func TestStartVMAndRemoveVMManageArtifacts(t *testing.T) {
 	conn := newTestLibvirtConn(t)
 	settings := newBootTestSettings(t)
@@ -268,9 +237,6 @@ func TestStartVMAndRemoveVMManageArtifacts(t *testing.T) {
 	vmName := "startvm-lifecycle-" + time.Now().Format("150405")
 	seedISO := vmName + "_seed.iso"
 
-	serialPath := serialSocketPath(settings, vmName)
-	vncPath := vncSocketPath(settings, vmName)
-
 	if err := CopyAndResizeVolume(conn, poolName, vmName, sourceImage, 2*1024*1024); err != nil {
 		t.Fatalf("CopyAndResizeVolume disk: %v", err)
 	}
@@ -278,16 +244,19 @@ func TestStartVMAndRemoveVMManageArtifacts(t *testing.T) {
 		t.Fatalf("CreateUbuntuSeedISOToPool: %v", err)
 	}
 
-	writeStaleSocketPlaceholders(t, serialPath, vncPath)
-
-	if err := StartVM(vmName, seedISO, poolName, serialPath, vncPath, vcpu, memoryMB); err != nil {
+	// The VNC socket is libvirt-managed; the serial socket is gateway-owned, so
+	// its directory must exist before libvirt binds it (production does this via
+	// prepareBootSerialSocketPath in BootNewVM).
+	if _, err := ensureSerialSocketDir(settings); err != nil {
+		t.Fatalf("ensureSerialSocketDir: %v", err)
+	}
+	serialPath := serialSocketPath(settings, vmName)
+	if err := StartVM(vmName, seedISO, poolName, serialPath, vcpu, memoryMB); err != nil {
 		t.Fatalf("StartVM: %v", err)
 	}
 
 	waitForDomainState(t, conn, vmName, true, bootLifecycleTimeout)
 	assertUnownedVM(t, vmName)
-	assertSocketPlaceholderRemoved(t, serialPath, "serial")
-	assertSocketPlaceholderRemoved(t, vncPath, "VNC")
 
 	if err := RemoveVM(vmName, settings); err != nil {
 		t.Fatalf("RemoveVM: %v", err)

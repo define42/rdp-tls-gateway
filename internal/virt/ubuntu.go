@@ -53,9 +53,12 @@ const ubuntuDomainXML = `<domain type='kvm'>
   <port isolated='yes'/>
 </interface>
 
-    <!-- Graphics -->
-    <graphics type='vnc' autoport='no' socket='%s'>
-      <listen type='socket' socket='%s'/>
+    <!-- Graphics: libvirt manages the VNC unix socket (it allocates the path
+         under the per-domain runtime dir and applies the svirt SELinux label so
+         the confined QEMU can bind it). The actual path is read back from the
+         running domain XML; see VNCSocketPathForDomain. -->
+    <graphics type='vnc' autoport='no'>
+      <listen type='socket'/>
     </graphics>
 
     <!-- Video -->
@@ -63,7 +66,9 @@ const ubuntuDomainXML = `<domain type='kvm'>
       <model type='virtio' heads='1' primary='yes'/>
     </video>
 
-    <!-- Serial console -->
+    <!-- Serial console: explicit unix socket path. Unlike VNC, libvirt itself
+         opens this socket (as root) and passes the fd to QEMU, so it is not
+         subject to svirt's confinement and the gateway-chosen path is fine. -->
     <serial type='unix'>
       <source mode='bind' path='%s'/>
       <target port='0'/>
@@ -79,16 +84,18 @@ const ubuntuDomainXML = `<domain type='kvm'>
   </devices>
 </domain>`
 
-// UbuntuDomain returns the libvirt domain XML for a standard Ubuntu VM. Every
-// interpolated value is XML-escaped so a name or path can never alter the
-// document structure, even if it reaches here unvalidated.
-func UbuntuDomain(name, seedIso, storagePoolName, serialSocketPath, vncSocketPath string, vcpu int, memoryMiB int) string {
+// UbuntuDomain returns the libvirt domain XML for a standard Ubuntu VM. The VNC
+// socket is libvirt-managed (no explicit path) so libvirt allocates and
+// SELinux-labels it under its per-domain runtime dir, while the serial socket
+// uses the gateway-chosen serialSocketPath (libvirt opens it as root and passes
+// the fd to QEMU, so svirt does not block it). Every interpolated value is
+// XML-escaped so a name or path can never alter the document structure.
+func UbuntuDomain(name, seedIso, storagePoolName, serialSocketPath string, vcpu int, memoryMiB int) string {
 	return fmt.Sprintf(
 		ubuntuDomainXML,
 		xmlValue(name), memoryMiB, memoryMiB, vcpu,
 		xmlValue(storagePoolName), xmlValue(name),
 		xmlValue(storagePoolName), xmlValue(seedIso),
-		xmlValue(vncSocketPath), xmlValue(vncSocketPath),
 		xmlValue(serialSocketPath),
 	)
 }

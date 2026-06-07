@@ -7,16 +7,10 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"rdptlsgateway/internal/config"
 	"strings"
 	"time"
 
 	"libvirt.org/go/libvirt"
-)
-
-const (
-	vncSocketSubdir = "vnc"
-	vncSocketSuffix = ".vnc.sock"
 )
 
 var (
@@ -41,33 +35,6 @@ type domainGraphicsDeviceXML struct {
 		Type   string `xml:"type,attr"`
 		Socket string `xml:"socket,attr"`
 	} `xml:"listen"`
-}
-
-func vncSocketDir(settings *config.SettingsType) string {
-	return config.VNCSocketDir(settings)
-}
-
-func vncSocketPath(settings *config.SettingsType, name string) string {
-	return filepath.Join(vncSocketDir(settings), name+vncSocketSuffix)
-}
-
-func ensureVNCSocketDir(settings *config.SettingsType) (string, error) {
-	return ensureSocketDir(vncSocketDir(settings), "vnc")
-}
-
-func removeVNCSocket(settings *config.SettingsType, name string) error {
-	return removeSocketPath(vncSocketPath(settings, name), "vnc")
-}
-
-func cleanupDomainVNCSocket(dom *libvirt.Domain) error {
-	socketPath, ok, err := domainVNCSocketPath(dom)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return nil
-	}
-	return removeSocketPath(socketPath, "vnc")
 }
 
 func vncSocketPathFromDomainXML(xmlDesc string) (string, bool, error) {
