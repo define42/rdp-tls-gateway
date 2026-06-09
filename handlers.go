@@ -101,7 +101,7 @@ func handleLoginPost(sessionManager *session.Manager, settings *config.SettingsT
 			return
 		}
 
-		completeLogin(sessionManager, w, r, user, password)
+		completeLogin(sessionManager, w, r, user)
 	}
 }
 
@@ -120,8 +120,8 @@ func authenticateLogin(username, password string, settings *config.SettingsType)
 	return ldap.AuthenticateAccess(username, password, settings)
 }
 
-func completeLogin(sessionManager *session.Manager, w http.ResponseWriter, r *http.Request, user *types.User, password string) {
-	if err := sessionManager.CreateAuthenticatedSession(r.Context(), user, r.RemoteAddr, password); err != nil {
+func completeLogin(sessionManager *session.Manager, w http.ResponseWriter, r *http.Request, user *types.User) {
+	if err := sessionManager.CreateSession(r.Context(), user, r.RemoteAddr); err != nil {
 		log.Printf("session create failed for %s: %v", user.GetName(), err)
 		serveLogin(w, "Login failed.")
 		return

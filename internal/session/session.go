@@ -4,7 +4,6 @@ package session
 import (
 	"context"
 	"encoding/gob"
-	"log"
 	"net"
 	"net/http"
 	"net/netip"
@@ -21,13 +20,16 @@ import (
 
 type sessionData struct {
 	User      *types.User
-	Password  string
 	CreatedAt time.Time
 	ClientIP  string
 }
 
 const sessionKey = "session"
 
+// sessionTTL is the absolute lifetime of an authenticated browser session.
+// Credentials are verified once at login and not re-checked against the
+// directory afterwards, so this bound also caps how long a revoked directory
+// account keeps gateway (dashboard + RDP) access before its session expires.
 const sessionTTL = 30 * time.Minute
 
 var registerSessionTypesOnce sync.Once //nolint:gochecknoglobals // package-level singleton needed for one-time registration
@@ -35,12 +37,7 @@ var registerSessionTypesOnce sync.Once //nolint:gochecknoglobals // package-leve
 // Manager wraps the session store used by HTTP handlers and middleware.
 type Manager struct {
 	*scs.SessionManager
-
-	validator Validator
 }
-
-// Validator revalidates a stored browser session against the identity source.
-type Validator func(username, password string) (bool, error)
 
 // NewManager constructs the gateway session manager.
 func NewManager() *Manager {
@@ -90,43 +87,20 @@ func CanonicalClientIP(remoteAddr string) (string, bool) {
 	return addr.Unmap().String(), true
 }
 
-// CreateSession stores the authenticated user and canonical client IP in the session.
+// CreateSession stores the authenticated user and canonical client IP in the
+// session. The caller verifies credentials at login time; the session is then
+// trusted until it expires (see sessionTTL), so no password is retained.
 func (m *Manager) CreateSession(ctx context.Context, u *types.User, clientIP string) error {
-	return m.createSession(ctx, u, clientIP, "")
-}
-
-// CreateAuthenticatedSession stores the authenticated user, server-side validation secret,
-// and canonical client IP in the session.
-func (m *Manager) CreateAuthenticatedSession(ctx context.Context, u *types.User, clientIP string, password string) error {
-	return m.createSession(ctx, u, clientIP, password)
-}
-
-func (m *Manager) createSession(ctx context.Context, u *types.User, clientIP string, password string) error {
 	if err := m.RenewToken(ctx); err != nil {
 		return err
 	}
 	canonicalIP, _ := CanonicalClientIP(clientIP)
 	m.Put(ctx, sessionKey, sessionData{
 		User:      u,
-		Password:  password,
 		CreatedAt: time.Now(),
 		ClientIP:  canonicalIP,
 	})
 	return nil
-}
-
-// SetSessionValidator configures an optional revalidation callback for persisted sessions.
-func (m *Manager) SetSessionValidator(validator Validator) {
-	m.validator = validator
-}
-
-// LoadAndSave wraps the underlying SCS middleware and clears any session that no longer
-// validates against the configured identity source before the request reaches handlers.
-func (m *Manager) LoadAndSave(next http.Handler) http.Handler {
-	return m.SessionManager.LoadAndSave(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		m.invalidateCurrentSessionIfNeeded(r.Context())
-		next.ServeHTTP(w, r)
-	}))
 }
 
 func (m *Manager) getSession(r *http.Request) (sessionData, bool) {
@@ -188,6 +162,9 @@ func (m *Manager) UserHasActiveSessionFromIP(username, clientIP string) bool {
 	return false
 }
 
+// allSessions decodes every stored (non-expired) session. It is a read-only
+// enumeration: sessions are trusted for their lifetime, so it performs no
+// credential revalidation and never contacts the identity source.
 func (m *Manager) allSessions() []sessionData {
 	store, ok := m.Store.(scs.IterableStore)
 	if !ok {
@@ -199,73 +176,21 @@ func (m *Manager) allSessions() []sessionData {
 	}
 
 	decoded := make([]sessionData, 0, len(sessions))
-	for token, raw := range sessions {
+	for _, raw := range sessions {
 		_, values, err := m.Codec.Decode(raw)
 		if err != nil {
 			continue
 		}
 		if sess, ok := values[sessionKey].(sessionData); ok {
-			valid, validationErr := m.validateSession(sess)
-			if validationErr != nil {
-				log.Printf("session validation for %q failed: %v", sessionUserName(sess), validationErr)
-				decoded = append(decoded, sess)
-				continue
-			}
-			if !valid {
-				_ = m.Store.Delete(token)
-				continue
-			}
 			decoded = append(decoded, sess)
 		}
 	}
-
 	return decoded
 }
 
 // DestroySession removes the current browser session.
 func (m *Manager) DestroySession(ctx context.Context) error {
 	return m.Destroy(ctx)
-}
-
-func (m *Manager) invalidateCurrentSessionIfNeeded(ctx context.Context) {
-	sess, ok := m.Get(ctx, sessionKey).(sessionData)
-	if !ok || sess.User == nil {
-		return
-	}
-
-	valid, err := m.validateSession(sess)
-	if err != nil {
-		log.Printf("session validation for %q failed: %v", sessionUserName(sess), err)
-		return
-	}
-	if valid {
-		return
-	}
-
-	m.Remove(ctx, sessionKey)
-	if err := m.Destroy(ctx); err != nil {
-		log.Printf("destroy invalid session for %q: %v", sessionUserName(sess), err)
-	}
-}
-
-func (m *Manager) validateSession(sess sessionData) (bool, error) {
-	if sess.User == nil {
-		return false, nil
-	}
-	if m.validator == nil {
-		return true, nil
-	}
-	if strings.TrimSpace(sess.Password) == "" {
-		return false, nil
-	}
-	return m.validator(sess.User.GetName(), sess.Password)
-}
-
-func sessionUserName(sess sessionData) string {
-	if sess.User == nil {
-		return ""
-	}
-	return strings.TrimSpace(sess.User.GetName())
 }
 
 type sessionContextKey struct{}

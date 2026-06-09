@@ -33,8 +33,6 @@ import (
 	"os/signal"
 	"rdptlsgateway/internal/cert"
 	"rdptlsgateway/internal/config"
-	"rdptlsgateway/internal/ldap"
-	"rdptlsgateway/internal/localauth"
 	"rdptlsgateway/internal/rdp"
 	"rdptlsgateway/internal/session"
 	"rdptlsgateway/internal/virt"
@@ -115,7 +113,6 @@ func bootGateway() (*gatewayRuntime, error) {
 	}
 	settings := config.NewSettingType(true)
 	sessionManager := session.NewManager()
-	configureSessionManager(sessionManager, settings)
 
 	if err := virt.InitVirt(settings); err != nil {
 		return nil, fmt.Errorf("failed to initialize virtualization: %w", err)
@@ -263,19 +260,6 @@ func (l *singleConnListener) Close() error {
 	}
 	l.once.Do(func() { close(l.done) })
 	return nil
-}
-
-func configureSessionManager(sessionManager *session.Manager, settings *config.SettingsType) {
-	sessionManager.SetSessionValidator(func(username, password string) (bool, error) {
-		if localauth.Validate(username, password, settings) {
-			return true, nil
-		}
-		if !ldap.Configured(settings) {
-			// Local-users-only mode: a non-local session is no longer valid.
-			return false, nil
-		}
-		return ldap.ValidateSessionAccess(username, password, settings)
-	})
 }
 
 func (l *singleConnListener) Addr() net.Addr {

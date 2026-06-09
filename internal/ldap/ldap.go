@@ -3,7 +3,6 @@ package ldap
 
 import (
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"rdptlsgateway/internal/config"
 	"rdptlsgateway/internal/types"
@@ -71,42 +70,6 @@ func AuthenticateAccess(username, password string, settings *config.SettingsType
 	return types.NewUser(username)
 }
 
-// ValidateSessionAccess revalidates a stored session against LDAP without rebuilding
-// the user model. A false,nil result means the user is no longer authorized.
-func ValidateSessionAccess(username, password string, settings *config.SettingsType) (bool, error) {
-	conn, err := dialLDAP(settings)
-	if err != nil {
-		return false, err
-	}
-	defer func() { _ = conn.Close() }()
-
-	mail := loginIdentifier(username, settings)
-	if err := conn.Bind(mail, password); err != nil {
-		if isLDAPCredentialError(err) {
-			return false, nil
-		}
-		return false, fmt.Errorf("ldap bind failed: %w", err)
-	}
-
-	userFilter := settings.Get(config.LDAP_USER_FILTER)
-	baseDN := settings.Get(config.LDAP_BASE_DN)
-
-	searchReq := ldap.NewSearchRequest(
-		baseDN,
-		ldap.ScopeWholeSubtree,
-		ldap.NeverDerefAliases, 1, 0, false,
-		fmt.Sprintf(userFilter, mail),
-		nil,
-		nil,
-	)
-
-	sr, err := conn.Search(searchReq)
-	if err != nil {
-		return false, fmt.Errorf("ldap search: %w", err)
-	}
-	return len(sr.Entries) > 0, nil
-}
-
 func loginIdentifier(username string, settings *config.SettingsType) string {
 	userMailDomain := settings.Get(config.LDAP_USER_DOMAIN)
 
@@ -120,24 +83,6 @@ func loginIdentifier(username string, settings *config.SettingsType) string {
 	}
 
 	return mail
-}
-
-func isLDAPCredentialError(err error) bool {
-	var ldapErr *ldap.Error
-	if !errors.As(err, &ldapErr) {
-		return false
-	}
-
-	switch ldapErr.ResultCode {
-	case ldap.LDAPResultInvalidCredentials,
-		ldap.LDAPResultInappropriateAuthentication,
-		ldap.LDAPResultInsufficientAccessRights,
-		ldap.LDAPResultAuthorizationDenied,
-		ldap.ErrorEmptyPassword:
-		return true
-	default:
-		return false
-	}
 }
 
 func dialLDAP(settings *config.SettingsType) (*ldap.Conn, error) {

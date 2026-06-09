@@ -39,44 +39,6 @@ func TestDialLDAPWithGlauth(t *testing.T) {
 	defer func() { _ = conn.Close() }()
 }
 
-func TestValidateSessionAccessWithGlauth(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	ldapURL, cleanup := startGlauth(ctx, t)
-	defer cleanup()
-
-	applyLDAPSettings(t, ldapURL)
-	settings := config.NewSettingType(false)
-
-	valid, err := ValidateSessionAccess("johndoe", "dogood", settings)
-	if err != nil {
-		t.Fatalf("ValidateSessionAccess(): %v", err)
-	}
-	if !valid {
-		t.Fatal("expected session validation to succeed for valid LDAP user")
-	}
-}
-
-func TestValidateSessionAccessRejectsInvalidCredentials(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	ldapURL, cleanup := startGlauth(ctx, t)
-	defer cleanup()
-
-	applyLDAPSettings(t, ldapURL)
-	settings := config.NewSettingType(false)
-
-	valid, err := ValidateSessionAccess("johndoe", "wrong-password", settings)
-	if err != nil {
-		t.Fatalf("ValidateSessionAccess(): %v", err)
-	}
-	if valid {
-		t.Fatal("expected session validation to reject invalid credentials")
-	}
-}
-
 func TestAuthenticateAccessWithUserDomainSuffix(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
