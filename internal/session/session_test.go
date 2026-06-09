@@ -85,7 +85,7 @@ func TestNewManager(t *testing.T) {
 func TestCreateAndGetSession(t *testing.T) {
 	m := NewManager()
 
-	user, err := types.NewUser("alice", "secret")
+	user, err := types.NewUser("alice")
 	if err != nil {
 		t.Fatalf("new user: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestUserFromContextNoSession(t *testing.T) {
 func TestGetSessionFromUserName(t *testing.T) {
 	m := NewManager()
 
-	user, err := types.NewUser("bob", "pass")
+	user, err := types.NewUser("bob")
 	if err != nil {
 		t.Fatalf("new user: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestGetSessionFromUserName(t *testing.T) {
 func TestDestroySession(t *testing.T) {
 	m := NewManager()
 
-	user, err := types.NewUser("charlie", "pass")
+	user, err := types.NewUser("charlie")
 	if err != nil {
 		t.Fatalf("new user: %v", err)
 	}
@@ -217,7 +217,7 @@ func TestDestroySession(t *testing.T) {
 func TestUserHasActiveSessionFromIP(t *testing.T) {
 	m := NewManager()
 
-	user, err := types.NewUser("dora", "pass")
+	user, err := types.NewUser("dora")
 	if err != nil {
 		t.Fatalf("new user: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestUserHasActiveSessionFromIP(t *testing.T) {
 func TestUserHasActiveSessionFromIPAllowsAnyMatchingOwnerSession(t *testing.T) {
 	m := NewManager()
 
-	user, err := types.NewUser("erin", "pass")
+	user, err := types.NewUser("erin")
 	if err != nil {
 		t.Fatalf("new user: %v", err)
 	}
@@ -251,11 +251,11 @@ func TestUserHasActiveSessionFromIPAllowsAnyMatchingOwnerSession(t *testing.T) {
 func TestUserHasActiveSessionFromIPDoesNotCrossAuthorizeUsers(t *testing.T) {
 	m := NewManager()
 
-	alice, err := types.NewUser("alice", "pass")
+	alice, err := types.NewUser("alice")
 	if err != nil {
 		t.Fatalf("new alice: %v", err)
 	}
-	bob, err := types.NewUser("bob", "pass")
+	bob, err := types.NewUser("bob")
 	if err != nil {
 		t.Fatalf("new bob: %v", err)
 	}
@@ -277,7 +277,7 @@ func TestUserHasActiveSessionFromIPDoesNotCrossAuthorizeUsers(t *testing.T) {
 func TestCreateSessionNormalizesIPv4MappedIPv6(t *testing.T) {
 	m := NewManager()
 
-	user, err := types.NewUser("frank", "pass")
+	user, err := types.NewUser("frank")
 	if err != nil {
 		t.Fatalf("new user: %v", err)
 	}
@@ -334,7 +334,7 @@ func TestGetSessionFromUserNameEmpty(t *testing.T) {
 func TestUserHasActiveSessionFromIPRejectsInvalidInput(t *testing.T) {
 	m := NewManager()
 
-	user, err := types.NewUser("grace", "pass")
+	user, err := types.NewUser("grace")
 	if err != nil {
 		t.Fatalf("new user: %v", err)
 	}
@@ -374,7 +374,7 @@ func TestSessionMiddlewareRedirectsWithoutSession(t *testing.T) {
 func TestSessionMiddlewareCallsNextWithSession(t *testing.T) {
 	m := NewManager()
 
-	user, err := types.NewUser("heidi", "pass")
+	user, err := types.NewUser("heidi")
 	if err != nil {
 		t.Fatalf("new user: %v", err)
 	}
@@ -423,7 +423,7 @@ func TestLoadAndSaveInvalidatesRejectedSessionBeforeHandler(t *testing.T) {
 		return false, nil
 	})
 
-	user, err := types.NewUser("ivan", "pass")
+	user, err := types.NewUser("ivan")
 	if err != nil {
 		t.Fatalf("new user: %v", err)
 	}
@@ -455,7 +455,7 @@ func TestLoadAndSaveKeepsSessionWhenValidationErrors(t *testing.T) {
 		return false, errors.New("ldap unavailable")
 	})
 
-	user, err := types.NewUser("judy", "pass")
+	user, err := types.NewUser("judy")
 	if err != nil {
 		t.Fatalf("new user: %v", err)
 	}
@@ -488,7 +488,7 @@ func TestUserHasActiveSessionFromIPDropsRejectedSessions(t *testing.T) {
 		return false, nil
 	})
 
-	user, err := types.NewUser("kate", "pass")
+	user, err := types.NewUser("kate")
 	if err != nil {
 		t.Fatalf("new user: %v", err)
 	}

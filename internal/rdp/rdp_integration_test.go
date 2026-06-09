@@ -49,7 +49,7 @@ func newServerConnWithRemoteIP(conn net.Conn, remoteIP string) net.Conn {
 func issueUserSession(t *testing.T, sessionManager *session.Manager, username, remoteAddr string) {
 	t.Helper()
 
-	user, err := types.NewUser(username, "dogood")
+	user, err := types.NewUser(username)
 	if err != nil {
 		t.Fatalf("new user: %v", err)
 	}

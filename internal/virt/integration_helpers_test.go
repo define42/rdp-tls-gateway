@@ -24,6 +24,9 @@ const (
 	// production configuration (BASE_IMAGE_DIR carries no URL).
 	testBaseImageURL  = "https://github.com/define42/ubuntu-resolute-desktop-cloud-image/releases/download/v0.0.9/resolute-desktop-cloudimg-amd64-v0.0.9.img"
 	testBaseImageName = "resolute-desktop-cloudimg-amd64-v0.0.9.img"
+
+	// testGuestPassword is the mandatory guest VDI password BootNewVM now requires.
+	testGuestPassword = "GuestPass1!"
 )
 
 func newTestLibvirtConn(t *testing.T) *libvirt.Connect {

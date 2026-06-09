@@ -87,7 +87,7 @@ func stageBootBaseImage(t *testing.T, sourcePath, targetPath string) {
 func newBootTestUser(t *testing.T, prefix string) *types.User {
 	t.Helper()
 
-	user, err := types.NewUser(prefix+time.Now().Format("150405"), "dogood")
+	user, err := types.NewUser(prefix + time.Now().Format("150405"))
 	if err != nil {
 		t.Fatalf("new user: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestBootNewVMRejectsExistingName(t *testing.T) {
 	user := newBootTestUser(t, "recreateuser")
 	shortName := "recreate-vm"
 
-	vmName, err := BootNewVM(shortName, user, "", "", testBaseImageName, settings, 2, 4096)
+	vmName, err := BootNewVM(shortName, user, "", testGuestPassword, testBaseImageName, settings, 2, 4096)
 	if err != nil {
 		t.Fatalf("BootNewVM initial: %v", err)
 	}
@@ -281,7 +281,7 @@ func TestBootNewVMRejectsExistingName(t *testing.T) {
 
 	// Creating again with the same name must be refused (no silent recreate) so
 	// the existing VM is preserved; the user is expected to delete it first.
-	if _, err := BootNewVM(shortName, user, "", "", testBaseImageName, settings, 4, 8192); !errors.Is(err, ErrVMAlreadyExists) {
+	if _, err := BootNewVM(shortName, user, "", testGuestPassword, testBaseImageName, settings, 4, 8192); !errors.Is(err, ErrVMAlreadyExists) {
 		t.Fatalf("expected ErrVMAlreadyExists on duplicate create, got %v", err)
 	}
 
@@ -309,12 +309,12 @@ func TestBootNewVMPersistsOwnerMetadata(t *testing.T) {
 	settings := newBootTestSettings(t)
 	configureIsolatedBootStorage(t, settings)
 
-	user, err := types.NewUser("meta-"+time.Now().Format("150405"), "dogood")
+	user, err := types.NewUser("meta-" + time.Now().Format("150405"))
 	if err != nil {
 		t.Fatalf("new user: %v", err)
 	}
 
-	vmName, err := BootNewVM("metadata-vm", user, "", "", testBaseImageName, settings, 2, 4096)
+	vmName, err := BootNewVM("metadata-vm", user, "", testGuestPassword, testBaseImageName, settings, 2, 4096)
 	if err != nil {
 		t.Fatalf("BootNewVM: %v", err)
 	}
@@ -371,7 +371,7 @@ func TestBootNewVMFailsWithoutBaseImageSource(t *testing.T) {
 	}
 	// The image library under this test's data root is empty, so resolving the
 	// selected base image fails fast before any VM is created.
-	vmName, err := BootNewVM("vm", user, "", "", testBaseImageName, settings, 2, 4096)
+	vmName, err := BootNewVM("vm", user, "", testGuestPassword, testBaseImageName, settings, 2, 4096)
 	if err == nil {
 		t.Fatal("expected BootNewVM to fail with an empty base image library")
 	}
@@ -402,7 +402,7 @@ func TestBootNewVMNameUsesLoginUserNotGuestUser(t *testing.T) {
 
 	// Empty image library => BootNewVM fails fast at base image resolution, but
 	// only after composing the VM name, which is what this test inspects.
-	vmName, err := BootNewVM(chosenName, user, guestUsername, "", testBaseImageName, settings, 2, 4096)
+	vmName, err := BootNewVM(chosenName, user, guestUsername, testGuestPassword, testBaseImageName, settings, 2, 4096)
 	if err == nil {
 		t.Fatal("expected BootNewVM to fail with an empty base image library")
 	}

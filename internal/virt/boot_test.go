@@ -255,12 +255,12 @@ func assertRemovedVM(t *testing.T, conn *libvirt.Connect, vmName string) {
 func TestStartVM(t *testing.T) {
 	settings := newConsoleSocketSettings(t)
 
-	user, err := typesUser.NewUser(testUsername, testPassword)
+	user, err := typesUser.NewUser(testUsername)
 	if err != nil {
 		t.Fatalf("Failed to create test user: %v", err)
 	}
 
-	vmName, err := virt.BootNewVM(testVMName, user, "", "", testBaseImageName, settings, 4, 4096)
+	vmName, err := virt.BootNewVM(testVMName, user, "", testPassword, testBaseImageName, settings, 4, 4096)
 	if err != nil {
 		t.Fatalf("Failed to boot new VM %s: %v", vmName, err)
 	}

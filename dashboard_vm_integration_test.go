@@ -60,12 +60,12 @@ func createDashboardVM(t *testing.T, settings *config.SettingsType) (string, str
 	username := "dashuser" + strconv.FormatInt(suffix, 10)
 	vmShortName := "dashvm" + strconv.FormatInt(suffix, 10)
 
-	user, err := types.NewUser(username, "dogood")
+	user, err := types.NewUser(username)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
 
-	vmName, err := virt.BootNewVM(vmShortName, user, "", "", testBaseImageName, settings, 2, 4096)
+	vmName, err := virt.BootNewVM(vmShortName, user, "", testGuestPassword, testBaseImageName, settings, 2, 4096)
 	if err != nil {
 		t.Fatalf("boot VM %s: %v", vmShortName, err)
 	}

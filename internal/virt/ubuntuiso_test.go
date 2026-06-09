@@ -139,12 +139,12 @@ func TestPowerLifecycleAndResourceGuards(t *testing.T) {
 	}
 	stageExistingBaseImageFromDefaultRoot(t, settings)
 
-	user, err := types.NewUser("poweruser"+time.Now().Format("150405"), "dogood")
+	user, err := types.NewUser("poweruser" + time.Now().Format("150405"))
 	if err != nil {
 		t.Fatalf("new user: %v", err)
 	}
 
-	vmName, err := BootNewVM("power-vm", user, "", "", testBaseImageName, settings, 2, 4096)
+	vmName, err := BootNewVM("power-vm", user, "", testGuestPassword, testBaseImageName, settings, 2, 4096)
 	if err != nil {
 		t.Fatalf("BootNewVM: %v", err)
 	}
@@ -178,17 +178,17 @@ func TestPowerLifecycleAndResourceGuards(t *testing.T) {
 }
 
 func TestBootNewVMRejectsInvalidResources(t *testing.T) {
-	user, err := types.NewUser("invaliduser", "dogood")
+	user, err := types.NewUser("invaliduser")
 	if err != nil {
 		t.Fatalf("new user: %v", err)
 	}
 
 	settings := config.NewSettingType(false)
 
-	if _, err := BootNewVM("bad-vm", user, "", "", testBaseImageName, settings, 0, 4096); err == nil {
+	if _, err := BootNewVM("bad-vm", user, "", testGuestPassword, testBaseImageName, settings, 0, 4096); err == nil {
 		t.Fatal("expected invalid vcpu error")
 	}
-	if _, err := BootNewVM("bad-vm", user, "", "", testBaseImageName, settings, 2, 0); err == nil {
+	if _, err := BootNewVM("bad-vm", user, "", testGuestPassword, testBaseImageName, settings, 2, 0); err == nil {
 		t.Fatal("expected invalid memory error")
 	}
 }

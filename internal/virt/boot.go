@@ -289,21 +289,21 @@ func InitVirt(settings *config.SettingsType) error {
 }
 
 // resolveGuestCredentials returns the guest login name and its cloud-init
-// password hash. The name falls back to the owner's name, and the password to
-// the owner's gateway password hash, when not overridden per VM.
+// password hash. The name falls back to the owner's name when not set per VM;
+// the guest password is required (set at VM creation) and has no fallback, so
+// the owner's gateway login password is never reused as the guest password.
 func resolveGuestCredentials(user *types.User, guestUsername, guestPassword string) (string, string, error) {
 	guestUsername = strings.TrimSpace(guestUsername)
 	if guestUsername == "" {
 		guestUsername = user.GetName()
 	}
 
-	cloudInitPasswordHash := user.GetCloudInitPasswordHash()
-	if guestPassword != "" {
-		hashed, err := hash.CloudInitPasswordHash(guestPassword)
-		if err != nil {
-			return "", "", fmt.Errorf("hash guest password: %w", err)
-		}
-		cloudInitPasswordHash = hashed
+	if guestPassword == "" {
+		return "", "", fmt.Errorf("guest password is required")
+	}
+	cloudInitPasswordHash, err := hash.CloudInitPasswordHash(guestPassword)
+	if err != nil {
+		return "", "", fmt.Errorf("hash guest password: %w", err)
 	}
 	return guestUsername, cloudInitPasswordHash, nil
 }
@@ -313,7 +313,7 @@ func resolveGuestCredentials(user *types.User, guestUsername, guestPassword stri
 // vmname.Compose; an invalid owner or hostname is rejected before anything is created.
 // guestUsername is the login account provisioned inside the guest (and used for RDP);
 // it falls back to the owning user's name when empty. guestPassword is the password
-// for that guest account; it falls back to the owner's gateway password when empty.
+// for that guest account and is required.
 // baseImage is the file name of the base image to clone, selected from the
 // configured image library; it is validated against that library before use.
 func BootNewVM(name string, user *types.User, guestUsername, guestPassword, baseImage string, settings *config.SettingsType, vcpu int, memoryMiB int) (vmName string, err error) {

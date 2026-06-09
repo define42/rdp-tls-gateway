@@ -14,7 +14,7 @@ import (
 func issueSessionCookie(t *testing.T, sessionManager *session.Manager, username string) *http.Cookie {
 	t.Helper()
 
-	user, err := types.NewUser(username, "dogood")
+	user, err := types.NewUser(username)
 	if err != nil {
 		t.Fatalf("new user: %v", err)
 	}
@@ -45,7 +45,7 @@ func issueSessionCookie(t *testing.T, sessionManager *session.Manager, username 
 
 func TestCompleteLoginRecordsLoginIP(t *testing.T) {
 	sessionManager := session.NewManager()
-	user, err := types.NewUser("alice", "dogood")
+	user, err := types.NewUser("alice")
 	if err != nil {
 		t.Fatalf("new user: %v", err)
 	}

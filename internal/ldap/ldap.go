@@ -68,7 +68,7 @@ func AuthenticateAccess(username, password string, settings *config.SettingsType
 		return nil, fmt.Errorf("user %s not found", mail)
 	}
 
-	return types.NewUser(username, password)
+	return types.NewUser(username)
 }
 
 // ValidateSessionAccess revalidates a stored session against LDAP without rebuilding

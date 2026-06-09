@@ -13,7 +13,7 @@ func TestSessionUserNameNilUser(t *testing.T) {
 }
 
 func TestSessionUserNameTrims(t *testing.T) {
-	user, err := types.NewUser("  alice  ", "dogood")
+	user, err := types.NewUser("  alice  ")
 	if err != nil {
 		t.Fatalf("new user: %v", err)
 	}
@@ -36,7 +36,7 @@ func TestValidateSessionWithoutUser(t *testing.T) {
 
 func TestValidateSessionNoValidator(t *testing.T) {
 	m := NewManager()
-	user, _ := types.NewUser("alice", "dogood")
+	user, _ := types.NewUser("alice")
 	valid, err := m.validateSession(sessionData{User: user, Password: "dogood"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -52,7 +52,7 @@ func TestValidateSessionEmptyPasswordWithValidator(t *testing.T) {
 		t.Fatal("validator should not be called when password is empty")
 		return false, nil
 	})
-	user, _ := types.NewUser("alice", "dogood")
+	user, _ := types.NewUser("alice")
 	valid, err := m.validateSession(sessionData{User: user, Password: "   "})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -72,7 +72,7 @@ func TestValidateSessionDelegatesToValidator(t *testing.T) {
 		}
 		return true, nil
 	})
-	user, _ := types.NewUser("alice", "dogood")
+	user, _ := types.NewUser("alice")
 	valid, err := m.validateSession(sessionData{User: user, Password: "dogood"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -91,7 +91,7 @@ func TestValidateSessionPropagatesValidatorError(t *testing.T) {
 	m.SetSessionValidator(func(_, _ string) (bool, error) {
 		return false, wantErr
 	})
-	user, _ := types.NewUser("alice", "dogood")
+	user, _ := types.NewUser("alice")
 	if _, err := m.validateSession(sessionData{User: user, Password: "dogood"}); !errors.Is(err, wantErr) {
 		t.Fatalf("expected validator error, got %v", err)
 	}
