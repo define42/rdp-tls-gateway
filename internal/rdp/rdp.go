@@ -451,6 +451,9 @@ func resolveBackendAddr(remoteAddr net.Addr, sni, hostname string) (string, bool
 		return "", false
 	}
 	log.Printf("rdp debug: resolved VM %q to IP %q", hostname, backendIP)
+	// The virt layer only returns an authoritative DHCP-lease address inside the
+	// VM NAT subnet here (see domainRoutingIP); an empty result means there is no
+	// trusted route, so fail closed rather than dial a guest-supplied address.
 	if backendIP == "" {
 		log.Printf("no route for SNI=%q from %s", sni, remoteAddr)
 		return "", false
