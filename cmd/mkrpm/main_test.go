@@ -23,8 +23,8 @@ func TestPackageRelations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("packageRelations: %v", err)
 	}
-	if len(requires) != 4 {
-		t.Fatalf("requires = %d, want 4 (libvirt-libs, ca-certificates, libvirt-daemon-kvm, qemu-kvm)", len(requires))
+	if len(requires) != 5 {
+		t.Fatalf("requires = %d, want 5 (libvirt-libs, ca-certificates, libvirt-daemon-kvm, qemu-kvm, firewalld)", len(requires))
 	}
 }
 
