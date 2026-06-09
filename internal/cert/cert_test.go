@@ -87,13 +87,13 @@ func TestGenerateSelfSignedCert(t *testing.T) {
 	}
 }
 
-func TestAllCipherSuiteIDs(t *testing.T) {
-	ids := allCipherSuiteIDs()
+func TestSecureCipherSuiteIDs(t *testing.T) {
+	ids := secureCipherSuiteIDs()
 	if len(ids) == 0 {
 		t.Fatal("expected at least one cipher suite ID")
 	}
 
-	// Verify all secure suites are included
+	// Verify all secure suites are included.
 	for _, suite := range tls.CipherSuites() {
 		found := false
 		for _, id := range ids {
@@ -104,6 +104,15 @@ func TestAllCipherSuiteIDs(t *testing.T) {
 		}
 		if !found {
 			t.Fatalf("cipher suite %s (0x%04x) not found", suite.Name, suite.ID)
+		}
+	}
+
+	// Verify no insecure suites leak into the front-facing TLS config.
+	for _, suite := range tls.InsecureCipherSuites() {
+		for _, id := range ids {
+			if id == suite.ID {
+				t.Fatalf("insecure cipher suite %s (0x%04x) must not be offered", suite.Name, suite.ID)
+			}
 		}
 	}
 }
@@ -127,8 +136,8 @@ func TestNewTLSManagerWithoutACME(t *testing.T) {
 		t.Fatal("expected non-nil TLS config")
 		return
 	}
-	if cfg.MinVersion != tls.VersionTLS10 {
-		t.Fatalf("expected MinVersion TLS1.0, got %v", cfg.MinVersion)
+	if cfg.MinVersion != tls.VersionTLS12 {
+		t.Fatalf("expected MinVersion TLS1.2, got %v", cfg.MinVersion)
 	}
 }
 
@@ -304,8 +313,8 @@ func TestNewManagedTLSConfigWraps(t *testing.T) {
 	if cfg == nil {
 		t.Fatal("expected non-nil tls config")
 	}
-	if cfg.MinVersion != tls.VersionTLS10 {
-		t.Fatalf("expected MinVersion TLS1.0, got 0x%04x", cfg.MinVersion)
+	if cfg.MinVersion != tls.VersionTLS12 {
+		t.Fatalf("expected MinVersion TLS1.2, got 0x%04x", cfg.MinVersion)
 	}
 	if cfg.GetCertificate == nil {
 		t.Fatal("expected GetCertificate to be set")

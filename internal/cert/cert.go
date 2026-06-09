@@ -162,8 +162,8 @@ func newStaticTLSManager(settings *config.SettingsType, fallback tls.Certificate
 		Certificates: []tls.Certificate{fallback},
 	}
 
-	frontTLS.MinVersion = tls.VersionTLS10
-	frontTLS.CipherSuites = allCipherSuiteIDs()
+	frontTLS.MinVersion = tls.VersionTLS12
+	frontTLS.CipherSuites = secureCipherSuiteIDs()
 
 	return &TLSManager{
 		tlsConfig: frontTLS,
@@ -233,8 +233,8 @@ func newManagedTLSConfig(magic *certmagic.Config, fallback tls.Certificate) *tls
 	tlsCfg := magic.TLSConfig()
 	tlsCfg.NextProtos = append([]string{"http/1.1"}, tlsCfg.NextProtos...)
 	tlsCfg.GetCertificate = acmeGetCertificate(magic, fallback)
-	tlsCfg.MinVersion = tls.VersionTLS10 // RDP backend compatibility
-	tlsCfg.CipherSuites = allCipherSuiteIDs()
+	tlsCfg.MinVersion = tls.VersionTLS12
+	tlsCfg.CipherSuites = secureCipherSuiteIDs()
 	return tlsCfg
 }
 
@@ -315,12 +315,14 @@ func sameElements(a, b []string) bool {
 	return true
 }
 
-func allCipherSuiteIDs() []uint16 {
-	suites := make([]uint16, 0, len(tls.CipherSuites())+len(tls.InsecureCipherSuites()))
+// secureCipherSuiteIDs returns the IDs of the cipher suites Go considers secure
+// for TLS 1.2. Suites from tls.InsecureCipherSuites() (RC4, 3DES, CBC-SHA, …) are
+// intentionally excluded so the credential-bearing dashboard and RDP front are
+// not exposed to downgrade/weak-cipher attacks. TLS 1.3 suites are not
+// configurable and are negotiated automatically.
+func secureCipherSuiteIDs() []uint16 {
+	suites := make([]uint16, 0, len(tls.CipherSuites()))
 	for _, suite := range tls.CipherSuites() {
-		suites = append(suites, suite.ID)
-	}
-	for _, suite := range tls.InsecureCipherSuites() {
 		suites = append(suites, suite.ID)
 	}
 	return suites
