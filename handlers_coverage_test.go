@@ -110,6 +110,12 @@ func TestServeLogin(t *testing.T) {
 	if !strings.Contains(body, "DevBoxGateway") {
 		t.Fatal("expected login page content")
 	}
+	if strings.Contains(body, "cdn.jsdelivr.net") || strings.Contains(body, "https://") || strings.Contains(body, "http://") {
+		t.Fatal("login page must not load browser assets from external URLs")
+	}
+	if !strings.Contains(body, "/static/vendor/bootstrap/5.3.2/bootstrap.min.css") {
+		t.Fatal("expected login page to reference vendored Bootstrap CSS")
+	}
 	// No error message
 	if strings.Contains(body, "alert-danger") {
 		t.Fatal("expected no error alert when message is empty")

@@ -48,6 +48,27 @@ func TestRenderDashboardPage(t *testing.T) {
 	}
 }
 
+func TestDashboardPageUsesVendoredAssets(t *testing.T) {
+	page, err := os.ReadFile(filepath.Clean(filepath.Join("..", "..", "static", "dashboard.html")))
+	if err != nil {
+		t.Fatalf("read dashboard page from static directory: %v", err)
+	}
+	body := string(page)
+	if strings.Contains(body, "cdn.jsdelivr.net") || strings.Contains(body, "https://") || strings.Contains(body, "http://") {
+		t.Fatalf("dashboard page must not load browser assets from external URLs")
+	}
+	for _, path := range []string{
+		"/static/vendor/bootstrap/5.3.2/bootstrap.min.css",
+		"/static/vendor/xterm/5.3.0/xterm.min.css",
+		"/static/vendor/xterm/5.3.0/xterm.min.js",
+		"/static/vendor/xterm-addon-fit/0.8.0/xterm-addon-fit.min.js",
+	} {
+		if !strings.Contains(body, path) {
+			t.Fatalf("dashboard page does not reference vendored asset %q", path)
+		}
+	}
+}
+
 type errResponseWriter struct {
 	header http.Header
 	status int
