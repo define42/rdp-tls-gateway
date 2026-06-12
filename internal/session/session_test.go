@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"rdptlsgateway/internal/types"
 	"testing"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
@@ -199,6 +200,50 @@ func TestUserHasActiveSessionFromIP(t *testing.T) {
 	}
 	if m.UserHasActiveSessionFromIP("dora", "192.0.2.21") {
 		t.Fatal("did not expect different IP to authorize")
+	}
+}
+
+func TestUserHasActiveSessionFromIPIgnoresExpiredSessions(t *testing.T) {
+	m := NewManager()
+
+	user, err := types.NewUser("dora")
+	if err != nil {
+		t.Fatalf("new user: %v", err)
+	}
+
+	values := map[string]interface{}{
+		sessionKey: sessionData{
+			User:      user,
+			CreatedAt: time.Now(),
+			ClientIP:  "192.0.2.20",
+		},
+	}
+	token := "session-token"
+
+	activeDeadline := time.Now().Add(time.Hour)
+	activeData, err := m.Codec.Encode(activeDeadline, values)
+	if err != nil {
+		t.Fatalf("encode active session: %v", err)
+	}
+	if err := m.Store.Commit(token, activeData, activeDeadline); err != nil {
+		t.Fatalf("commit active session: %v", err)
+	}
+
+	if !m.UserHasActiveSessionFromIP("dora", "192.0.2.20") {
+		t.Fatal("expected active session to authorize")
+	}
+
+	expiredDeadline := time.Now().Add(-time.Minute)
+	expiredData, err := m.Codec.Encode(expiredDeadline, values)
+	if err != nil {
+		t.Fatalf("encode expired session: %v", err)
+	}
+	if err := m.Store.Commit(token, expiredData, expiredDeadline); err != nil {
+		t.Fatalf("commit expired session: %v", err)
+	}
+
+	if m.UserHasActiveSessionFromIP("dora", "192.0.2.20") {
+		t.Fatal("expected expired session to be ignored")
 	}
 }
 

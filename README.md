@@ -493,7 +493,7 @@ Some integration tests (e.g. `ldap_integration_test.go`,
 │   ├── contextKey/  Typed context-key helpers.
 │   ├── dashboard/   Dashboard HTML / JSON rendering and VM listing.
 │   ├── hash/        Password/credential hashing helpers.
-│   ├── ldap/        LDAP authentication and session validation.
+│   ├── ldap/        LDAP login authentication.
 │   ├── rdp/         RDP/X.224/MCS parsing, TLS-to-TLS proxy, channel stripping.
 │   ├── session/     Cookie session manager and middleware.
 │   ├── types/       Shared types (e.g. authenticated user).

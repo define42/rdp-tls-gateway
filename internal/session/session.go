@@ -28,8 +28,9 @@ const sessionKey = "session"
 
 // sessionTTL is the absolute lifetime of an authenticated browser session.
 // Credentials are verified once at login and not re-checked against the
-// directory afterwards, so this bound also caps how long a revoked directory
-// account keeps gateway (dashboard + RDP) access before its session expires.
+// directory afterwards, so this bound caps how long a revoked directory account
+// can start new dashboard, RDP, or console access. Existing long-lived RDP and
+// WebSocket connections are authorized at setup and are not force-closed here.
 const sessionTTL = 30 * time.Minute
 
 var registerSessionTypesOnce sync.Once //nolint:gochecknoglobals // package-level singleton needed for one-time registration
