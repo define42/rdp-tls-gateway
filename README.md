@@ -148,8 +148,8 @@ It requires `libvirt-libs` and `ca-certificates`, plus `libvirt-daemon-kvm` and
 `firewalld`. `libvirt-daemon-kvm` pulls in the modular libvirt daemons
 (`virtqemud`/`virtnetworkd`/`virtstoraged`), so `dnf` installs everything needed
 to provision VMs. The post-install scriptlet opens the firewalld `https` service
-(443/tcp) so the gateway is reachable out of the box; if you change `LISTEN_ADDR`
-to a non-standard port, open that port yourself.
+(443/tcp) and `22/tcp` so the gateway and SSH are reachable out of the box; if
+you change `LISTEN_ADDR` to a non-standard port, open that port yourself.
 
 1. **Install** (let `dnf` pull in the dependencies):
 
@@ -520,4 +520,3 @@ Some integration tests (e.g. `ldap_integration_test.go`,
 ## License
 
 See the repository for license details.
-

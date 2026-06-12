@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -25,6 +26,20 @@ func TestPackageRelations(t *testing.T) {
 	}
 	if len(requires) != 5 {
 		t.Fatalf("requires = %d, want 5 (libvirt-libs, ca-certificates, libvirt-daemon-kvm, qemu-kvm, firewalld)", len(requires))
+	}
+}
+
+func TestPostInstallFirewallRules(t *testing.T) {
+	want := []string{
+		"firewall-cmd --permanent --add-service=https",
+		"firewall-cmd --permanent --add-port=22/tcp",
+		"firewall-offline-cmd --add-service=https",
+		"firewall-offline-cmd --add-port=22/tcp",
+	}
+	for _, rule := range want {
+		if !strings.Contains(postinScript, rule) {
+			t.Fatalf("postinScript missing %q", rule)
+		}
 	}
 }
 

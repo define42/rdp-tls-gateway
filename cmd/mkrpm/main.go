@@ -38,10 +38,10 @@ const (
 // starts it; an operator still runs `systemctl start` (or reboots) to launch it.
 //
 // The gateway listens on :443, so the scriptlet also opens the firewalld `https`
-// service. When firewalld is running it applies the change live and persistently;
-// when it is installed but stopped it writes the permanent rule offline so the
-// port is open once firewalld starts. A custom LISTEN_ADDR port still has to be
-// opened by the operator.
+// service and leaves SSH on 22/tcp reachable. When firewalld is running it
+// applies the change live and persistently; when it is installed but stopped it
+// writes the permanent rule offline so the ports are open once firewalld starts.
+// A custom LISTEN_ADDR port still has to be opened by the operator.
 const postinScript = `if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload || :
     if [ "$1" = 1 ]; then
@@ -51,9 +51,11 @@ fi
 if command -v firewall-cmd >/dev/null 2>&1; then
     if firewall-cmd --state >/dev/null 2>&1; then
         firewall-cmd --permanent --add-service=https >/dev/null 2>&1 || :
+        firewall-cmd --permanent --add-port=22/tcp >/dev/null 2>&1 || :
         firewall-cmd --reload >/dev/null 2>&1 || :
     elif command -v firewall-offline-cmd >/dev/null 2>&1; then
         firewall-offline-cmd --add-service=https >/dev/null 2>&1 || :
+        firewall-offline-cmd --add-port=22/tcp >/dev/null 2>&1 || :
     fi
 fi
 `
