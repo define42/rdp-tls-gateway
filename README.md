@@ -144,12 +144,11 @@ The package installs:
 | `/etc/rdp-tls-gateway/rdp-tls-gateway.conf`      | Config file, marked `%config(noreplace)` so your edits survive upgrades. |
 
 It requires `libvirt-libs` and `ca-certificates`, plus `libvirt-daemon-kvm` and
-`qemu-kvm` — the local libvirt/KVM stack that hosts the virtual desktops — and
-`firewalld`. `libvirt-daemon-kvm` pulls in the modular libvirt daemons
+`qemu-kvm` — the local libvirt/KVM stack that hosts the virtual desktops.
+`libvirt-daemon-kvm` pulls in the modular libvirt daemons
 (`virtqemud`/`virtnetworkd`/`virtstoraged`), so `dnf` installs everything needed
-to provision VMs. The post-install scriptlet opens the firewalld `https` service
-(443/tcp) and `22/tcp` so the gateway and SSH are reachable out of the box; if
-you change `LISTEN_ADDR` to a non-standard port, open that port yourself.
+to provision VMs. The package does not configure firewall rules; open the
+gateway port yourself (`443/tcp` by default, or your custom `LISTEN_ADDR` port).
 
 1. **Install** (let `dnf` pull in the dependencies):
 

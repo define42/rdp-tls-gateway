@@ -24,21 +24,37 @@ func TestPackageRelations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("packageRelations: %v", err)
 	}
-	if len(requires) != 5 {
-		t.Fatalf("requires = %d, want 5 (libvirt-libs, ca-certificates, libvirt-daemon-kvm, qemu-kvm, firewalld)", len(requires))
+	want := map[string]bool{
+		"libvirt-libs":       true,
+		"ca-certificates":    true,
+		"libvirt-daemon-kvm": true,
+		"qemu-kvm":           true,
+	}
+	if len(requires) != len(want) {
+		t.Fatalf("requires = %d, want %d (%v)", len(requires), len(want), want)
+	}
+	for _, require := range requires {
+		if !want[require.Name] {
+			t.Fatalf("unexpected require %q", require.Name)
+		}
+		delete(want, require.Name)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing requires: %v", want)
 	}
 }
 
-func TestPostInstallFirewallRules(t *testing.T) {
-	want := []string{
-		"firewall-cmd --permanent --add-service=https",
-		"firewall-cmd --permanent --add-port=22/tcp",
-		"firewall-offline-cmd --add-service=https",
-		"firewall-offline-cmd --add-port=22/tcp",
+func TestPostInstallDoesNotConfigureFirewall(t *testing.T) {
+	forbidden := []string{
+		"firewall-cmd",
+		"firewall-offline-cmd",
+		"--add-service",
+		"--add-port",
+		"22/tcp",
 	}
-	for _, rule := range want {
-		if !strings.Contains(postinScript, rule) {
-			t.Fatalf("postinScript missing %q", rule)
+	for _, command := range forbidden {
+		if strings.Contains(postinScript, command) {
+			t.Fatalf("postinScript must not contain firewall setup %q", command)
 		}
 	}
 }
