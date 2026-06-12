@@ -15,8 +15,10 @@ import (
 )
 
 const (
-	fixedLibvirtVolumeMode     = "0666"
-	fixedLibvirtVolumeFileMode = 0o666
+	// Keep VM disks and seed ISOs accessible to the owning/group libvirt stack
+	// without exposing them to every local host user.
+	fixedLibvirtVolumeMode     = "0660"
+	fixedLibvirtVolumeFileMode = 0o660
 )
 
 type storagePoolXML struct {

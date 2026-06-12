@@ -104,8 +104,8 @@ func TestCreateUbuntuSeedISOToPool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat seed iso volume path: %v", err)
 	}
-	if got := stat.Mode().Perm(); got != 0o666 {
-		t.Fatalf("expected seed iso volume mode %04o, got %04o", 0o666, got)
+	if got := stat.Mode().Perm(); got != 0o660 {
+		t.Fatalf("expected seed iso volume mode %04o, got %04o", 0o660, got)
 	}
 }
 

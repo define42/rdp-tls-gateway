@@ -51,8 +51,8 @@ func TestCopyAndResizeVolumeAndRemoveVolumes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat copied volume path: %v", err)
 	}
-	if got := stat.Mode().Perm(); got != 0o666 {
-		t.Fatalf("expected copied volume mode %04o, got %04o", 0o666, got)
+	if got := stat.Mode().Perm(); got != 0o660 {
+		t.Fatalf("expected copied volume mode %04o, got %04o", 0o660, got)
 	}
 
 	if err := RemoveVolumes(conn, poolName, "vmdisk"); err != nil {

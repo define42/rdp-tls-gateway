@@ -15,7 +15,7 @@ func TestStoragePermissionHelpers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storageVolPermissionsXML: %v", err)
 	}
-	if !strings.Contains(xml, "<mode>0666</mode>") {
+	if !strings.Contains(xml, "<mode>0660</mode>") {
 		t.Fatalf("expected mode in permissions xml, got %q", xml)
 	}
 	if strings.Contains(xml, "<owner>") || strings.Contains(xml, "<group>") {
@@ -34,8 +34,8 @@ func TestStorageVolPermissionsDefaultMode(t *testing.T) {
 	if perms.Owner != nil || perms.Group != nil {
 		t.Fatalf("expected default owner/group to be unset, got %+v", perms)
 	}
-	if perms.Mode == nil || *perms.Mode != "0666" {
-		t.Fatalf("expected default mode %q, got %+v", "0666", perms.Mode)
+	if perms.Mode == nil || *perms.Mode != "0660" {
+		t.Fatalf("expected default mode %q, got %+v", "0660", perms.Mode)
 	}
 }
 
@@ -223,8 +223,8 @@ func assertStorageVolXMLPermissions(t *testing.T, permissions *storageVolumePerm
 	if permissions.Group != nil {
 		t.Fatalf("expected group to be unset, got %+v", permissions.Group)
 	}
-	if permissions.Mode == nil || *permissions.Mode != "0666" {
-		t.Fatalf("expected mode %q, got %+v", "0666", permissions.Mode)
+	if permissions.Mode == nil || *permissions.Mode != "0660" {
+		t.Fatalf("expected mode %q, got %+v", "0660", permissions.Mode)
 	}
 }
 
