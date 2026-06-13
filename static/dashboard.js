@@ -29,6 +29,10 @@ const state = {
         vmDisplayName: "",
         src: "",
     },
+    create: {
+        open: false,
+        error: "",
+    },
 };
 let loadInFlight = false;
 function isActiveState(vmState) {
@@ -86,55 +90,13 @@ function bootstrap() {
               <h1 class="h4 mb-1">Available DevBoxes</h1>
               <p class="text-body-secondary mb-0">Live inventory.</p>
             </div>
-            <form method="post" action="/logout" class="m-0">
-              <button class="btn btn-outline-secondary btn-sm" type="submit">Logout</button>
-            </form>
+            <div class="d-flex flex-wrap align-items-center gap-2">
+              <button class="btn btn-primary" id="open-create-button" type="button">Create DevBox</button>
+              <form method="post" action="/logout" class="m-0">
+                <button class="btn btn-outline-secondary btn-sm" type="submit">Logout</button>
+              </form>
+            </div>
           </div>
-          <form class="row g-3 align-items-end" id="create-form">
-            <div class="col-12 col-md-6 col-lg-3">
-              <label class="form-label" for="vm-name">New DevBox Name</label>
-              <input class="form-control" id="vm-name" name="vm_name" autocomplete="off" pattern="[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?" maxlength="63" title="Lowercase letters, numbers, and hyphens only. Must start/end with a letter or number. Max 63 characters." autocapitalize="none" spellcheck="false" required>
-            </div>
-            <div class="col-12 col-md-6 col-lg-3">
-              <label class="form-label" for="vm-base-image">Base Image</label>
-              <select class="form-select" id="vm-base-image" name="vm_base_image" title="Disk image cloned for the new DevBox." required>
-                <option value="" disabled selected>Loading base images...</option>
-              </select>
-            </div>
-            <div class="col-12 col-md-6 col-lg-3">
-              <label class="form-label" for="vm-username">Username</label>
-              <input class="form-control" id="vm-username" name="vm_username" autocomplete="off" pattern="[a-z_][a-z0-9_-]*" maxlength="32" title="Login user created inside the DevBox. Lowercase letters, numbers, hyphens, or underscores. Must start with a letter or underscore. Max 32 characters." autocapitalize="none" spellcheck="false">
-            </div>
-            <div class="col-12 col-md-6 col-lg-3">
-              <label class="form-label" for="vm-password">Password</label>
-              <input class="form-control" id="vm-password" name="vm_password" type="password" autocomplete="new-password" maxlength="128" title="Password for the account created inside the DevBox. Max 128 characters." autocapitalize="none" spellcheck="false" required>
-            </div>
-            <div class="col-12 col-md-6 col-lg-3">
-              <label class="form-label" for="vm-password-confirm">Confirm Password</label>
-              <input class="form-control" id="vm-password-confirm" name="vm_password_confirm" type="password" autocomplete="new-password" maxlength="128" title="Re-enter the password to confirm it matches." autocapitalize="none" spellcheck="false" required>
-            </div>
-            <div class="col-6 col-md-3 col-lg-2">
-              <label class="form-label" for="vm-cpu">vCPU</label>
-              <select class="form-select" id="vm-cpu" name="vm_vcpu" required>
-                <option value="1">1 vCPU</option>
-                <option value="2">2 vCPU</option>
-                <option value="4" selected>4 vCPU</option>
-                <option value="8">8 vCPU</option>
-              </select>
-            </div>
-            <div class="col-6 col-md-3 col-lg-2">
-              <label class="form-label" for="vm-memory">Memory</label>
-              <select class="form-select" id="vm-memory" name="vm_memory_mib" required>
-                <option value="4096" selected>4 GB</option>
-                <option value="8192">8 GB</option>
-                <option value="16384">16 GB</option>
-                <option value="32768">32 GB</option>
-              </select>
-            </div>
-            <div class="col-12 col-md-12 col-lg-2 d-grid">
-              <button class="btn btn-outline-primary" id="create-button" type="submit">Create DevBox</button>
-            </div>
-          </form>
           <div id="action-area" class="mt-3" aria-live="polite"></div>
           <div id="vm-list" class="mt-3"></div>
         </div>
@@ -178,6 +140,66 @@ function bootstrap() {
         </div>
       </div>
     </div>
+    <div id="create-modal" class="terminal-modal" hidden aria-hidden="true">
+      <div class="terminal-modal__backdrop" id="create-backdrop"></div>
+      <div class="terminal-modal__dialog terminal-modal__dialog--form" role="dialog" aria-modal="true" aria-labelledby="create-title">
+        <div class="terminal-modal__body">
+          <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
+            <div>
+              <h2 class="h5 mb-1" id="create-title">Create DevBox</h2>
+              <p class="text-body-secondary mb-0">Provision a new virtual machine.</p>
+            </div>
+            <button class="btn btn-outline-secondary btn-sm" id="create-close" type="button">Close</button>
+          </div>
+          <div class="alert alert-danger mb-3 d-none" id="create-error" role="alert"></div>
+          <form class="row g-3 align-items-end" id="create-form">
+            <div class="col-12 col-md-6 col-lg-4">
+              <label class="form-label" for="vm-name">New DevBox Name</label>
+              <input class="form-control" id="vm-name" name="vm_name" autocomplete="off" pattern="[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?" maxlength="63" title="Lowercase letters, numbers, and hyphens only. Must start/end with a letter or number. Max 63 characters." autocapitalize="none" spellcheck="false" required>
+            </div>
+            <div class="col-12 col-md-6 col-lg-4">
+              <label class="form-label" for="vm-base-image">Base Image</label>
+              <select class="form-select" id="vm-base-image" name="vm_base_image" title="Disk image cloned for the new DevBox." required>
+                <option value="" disabled selected>Loading base images...</option>
+              </select>
+            </div>
+            <div class="col-12 col-md-6 col-lg-4">
+              <label class="form-label" for="vm-username">Username</label>
+              <input class="form-control" id="vm-username" name="vm_username" autocomplete="off" pattern="[a-z_][a-z0-9_-]*" maxlength="32" title="Login user created inside the DevBox. Lowercase letters, numbers, hyphens, or underscores. Must start with a letter or underscore. Max 32 characters." autocapitalize="none" spellcheck="false">
+            </div>
+            <div class="col-12 col-md-6 col-lg-6">
+              <label class="form-label" for="vm-password">Password</label>
+              <input class="form-control" id="vm-password" name="vm_password" type="password" autocomplete="new-password" maxlength="128" title="Password for the account created inside the DevBox. Max 128 characters." autocapitalize="none" spellcheck="false" required>
+            </div>
+            <div class="col-12 col-md-6 col-lg-6">
+              <label class="form-label" for="vm-password-confirm">Confirm Password</label>
+              <input class="form-control" id="vm-password-confirm" name="vm_password_confirm" type="password" autocomplete="new-password" maxlength="128" title="Re-enter the password to confirm it matches." autocapitalize="none" spellcheck="false" required>
+            </div>
+            <div class="col-6 col-lg-4">
+              <label class="form-label" for="vm-cpu">vCPU</label>
+              <select class="form-select" id="vm-cpu" name="vm_vcpu" required>
+                <option value="1">1 vCPU</option>
+                <option value="2">2 vCPU</option>
+                <option value="4" selected>4 vCPU</option>
+                <option value="8">8 vCPU</option>
+              </select>
+            </div>
+            <div class="col-6 col-lg-4">
+              <label class="form-label" for="vm-memory">Memory</label>
+              <select class="form-select" id="vm-memory" name="vm_memory_mib" required>
+                <option value="4096" selected>4 GB</option>
+                <option value="8192">8 GB</option>
+                <option value="16384">16 GB</option>
+                <option value="32768">32 GB</option>
+              </select>
+            </div>
+            <div class="col-12 col-md-6 col-lg-4 d-grid align-self-end">
+              <button class="btn btn-primary" id="create-button" type="submit">Create DevBox</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
   `;
     const form = root.querySelector("#create-form");
     const input = root.querySelector("#vm-name");
@@ -205,6 +227,11 @@ function bootstrap() {
     const vncSubtitle = root.querySelector("#vnc-subtitle");
     const vncFrame = root.querySelector("#vnc-frame");
     const vncClose = root.querySelector("#vnc-close");
+    const openCreateButton = root.querySelector("#open-create-button");
+    const createModal = root.querySelector("#create-modal");
+    const createBackdrop = root.querySelector("#create-backdrop");
+    const createClose = root.querySelector("#create-close");
+    const createError = root.querySelector("#create-error");
     if (!form ||
         !input ||
         !usernameInput ||
@@ -230,7 +257,12 @@ function bootstrap() {
         !vncDialog ||
         !vncSubtitle ||
         !vncFrame ||
-        !vncClose) {
+        !vncClose ||
+        !openCreateButton ||
+        !createModal ||
+        !createBackdrop ||
+        !createClose ||
+        !createError) {
         return;
     }
     const formEl = form;
@@ -259,6 +291,11 @@ function bootstrap() {
     const vncSubtitleEl = vncSubtitle;
     const vncFrameEl = vncFrame;
     const vncCloseEl = vncClose;
+    const openCreateButtonEl = openCreateButton;
+    const createModalEl = createModal;
+    const createBackdropEl = createBackdrop;
+    const createCloseEl = createClose;
+    const createErrorEl = createError;
     let terminalSocket = null;
     let terminalInstance = null;
     let terminalFitAddon = null;
@@ -363,6 +400,35 @@ function bootstrap() {
         else {
             vncFrameEl.removeAttribute("src");
         }
+    }
+    function renderCreate() {
+        createModalEl.hidden = !state.create.open;
+        createModalEl.setAttribute("aria-hidden", state.create.open ? "false" : "true");
+        if (state.create.error) {
+            createErrorEl.textContent = state.create.error;
+            createErrorEl.classList.remove("d-none");
+        }
+        else {
+            createErrorEl.textContent = "";
+            createErrorEl.classList.add("d-none");
+        }
+    }
+    function setCreateError(message) {
+        state.create.error = message;
+        renderCreate();
+    }
+    function openCreate() {
+        closeTerminal();
+        closeVNC();
+        state.create.open = true;
+        state.create.error = "";
+        renderCreate();
+        inputEl.focus();
+    }
+    function closeCreate() {
+        state.create.open = false;
+        state.create.error = "";
+        renderCreate();
     }
     function teardownTerminalRuntime() {
         terminalClosing = true;
@@ -994,6 +1060,7 @@ function bootstrap() {
             return;
         }
         clearAction();
+        setCreateError("");
         setBusy(true);
         try {
             const body = new URLSearchParams({
@@ -1016,11 +1083,11 @@ function bootstrap() {
                 return;
             }
             if (!result.ok || !result.data) {
-                setActionError(result.error || "Failed to create VM.");
+                setCreateError(result.error || "Failed to create VM.");
                 return;
             }
             if (!result.data.ok) {
-                setActionError(result.data.error || "Failed to create VM.");
+                setCreateError(result.data.error || "Failed to create VM.");
                 return;
             }
             setActionMessage(result.data.message || "VM creation started.");
@@ -1031,6 +1098,7 @@ function bootstrap() {
             passwordConfirmInputEl.setCustomValidity("");
             cpuSelectEl.value = DEFAULT_VCPU;
             memorySelectEl.value = DEFAULT_MEMORY_MIB;
+            closeCreate();
             await loadVMs();
         }
         finally {
@@ -1149,7 +1217,20 @@ function bootstrap() {
     vncCloseEl.addEventListener("click", () => {
         closeVNC();
     });
+    openCreateButtonEl.addEventListener("click", () => {
+        openCreate();
+    });
+    createBackdropEl.addEventListener("click", () => {
+        closeCreate();
+    });
+    createCloseEl.addEventListener("click", () => {
+        closeCreate();
+    });
     document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && state.create.open) {
+            closeCreate();
+            return;
+        }
         if (event.key === "Escape" && state.terminal.open) {
             closeTerminal();
             return;
@@ -1170,6 +1251,7 @@ function bootstrap() {
     renderVMList();
     renderTerminal();
     renderVNC();
+    renderCreate();
     updateCreateAvailability();
     void loadVMs();
     const refreshHandle = window.setInterval(() => {

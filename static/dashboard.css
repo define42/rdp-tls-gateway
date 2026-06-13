@@ -43,6 +43,13 @@
   overflow: auto;
 }
 
+.terminal-modal__dialog.terminal-modal__dialog--form {
+  width: min(900px, calc(100vw - 2rem));
+  height: auto;
+  min-height: 0;
+  resize: none;
+}
+
 .terminal-modal__body {
   padding: 1rem;
   display: flex;
