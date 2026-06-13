@@ -30,6 +30,7 @@ else is treated as an RDP X.224 Connection Request.
 - [Architecture](#architecture)
 - [Quick start (Docker Compose)](#quick-start-docker-compose)
 - [Installing the RPM](#installing-the-rpm)
+- [Installing the deb](#installing-the-deb)
 - [Login flow](#login-flow)
 - [Connecting an RDP client](#connecting-an-rdp-client)
 - [Configuration](#configuration)
@@ -209,6 +210,44 @@ your config file is preserved and the service is restarted automatically. To
 remove it: `sudo dnf remove rdp-tls-gateway`.
 
 > Building the RPM yourself instead of downloading it is covered under
+> [Building from source](#building-from-source).
+
+## Installing the deb
+
+For a native deployment on a Debian-based distribution (Debian / Ubuntu / Mint
+…), each tagged release also publishes a `rdp-tls-gateway_<version>_amd64.deb`
+artifact on the
+[GitHub Releases](https://github.com/define42/rdp-tls-gateway/releases) page,
+built from the same binary as the RPM and container for that release.
+
+The package installs:
+
+| Path                                            | Purpose                                              |
+|-------------------------------------------------|------------------------------------------------------|
+| `/usr/bin/rdp-tls-gateway`                       | The gateway binary.                                  |
+| `/lib/systemd/system/rdp-tls-gateway.service`    | systemd unit (runs as root, binds `:443`).          |
+| `/etc/rdp-tls-gateway/rdp-tls-gateway.conf`      | Config file, registered as a `conffile` so your edits survive upgrades. |
+
+It depends on `libvirt0` and `ca-certificates`, plus `libvirt-daemon-system` and
+`qemu-system-x86` — the local libvirt/KVM stack that hosts the virtual desktops
+(the Debian-named counterparts of the RPM's requires).
+
+1. **Install** (let `apt` pull in the dependencies):
+
+   ```sh
+   sudo apt install ./rdp-tls-gateway_<version>_amd64.deb
+   ```
+
+2. Then follow the same steps as the RPM install above — satisfy the libvirt/KVM
+   runtime prerequisites, edit `/etc/rdp-tls-gateway/rdp-tls-gateway.conf`, and
+   `sudo systemctl enable --now rdp-tls-gateway`. Installation enables the unit
+   per systemd preset policy but does not start it; an upgrade preserves your
+   config and restarts the service.
+
+To remove it: `sudo apt remove rdp-tls-gateway` (add `--purge` to also delete the
+config file).
+
+> Building the deb yourself instead of downloading it is covered under
 > [Building from source](#building-from-source).
 
 ## Login flow
@@ -452,6 +491,21 @@ together with the systemd unit and `rdp-tls-gateway.conf` into
 `dist/rdp-tls-gateway-<version>-1.x86_64.rpm` using the pure-Go
 [`cmd/mkrpm`](cmd/mkrpm) helper — no `rpmbuild` or spec file required. Run `go run
 ./cmd/mkrpm -h` to see the available packaging flags.
+
+### Building the deb
+
+To produce the same `.deb` the [release workflow](#installing-the-deb) publishes,
+run (overriding `VERSION` as needed):
+
+```sh
+make deb VERSION=1.4.0
+```
+
+This packages the same `dist/` artifacts into
+`dist/rdp-tls-gateway_<version>_amd64.deb` using the pure-Go
+[`cmd/mkdeb`](cmd/mkdeb) helper (built on `github.com/xor-gate/debpkg`) — no
+`dpkg-deb` or `debian/` tree required. Run `go run ./cmd/mkdeb -h` to see the
+available packaging flags. Override `DEB_ARCH` for a non-`amd64` target.
 
 ### UI (TypeScript)
 

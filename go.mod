@@ -18,6 +18,7 @@ require (
 	github.com/testcontainers/testcontainers-go v0.42.0
 	github.com/tomatome/grdp v0.1.0
 	github.com/tredoe/osutil v1.5.0
+	github.com/xor-gate/debpkg v1.0.0
 	libvirt.org/go/libvirt v1.12003.0
 )
 
@@ -85,6 +86,7 @@ require (
 	github.com/tklauser/go-sysconf v0.3.16 // indirect
 	github.com/tklauser/numcpus v0.11.0 // indirect
 	github.com/ulikunitz/xz v0.5.15 // indirect
+	github.com/xor-gate/ar v0.0.0-20170530204233-5c72ae81e2b7 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	github.com/zeebo/blake3 v0.2.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
@@ -104,5 +106,6 @@ require (
 	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
 	golang.org/x/tools v0.45.0 // indirect
+	gopkg.in/yaml.v2 v2.0.0-20170812160011-eb3733d160e7 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

@@ -119,6 +119,10 @@ jobs:
         if: github.event_name == 'push' && steps.tag.outputs.new_tag != ''
         run: make rpm VERSION=${{ steps.tag.outputs.new_version }}
 
+      - name: Build deb package
+        if: github.event_name == 'push' && steps.tag.outputs.new_tag != ''
+        run: make deb VERSION=${{ steps.tag.outputs.new_version }}
+
       - name: Create GitHub release
         if: github.event_name == 'push' && steps.tag.outputs.new_tag != ''
         uses: ncipollo/release-action@v1
@@ -126,7 +130,7 @@ jobs:
           tag: ${{ steps.tag.outputs.new_tag }}
           name: Release ${{ steps.tag.outputs.new_tag }}
           body: ${{ steps.tag.outputs.changelog }}
-          artifacts: "dist/*.rpm"
+          artifacts: "dist/*.rpm,dist/*.deb"
 
       # -------------------------------
       # Container build & push (GHCR)
