@@ -37,6 +37,7 @@ const state = {
         open: false,
         vmName: "",
         vmDisplayName: "",
+        ip: "",
         user: "",
         baseImage: "",
         created: "",
@@ -174,6 +175,8 @@ function bootstrap() {
             <button class="btn btn-outline-secondary btn-sm" id="info-close" type="button">Close</button>
           </div>
           <dl class="row mb-0">
+            <dt class="col-4 col-sm-3 text-body-secondary fw-normal">IP Address</dt>
+            <dd class="col-8 col-sm-9 mb-2" id="info-ip"></dd>
             <dt class="col-4 col-sm-3 text-body-secondary fw-normal">User</dt>
             <dd class="col-8 col-sm-9 mb-2" id="info-user"></dd>
             <dt class="col-4 col-sm-3 text-body-secondary fw-normal">Image</dt>
@@ -279,6 +282,7 @@ function bootstrap() {
     const infoModal = root.querySelector("#info-modal");
     const infoBackdrop = root.querySelector("#info-backdrop");
     const infoSubtitle = root.querySelector("#info-subtitle");
+    const infoIP = root.querySelector("#info-ip");
     const infoUser = root.querySelector("#info-user");
     const infoImage = root.querySelector("#info-image");
     const infoCreated = root.querySelector("#info-created");
@@ -317,6 +321,7 @@ function bootstrap() {
         !infoModal ||
         !infoBackdrop ||
         !infoSubtitle ||
+        !infoIP ||
         !infoUser ||
         !infoImage ||
         !infoCreated ||
@@ -357,6 +362,7 @@ function bootstrap() {
     const infoModalEl = infoModal;
     const infoBackdropEl = infoBackdrop;
     const infoSubtitleEl = infoSubtitle;
+    const infoIPEl = infoIP;
     const infoUserEl = infoUser;
     const infoImageEl = infoImage;
     const infoCreatedEl = infoCreated;
@@ -532,14 +538,17 @@ function bootstrap() {
         infoModalEl.hidden = !state.info.open;
         infoModalEl.setAttribute("aria-hidden", state.info.open ? "false" : "true");
         infoSubtitleEl.textContent = state.info.vmDisplayName || state.info.vmName;
+        infoIPEl.textContent = state.info.ip || "n/a";
         infoUserEl.textContent = state.info.user || "n/a";
         infoImageEl.textContent = state.info.baseImage || "n/a";
         infoCreatedEl.textContent = formatCreatedAt(state.info.created);
     }
     function openInfo(vm) {
+        const ipValue = (vm.ip || "").trim();
         state.info.open = true;
         state.info.vmName = vm.name;
         state.info.vmDisplayName = vm.displayName || vm.name;
+        state.info.ip = ipValue.toLowerCase() === "n/a" ? "" : ipValue;
         state.info.user = (vm.user || "").trim();
         state.info.baseImage = (vm.baseImage || "").trim();
         state.info.created = (vm.createdAt || "").trim();
@@ -549,6 +558,7 @@ function bootstrap() {
         state.info.open = false;
         state.info.vmName = "";
         state.info.vmDisplayName = "";
+        state.info.ip = "";
         state.info.user = "";
         state.info.baseImage = "";
         state.info.created = "";
@@ -717,7 +727,6 @@ function bootstrap() {
         const columns = [
             "Name",
             "Connect",
-            "IP Address",
             "State",
             "Memory (GB)",
             "vCPU",
@@ -830,9 +839,6 @@ function bootstrap() {
                 connectCell.classList.add("text-body-secondary");
             }
             row.appendChild(connectCell);
-            const ipCell = document.createElement("td");
-            ipCell.textContent = hasIP ? ipValue : "n/a";
-            row.appendChild(ipCell);
             const stateCell = document.createElement("td");
             const stateBadge = document.createElement("span");
             let stateClass = "text-bg-secondary";

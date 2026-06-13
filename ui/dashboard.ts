@@ -98,6 +98,7 @@ type DashboardInfoState = {
     open: boolean;
     vmName: string;
     vmDisplayName: string;
+    ip: string;
     user: string;
     baseImage: string;
     created: string;
@@ -156,6 +157,7 @@ const state: DashboardState = {
         open: false,
         vmName: "",
         vmDisplayName: "",
+        ip: "",
         user: "",
         baseImage: "",
         created: "",
@@ -306,6 +308,8 @@ function bootstrap(): void {
             <button class="btn btn-outline-secondary btn-sm" id="info-close" type="button">Close</button>
           </div>
           <dl class="row mb-0">
+            <dt class="col-4 col-sm-3 text-body-secondary fw-normal">IP Address</dt>
+            <dd class="col-8 col-sm-9 mb-2" id="info-ip"></dd>
             <dt class="col-4 col-sm-3 text-body-secondary fw-normal">User</dt>
             <dd class="col-8 col-sm-9 mb-2" id="info-user"></dd>
             <dt class="col-4 col-sm-3 text-body-secondary fw-normal">Image</dt>
@@ -412,6 +416,7 @@ function bootstrap(): void {
     const infoModal = root.querySelector<HTMLDivElement>("#info-modal");
     const infoBackdrop = root.querySelector<HTMLDivElement>("#info-backdrop");
     const infoSubtitle = root.querySelector<HTMLParagraphElement>("#info-subtitle");
+    const infoIP = root.querySelector<HTMLElement>("#info-ip");
     const infoUser = root.querySelector<HTMLElement>("#info-user");
     const infoImage = root.querySelector<HTMLElement>("#info-image");
     const infoCreated = root.querySelector<HTMLElement>("#info-created");
@@ -452,6 +457,7 @@ function bootstrap(): void {
         !infoModal ||
         !infoBackdrop ||
         !infoSubtitle ||
+        !infoIP ||
         !infoUser ||
         !infoImage ||
         !infoCreated ||
@@ -494,6 +500,7 @@ function bootstrap(): void {
     const infoModalEl = infoModal;
     const infoBackdropEl = infoBackdrop;
     const infoSubtitleEl = infoSubtitle;
+    const infoIPEl = infoIP;
     const infoUserEl = infoUser;
     const infoImageEl = infoImage;
     const infoCreatedEl = infoCreated;
@@ -679,15 +686,18 @@ function bootstrap(): void {
         infoModalEl.hidden = !state.info.open;
         infoModalEl.setAttribute("aria-hidden", state.info.open ? "false" : "true");
         infoSubtitleEl.textContent = state.info.vmDisplayName || state.info.vmName;
+        infoIPEl.textContent = state.info.ip || "n/a";
         infoUserEl.textContent = state.info.user || "n/a";
         infoImageEl.textContent = state.info.baseImage || "n/a";
         infoCreatedEl.textContent = formatCreatedAt(state.info.created);
     }
 
     function openInfo(vm: DashboardVM): void {
+        const ipValue = (vm.ip || "").trim();
         state.info.open = true;
         state.info.vmName = vm.name;
         state.info.vmDisplayName = vm.displayName || vm.name;
+        state.info.ip = ipValue.toLowerCase() === "n/a" ? "" : ipValue;
         state.info.user = (vm.user || "").trim();
         state.info.baseImage = (vm.baseImage || "").trim();
         state.info.created = (vm.createdAt || "").trim();
@@ -698,6 +708,7 @@ function bootstrap(): void {
         state.info.open = false;
         state.info.vmName = "";
         state.info.vmDisplayName = "";
+        state.info.ip = "";
         state.info.user = "";
         state.info.baseImage = "";
         state.info.created = "";
@@ -881,7 +892,6 @@ function bootstrap(): void {
         const columns = [
             "Name",
             "Connect",
-            "IP Address",
             "State",
             "Memory (GB)",
             "vCPU",
@@ -1005,10 +1015,6 @@ function bootstrap(): void {
                 connectCell.classList.add("text-body-secondary");
             }
             row.appendChild(connectCell);
-
-            const ipCell = document.createElement("td");
-            ipCell.textContent = hasIP ? ipValue : "n/a";
-            row.appendChild(ipCell);
 
             const stateCell = document.createElement("td");
             const stateBadge = document.createElement("span");
