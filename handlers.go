@@ -194,8 +194,33 @@ func requestScheme(r *http.Request) string {
 	return "http"
 }
 
+// debugConnectionLogger logs every HTTP request (including WebSocket upgrades)
+// with its source address, method, and path. It is installed only when
+// DEBUG_CONNECTIONS is set, so operators can trace connectivity — for example,
+// to confirm that dashboard and console traffic arrives through the SSH reverse
+// tunnel and to see the originating address. It passes the ResponseWriter
+// through unwrapped so it never interferes with the WebSocket hijack.
+func debugConnectionLogger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		kind := "http"
+		if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+			kind = "websocket"
+		}
+		forwardedFor := r.Header.Get("X-Forwarded-For")
+		if forwardedFor == "" {
+			forwardedFor = "-"
+		}
+		log.Printf("debug-conn: %s from %s host=%q %s %s (forwarded-for=%s)",
+			kind, r.RemoteAddr, r.Host, r.Method, r.URL.Path, forwardedFor)
+		next.ServeHTTP(w, r)
+	})
+}
+
 func getRemoteGatewayRotuer(sessionManager *session.Manager, settings *config.SettingsType) http.Handler {
 	router := chi.NewRouter()
+	if settings.GetBool(config.DEBUG_CONNECTIONS) {
+		router.Use(debugConnectionLogger)
+	}
 	router.Use(sessionManager.LoadAndSave)
 
 	router.Handle("/static/*", noCacheStaticFileServer())

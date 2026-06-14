@@ -256,8 +256,14 @@ func handleSharedConn(raw net.Conn, frontTLS *cert.TLSManager, mux http.Handler,
 	conn := &bufferedConn{Conn: raw, r: br}
 
 	if first[0] == tlsHandshakeRecordType {
+		if settings.GetBool(config.DEBUG_CONNECTIONS) {
+			log.Printf("debug-conn: accepted TLS/HTTPS connection from %s", raw.RemoteAddr())
+		}
 		handleHTTPS(conn, frontTLS, mux, settings)
 		return
+	}
+	if settings.GetBool(config.DEBUG_CONNECTIONS) {
+		log.Printf("debug-conn: accepted RDP connection from %s", raw.RemoteAddr())
 	}
 	rdp.HandleRDP(conn, frontTLS, sessionManager, settings)
 }

@@ -100,6 +100,8 @@ func NewSettingType(printSettings bool) *SettingsType {
 	s.SetBool(RDP_DISABLE_CLIPBOARD, "Strip clipboard (cliprdr) channel from RDP sessions so the gateway prevents clipboard redirection regardless of client/VM policy", false)
 	s.SetBool(RDP_DISABLE_DRIVES, "Strip drive redirection (rdpdr) channel from RDP sessions so the gateway prevents local drive mapping regardless of client/VM policy", false)
 
+	s.SetBool(DEBUG_CONNECTIONS, "Verbose debug logging of every accepted front connection and HTTP/WebSocket request (type, source address, method, path); use to trace connectivity, e.g. through the SSH reverse tunnel", false)
+
 	s.setSSHTunnelDefaults()
 
 	if printSettings {
@@ -403,6 +405,7 @@ const (
 	VIRT_STORAGE_POOL_NAME = "VIRT_STORAGE_POOL_NAME"
 	BASE_IMAGE_DIR         = "BASE_IMAGE_DIR"
 	TIMEOUT                = "TIMEOUT"
+	DEBUG_CONNECTIONS      = "DEBUG_CONNECTIONS"
 
 	SSH_TUNNEL_ENABLE                 = "SSH_TUNNEL_ENABLE"
 	SSH_TUNNEL_SERVER                 = "SSH_TUNNEL_SERVER"
