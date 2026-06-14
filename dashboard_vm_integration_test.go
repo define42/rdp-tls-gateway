@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/base64"
 	"rdptlsgateway/internal/config"
 	dashboard "rdptlsgateway/internal/dashboard"
 	"rdptlsgateway/internal/hash"
@@ -15,12 +14,12 @@ import (
 
 const dashboardVMTestTimeout = 30 * time.Second
 
-func waitForDashboardVM(t *testing.T, settings *config.SettingsType, user, name string, timeout time.Duration) dashboard.VM {
+func waitForDashboardVM(t *testing.T, user, name string, timeout time.Duration) dashboard.VM {
 	t.Helper()
 
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		rows, err := dashboard.ListDashboardVMs(settings, user)
+		rows, err := dashboard.ListDashboardVMs(user)
 		if err != nil {
 			t.Fatalf("dashboard.ListDashboardVMs(%q): %v", user, err)
 		}
@@ -104,24 +103,14 @@ func assertDashboardVMRow(t *testing.T, row dashboard.VM, wantDisplayName string
 	}
 }
 
-func assertDashboardRDPConnect(t *testing.T, rdpConnect, wantConnectHost, username string) {
+func assertRDPFileContent(t *testing.T, content, wantConnectHost, username string) {
 	t.Helper()
 
-	const prefix = "data:application/x-rdp;base64,"
-	if !strings.HasPrefix(rdpConnect, prefix) {
-		t.Fatalf("expected RDP data URI prefix, got %q", rdpConnect)
+	if !strings.Contains(content, "full address:s:"+wantConnectHost+":443") {
+		t.Fatalf("expected RDP file to contain connect host %q, got %q", wantConnectHost, content)
 	}
-
-	decodedRDP, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(rdpConnect, prefix))
-	if err != nil {
-		t.Fatalf("decode RDP payload: %v", err)
-	}
-	rdp := string(decodedRDP)
-	if !strings.Contains(rdp, "full address:s:"+wantConnectHost+":443") {
-		t.Fatalf("expected RDP payload to contain connect host %q, got %q", wantConnectHost, rdp)
-	}
-	if !strings.Contains(rdp, "username:s:"+username) {
-		t.Fatalf("expected RDP payload to contain username %q, got %q", username, rdp)
+	if !strings.Contains(content, "username:s:"+username) {
+		t.Fatalf("expected RDP file to contain username %q, got %q", username, content)
 	}
 }
 
@@ -130,10 +119,17 @@ func TestListDashboardVMs(t *testing.T) {
 
 	settings := newDashboardVMSettings(t)
 	username, vmName := createDashboardVM(t, settings)
-	row := waitForDashboardVM(t, settings, username, vmName, dashboardVMTestTimeout)
+	row := waitForDashboardVM(t, username, vmName, dashboardVMTestTimeout)
 	wantDisplayName := strings.TrimPrefix(vmName, username+"-")
 	wantConnectHost := hash.RoutingLabel([]byte(settings.Get(config.SNI_HASH_SECRET)), vmName) + ".dashboard.test"
 
 	assertDashboardVMRow(t, row, wantDisplayName)
-	assertDashboardRDPConnect(t, row.RDPConnect, wantConnectHost, username)
+
+	// The .rdp now comes from the explicit Connect download, not an inline field,
+	// so assert the file the user would actually receive for their owned VM.
+	_, content, ok := dashboard.RDPFileForUser(settings, username, vmName)
+	if !ok {
+		t.Fatalf("expected an RDP file for owned VM %q", vmName)
+	}
+	assertRDPFileContent(t, string(content), wantConnectHost, username)
 }

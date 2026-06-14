@@ -36,6 +36,13 @@ func debugf(format string, args ...any) {
 	}
 }
 
+// bridgeBufferSize is the read-chunk size when streaming console/VNC data to the
+// websocket. It matches the SSH channel's max packet (32 KiB), so a framebuffer
+// update is copied in far fewer reads/websocket frames than the previous 4 KiB,
+// reducing per-frame overhead over the tunnel without exceeding a single SSH
+// packet.
+const bridgeBufferSize = 32 * 1024
+
 // HandleDashboardConsoleWS serves the serial console websocket endpoint.
 func HandleDashboardConsoleWS(sessionManager *session.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -238,7 +245,7 @@ func bridgeSerialConsole(name string, ws *websocket.Conn, console *virt.SerialCo
 }
 
 func pumpConsoleToWebsocket(name string, ws *websocket.Conn, console *virt.SerialConsole) {
-	buf := make([]byte, 4096)
+	buf := make([]byte, bridgeBufferSize)
 	var total int64
 	defer func() { debugf("serial: console->ws for vm %q ended after %d bytes", name, total) }()
 	for {
@@ -325,7 +332,7 @@ func bridgeDashboardSocket(channel, name string, ws *websocket.Conn, backendConn
 }
 
 func copySocketToWebsocket(channel, name string, ws *websocket.Conn, backendConn net.Conn) error {
-	buf := make([]byte, 4096)
+	buf := make([]byte, bridgeBufferSize)
 	var total int64
 	defer func() { debugf("%s: backend->ws for vm %q ended after %d bytes", channel, name, total) }()
 	for {

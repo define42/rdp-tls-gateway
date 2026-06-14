@@ -3,7 +3,6 @@
 package dashboard
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -31,7 +30,6 @@ type VM struct {
 	User        string `json:"user"`
 	BaseImage   string `json:"baseImage,omitempty"`
 	CreatedAt   string `json:"createdAt,omitempty"`
-	RDPConnect  string `json:"rdpConnect"`
 	RDPFilename string `json:"rdpFilename"`
 	IP          string `json:"ip"`
 	State       string `json:"state"`
@@ -108,8 +106,10 @@ func rdpDownloadFilename(vmName string) string {
 	return name + ".rdp"
 }
 
-// GenerateRDP builds a base64-encoded RDP payload for the provided server/user pair.
-func GenerateRDP(server, username string) string {
+// GenerateRDPContent builds the raw .rdp file body for the provided server/user
+// pair. It is the single source of truth for the connection settings used by the
+// downloadable file (WriteRDPFile).
+func GenerateRDPContent(server, username string) string {
 	lines := []string{
 		fmt.Sprintf("full address:s:%s:443", server),
 		fmt.Sprintf("username:s:%s", username),
@@ -118,33 +118,73 @@ func GenerateRDP(server, username string) string {
 		"enablecredsspsupport:i:0",
 	}
 
-	rdp := strings.Join(lines, "\n") + "\n"
-	encoded := base64.StdEncoding.EncodeToString([]byte(rdp))
+	return strings.Join(lines, "\n") + "\n"
+}
 
-	return "data:application/x-rdp;base64," + encoded
+// rdpConnectHost returns the host an RDP client connects to for the VM: the
+// opaque HMAC routing label under FRONT_DOMAIN, or the bare VM name when no
+// front domain is configured, so the downloaded .rdp file routes to the right VM
+// without leaking the username-hostname in the cleartext TLS SNI.
+func rdpConnectHost(settings *config.SettingsType, vmName string) string {
+	domain := strings.TrimSpace(settings.GetString(config.FRONT_DOMAIN))
+	if domain == "" {
+		return vmName
+	}
+	secret := []byte(settings.Get(config.SNI_HASH_SECRET))
+	return hash.RoutingLabel(secret, vmName) + "." + domain
+}
+
+// RDPFileForUser builds the .rdp download (filename and body) for the named VM,
+// resolved from the requesting user's own VM list so callers cannot mint a file
+// for a VM the user does not own. ok is false when the VM is not in that list.
+func RDPFileForUser(settings *config.SettingsType, user, vmName string) (filename string, content []byte, ok bool) {
+	for _, vm := range virt.GetInstance().GetVMs(user) {
+		if vm.Name != vmName {
+			continue
+		}
+		rdpUser := strings.TrimSpace(vm.GuestUser)
+		if rdpUser == "" {
+			rdpUser = user
+		}
+		body := GenerateRDPContent(rdpConnectHost(settings, vm.Name), rdpUser)
+		return rdpDownloadFilename(vm.Name), []byte(body), true
+	}
+	return "", nil, false
+}
+
+// WriteRDPFile writes the named VM's .rdp connection file as an attachment
+// download. The caller is responsible for authenticating the session and
+// verifying ownership (and for recording the RDP connect grant) before calling.
+func WriteRDPFile(w http.ResponseWriter, settings *config.SettingsType, user, vmName string) {
+	filename, content, ok := RDPFileForUser(settings, user, vmName)
+	if !ok {
+		WriteJSON(w, http.StatusNotFound, ActionResponse{OK: false, Error: "VM not found."})
+		return
+	}
+	setNoCacheHeaders(w)
+	w.Header().Set("Content-Type", "application/x-rdp")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(content); err != nil {
+		log.Printf("write rdp file for vm %q: %v", vmName, err)
+	}
 }
 
 // ListDashboardVMs returns VM rows visible to the given user.
-func ListDashboardVMs(settings *config.SettingsType, user string) ([]VM, error) {
+func ListDashboardVMs(user string) ([]VM, error) {
 	vmList := virt.GetInstance().GetVMs(user)
-	return buildDashboardRows(vmList, settings, user), nil
+	return buildDashboardRows(vmList, user), nil
 }
 
-func buildDashboardRows(vmList []virt.VMInfo, settings *config.SettingsType, user string) []VM {
+func buildDashboardRows(vmList []virt.VMInfo, user string) []VM {
 	rows := make([]VM, 0, len(vmList))
-	secret := []byte(settings.Get(config.SNI_HASH_SECRET))
 	for _, vm := range vmList {
 		// The UI shows the bare VM name (the part the user typed at creation,
 		// without the owner prefix) — the old FQDN was never the on-wire SNI.
-		// connectHost uses the opaque HMAC routing label so the cleartext TLS
-		// SNI never reveals the username-hostname.
 		displayName := vmBareName(vm)
-		connectHost := vm.Name
-		if domain := strings.TrimSpace(settings.GetString(config.FRONT_DOMAIN)); domain != "" {
-			connectHost = hash.RoutingLabel(secret, vm.Name) + "." + domain
-		}
 		// Prefer the guest account stored on the VM; older VMs without that
-		// metadata fall back to the requesting user's own name.
+		// metadata fall back to the requesting user's own name. This is the RDP
+		// login surfaced in the downloaded .rdp file (see RDPFileForUser).
 		rdpUser := strings.TrimSpace(vm.GuestUser)
 		if rdpUser == "" {
 			rdpUser = user
@@ -155,7 +195,6 @@ func buildDashboardRows(vmList []virt.VMInfo, settings *config.SettingsType, use
 			User:        rdpUser,
 			BaseImage:   strings.TrimSpace(vm.BaseImage),
 			CreatedAt:   strings.TrimSpace(vm.CreatedAt),
-			RDPConnect:  GenerateRDP(connectHost, rdpUser),
 			RDPFilename: rdpDownloadFilename(vm.Name),
 			IP:          vm.IP,
 			State:       vm.State,

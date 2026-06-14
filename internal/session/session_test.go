@@ -425,3 +425,156 @@ func TestSessionMiddlewareCallsNextWithSession(t *testing.T) {
 		t.Fatalf("expected %d, got %d", http.StatusNoContent, rec.Code)
 	}
 }
+
+// withLoadedSession runs fn inside a request whose context has been through
+// LoadAndSave, so session reads/writes work like a real handler. cookie may be
+// nil to exercise an unauthenticated (loaded but empty) session.
+func withLoadedSession(t *testing.T, m *Manager, remoteAddr string, cookie *http.Cookie, fn func(r *http.Request)) {
+	t.Helper()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/dashboard/rdp", nil)
+	req.RemoteAddr = remoteAddr
+	if cookie != nil {
+		req.AddCookie(cookie)
+	}
+
+	handler := m.LoadAndSave(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fn(r)
+		w.WriteHeader(http.StatusOK)
+	}))
+	handler.ServeHTTP(rec, req)
+}
+
+func TestGrantRDPConnectAuthorizesConnect(t *testing.T) {
+	m := NewManager()
+
+	user, err := types.NewUser("alice")
+	if err != nil {
+		t.Fatalf("new user: %v", err)
+	}
+	cookie := issueSession(t, m, user, testSessionRemoteAddr)
+
+	// No grant yet: a standing session must not authorize RDP on its own.
+	if m.HasRDPConnectGrant("alice", "192.0.2.10", "alice-desk") {
+		t.Fatal("did not expect a grant before Connect was clicked")
+	}
+
+	withLoadedSession(t, m, testSessionRemoteAddr, cookie, func(r *http.Request) {
+		if err := m.GrantRDPConnect(r.Context(), "alice-desk"); err != nil {
+			t.Fatalf("grant rdp connect: %v", err)
+		}
+	})
+
+	if !m.HasRDPConnectGrant("alice", "192.0.2.10", "alice-desk") {
+		t.Fatal("expected the Connect grant to authorize RDP for the VM")
+	}
+	if m.HasRDPConnectGrant("alice", "192.0.2.10", "other-vm") {
+		t.Fatal("did not expect a grant for a VM the user never connected to")
+	}
+	if m.HasRDPConnectGrant("alice", "198.51.100.9", "alice-desk") {
+		t.Fatal("did not expect a grant from a different client IP")
+	}
+}
+
+func TestGrantRDPConnectRejectsBadInput(t *testing.T) {
+	m := NewManager()
+
+	user, err := types.NewUser("alice")
+	if err != nil {
+		t.Fatalf("new user: %v", err)
+	}
+	cookie := issueSession(t, m, user, testSessionRemoteAddr)
+
+	var blankErr, noSessionErr error
+	withLoadedSession(t, m, testSessionRemoteAddr, cookie, func(r *http.Request) {
+		blankErr = m.GrantRDPConnect(r.Context(), "   ")
+	})
+	if blankErr == nil {
+		t.Fatal("expected an error granting a blank VM name")
+	}
+
+	// A loaded but unauthenticated session (no cookie) must not grant.
+	withLoadedSession(t, m, testSessionRemoteAddr, nil, func(r *http.Request) {
+		noSessionErr = m.GrantRDPConnect(r.Context(), "alice-desk")
+	})
+	if noSessionErr == nil {
+		t.Fatal("expected an error granting without an authenticated session")
+	}
+}
+
+func TestHasRDPConnectGrantIgnoresExpiredGrant(t *testing.T) {
+	m := NewManager()
+
+	user, err := types.NewUser("dora")
+	if err != nil {
+		t.Fatalf("new user: %v", err)
+	}
+
+	// The session itself is still valid; only the grant has expired.
+	deadline := time.Now().Add(time.Hour)
+	values := map[string]interface{}{
+		sessionKey: sessionData{
+			User:             user,
+			CreatedAt:        time.Now(),
+			ClientIP:         "192.0.2.20",
+			RDPConnectGrants: map[string]time.Time{"vm1": time.Now().Add(-time.Minute)},
+		},
+	}
+	data, err := m.Codec.Encode(deadline, values)
+	if err != nil {
+		t.Fatalf("encode session: %v", err)
+	}
+	if err := m.Store.Commit("token", data, deadline); err != nil {
+		t.Fatalf("commit session: %v", err)
+	}
+
+	if m.HasRDPConnectGrant("dora", "192.0.2.20", "vm1") {
+		t.Fatal("expected an expired connect grant to be ignored")
+	}
+}
+
+func TestHasRDPConnectGrantRejectsScopeAndInputMismatches(t *testing.T) {
+	m := NewManager()
+
+	user, err := types.NewUser("dora")
+	if err != nil {
+		t.Fatalf("new user: %v", err)
+	}
+
+	deadline := time.Now().Add(time.Hour)
+	values := map[string]interface{}{
+		sessionKey: sessionData{
+			User:             user,
+			CreatedAt:        time.Now(),
+			ClientIP:         "192.0.2.20",
+			RDPConnectGrants: map[string]time.Time{"vm1": time.Now().Add(time.Minute)},
+		},
+	}
+	data, err := m.Codec.Encode(deadline, values)
+	if err != nil {
+		t.Fatalf("encode session: %v", err)
+	}
+	if err := m.Store.Commit("token", data, deadline); err != nil {
+		t.Fatalf("commit session: %v", err)
+	}
+
+	if !m.HasRDPConnectGrant("dora", "192.0.2.20", "vm1") {
+		t.Fatal("expected the unexpired grant to authorize")
+	}
+	if m.HasRDPConnectGrant("dora", "192.0.2.20", "vm2") {
+		t.Fatal("did not expect authorization for a different VM")
+	}
+	if m.HasRDPConnectGrant("dora", "192.0.2.21", "vm1") {
+		t.Fatal("did not expect authorization from a different IP")
+	}
+	if m.HasRDPConnectGrant("erin", "192.0.2.20", "vm1") {
+		t.Fatal("did not expect authorization for a different user")
+	}
+	if m.HasRDPConnectGrant("", "192.0.2.20", "vm1") || m.HasRDPConnectGrant("dora", "192.0.2.20", "") {
+		t.Fatal("expected blank user or VM name to fail authorization")
+	}
+	if m.HasRDPConnectGrant("dora", "not-an-ip", "vm1") {
+		t.Fatal("expected an invalid client IP to fail authorization")
+	}
+}

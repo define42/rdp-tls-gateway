@@ -2,7 +2,6 @@ package dashboard
 
 import (
 	"embed"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -10,7 +9,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"rdptlsgateway/internal/config"
 	"rdptlsgateway/internal/virt"
 	"strings"
 	"testing"
@@ -116,19 +114,12 @@ func TestDashboardHTMLPathValid(t *testing.T) {
 	}
 }
 
-func TestGenerateRDP(t *testing.T) {
-	got := GenerateRDP("vm1.example.test", "alice")
-	if !strings.HasPrefix(got, "data:application/x-rdp;base64,") {
-		t.Fatalf("expected RDP data URI, got %q", got)
+func TestGenerateRDPContent(t *testing.T) {
+	got := GenerateRDPContent("vm1.example.test", "alice")
+	// The downloadable .rdp body is the raw text (no data: URI wrapper).
+	if strings.HasPrefix(got, "data:") {
+		t.Fatalf("expected raw .rdp content, got data URI: %q", got)
 	}
-
-	encoded := strings.TrimPrefix(got, "data:application/x-rdp;base64,")
-	decoded, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		t.Fatalf("decode RDP payload: %v", err)
-	}
-
-	payload := string(decoded)
 	for _, want := range []string{
 		"full address:s:vm1.example.test:443",
 		"username:s:alice",
@@ -136,16 +127,13 @@ func TestGenerateRDP(t *testing.T) {
 		"administrative session:i:1",
 		"enablecredsspsupport:i:0",
 	} {
-		if !strings.Contains(payload, want) {
-			t.Fatalf("expected payload to contain %q, got %q", want, payload)
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected content to contain %q, got %q", want, got)
 		}
 	}
 }
 
 func TestBuildDashboardRows(t *testing.T) {
-	t.Setenv(config.FRONT_DOMAIN, "example.test")
-	settings := config.NewSettingType(false)
-
 	rows := buildDashboardRows([]virt.VMInfo{
 		{
 			Name:      "alice-vm",
@@ -159,7 +147,7 @@ func TestBuildDashboardRows(t *testing.T) {
 			TTYReady:  true,
 			VNCReady:  false,
 		},
-	}, settings, "alice")
+	}, "alice")
 
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 row, got %d", len(rows))
@@ -173,9 +161,6 @@ func TestBuildDashboardRows(t *testing.T) {
 	}
 	if row.Name != "alice-vm" || row.IP != "192.0.2.10" || row.State != "running" {
 		t.Fatalf("unexpected row data: %+v", row)
-	}
-	if !strings.Contains(row.RDPConnect, "data:application/x-rdp;base64,") {
-		t.Fatalf("expected RDP data URI, got %q", row.RDPConnect)
 	}
 	if row.RDPFilename != "alice-vm.rdp" {
 		t.Fatalf("expected per-VM download filename %q, got %q", "alice-vm.rdp", row.RDPFilename)
@@ -198,57 +183,35 @@ func TestRDPDownloadFilename(t *testing.T) {
 	}
 }
 
-func rdpUsername(t *testing.T, rdpConnect string) string {
-	t.Helper()
-	const prefix = "data:application/x-rdp;base64,"
-	if !strings.HasPrefix(rdpConnect, prefix) {
-		t.Fatalf("expected RDP data URI prefix, got %q", rdpConnect)
-	}
-	decoded, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(rdpConnect, prefix))
-	if err != nil {
-		t.Fatalf("decode RDP payload: %v", err)
-	}
-	for _, line := range strings.Split(string(decoded), "\n") {
-		if rest, ok := strings.CutPrefix(line, "username:s:"); ok {
-			return rest
-		}
-	}
-	t.Fatalf("no username line in RDP payload %q", string(decoded))
-	return ""
-}
-
 func TestBuildDashboardRowsRDPUsername(t *testing.T) {
-	t.Setenv(config.FRONT_DOMAIN, "example.test")
-	settings := config.NewSettingType(false)
-
 	rows := buildDashboardRows([]virt.VMInfo{
 		{Name: "with-guest", Owner: "alice", GuestUser: "bob"},
 		{Name: "legacy", Owner: "alice"},
-	}, settings, "alice")
+	}, "alice")
 
 	if len(rows) != 2 {
 		t.Fatalf("expected 2 rows, got %d", len(rows))
 	}
-	// The chosen guest account is used for RDP when present.
-	if got := rdpUsername(t, rows[0].RDPConnect); got != "bob" {
-		t.Fatalf("expected RDP username %q, got %q", "bob", got)
+	// User is the RDP login surfaced in the .rdp download: the chosen guest
+	// account when present.
+	if rows[0].User != "bob" {
+		t.Fatalf("expected RDP username %q, got %q", "bob", rows[0].User)
 	}
 	// Older VMs without guest-user metadata fall back to the requesting user.
-	if got := rdpUsername(t, rows[1].RDPConnect); got != "alice" {
-		t.Fatalf("expected fallback RDP username %q, got %q", "alice", got)
+	if rows[1].User != "alice" {
+		t.Fatalf("expected fallback RDP username %q, got %q", "alice", rows[1].User)
 	}
 }
 
-func TestBuildDashboardRowsWithoutFrontDomain(t *testing.T) {
-	t.Setenv(config.FRONT_DOMAIN, "")
-	settings := config.NewSettingType(false)
-
-	rows := buildDashboardRows([]virt.VMInfo{{Name: "plain-vm"}}, settings, "alice")
+func TestBuildDashboardRowsUnownedVMDisplayName(t *testing.T) {
+	// A VM without owner metadata has no "<owner>-" prefix to strip, so its
+	// display name is the full name.
+	rows := buildDashboardRows([]virt.VMInfo{{Name: "plain-vm"}}, "alice")
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 row, got %d", len(rows))
 	}
 	if rows[0].DisplayName != "plain-vm" {
-		t.Fatalf("expected display name without domain, got %q", rows[0].DisplayName)
+		t.Fatalf("expected full name as display name, got %q", rows[0].DisplayName)
 	}
 }
 

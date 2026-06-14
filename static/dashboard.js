@@ -779,13 +779,22 @@ function bootstrap() {
                 connectStack.className = "d-flex flex-column gap-2";
                 const connectActions = document.createElement("div");
                 connectActions.className = "d-flex flex-wrap gap-2";
-                if (vm.rdpConnect && displayName.trim() !== "") {
+                if (displayName.trim() !== "") {
                     if (hasIP) {
-                        const connectButton = document.createElement("a");
+                        // The RDP button is a deliberate action, not a static
+                        // download link: clicking it POSTs to the server, which
+                        // opens a short-lived RDP authorization window for this
+                        // VM from the user's IP and returns the .rdp file. The
+                        // RDP front handler rejects connections without that
+                        // recent grant, so the file alone is not enough.
+                        const connectButton = document.createElement("button");
+                        connectButton.type = "button";
                         connectButton.className = "btn btn-sm btn-success";
-                        connectButton.href = vm.rdpConnect;
                         setIconLabel(connectButton, "bi-display", "RDP");
-                        connectButton.setAttribute("download", vm.rdpFilename || state.filename);
+                        connectButton.disabled = state.busy;
+                        connectButton.addEventListener("click", () => {
+                            void connectRDP(vm);
+                        });
                         connectActions.appendChild(connectButton);
                     }
                     else {
@@ -1292,6 +1301,86 @@ function bootstrap() {
     }
     async function shutdownVM(name) {
         await actionVM(name, "/api/dashboard/shutdown", "VM stop requested.", "Failed to stop VM.");
+    }
+    function filenameFromContentDisposition(header, fallback) {
+        if (header) {
+            const match = /filename="?([^";]+)"?/i.exec(header);
+            if (match && match[1].trim() !== "") {
+                return match[1].trim();
+            }
+        }
+        return fallback;
+    }
+    function triggerBlobDownload(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        // Revoke after a tick so the browser has started the download.
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+    // connectRDP is the "Connect" action: it asks the server to authorize an RDP
+    // connection for this VM (opening a short-lived window keyed to the user's
+    // IP) and download the matching .rdp file. On success the file is saved; the
+    // user then opens it in their RDP client within the authorization window.
+    async function connectRDP(vm) {
+        if (state.busy) {
+            return;
+        }
+        const name = (vm.name || "").trim();
+        if (name === "") {
+            setActionError("Unable to connect: missing VM name.");
+            return;
+        }
+        clearAction();
+        setBusy(true);
+        try {
+            const body = new URLSearchParams({ vm_name: name });
+            let response;
+            try {
+                response = await fetch("/api/dashboard/rdp", {
+                    method: "POST",
+                    cache: "no-store",
+                    credentials: "same-origin",
+                    headers: {
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    },
+                    body: body.toString(),
+                });
+            }
+            catch (_a) {
+                setActionError(SESSION_CHECK_ERROR);
+                return;
+            }
+            if (responseRequiresLogin(response)) {
+                redirectToLogin();
+                return;
+            }
+            if (!response.ok) {
+                let message = "Failed to start RDP connection.";
+                try {
+                    const payload = await response.json();
+                    if (payload && typeof payload.error === "string" && payload.error !== "") {
+                        message = payload.error;
+                    }
+                }
+                catch (_b) {
+                    // Non-JSON error body: keep the default message.
+                }
+                setActionError(message);
+                return;
+            }
+            const blob = await response.blob();
+            const filename = filenameFromContentDisposition(response.headers.get("Content-Disposition"), vm.rdpFilename || state.filename);
+            triggerBlobDownload(blob, filename);
+            setActionMessage("RDP connection authorized. Open the downloaded .rdp file to connect within 2 minutes.");
+        }
+        finally {
+            setBusy(false);
+        }
     }
     // Keep the native "passwords must match" message in sync as the user types,
     // so the confirm field reflects the current match state on the next submit.

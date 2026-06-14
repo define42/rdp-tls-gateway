@@ -266,6 +266,7 @@ func registerAPI(api huma.API, sessionManager *session.Manager, settings *config
 	registerDashboardDataRoute(group, sessionManager, settings)
 	registerDashboardCreateRoute(group, sessionManager, settings)
 	registerDashboardResourcesRoute(group, sessionManager)
+	registerDashboardRDPRoute(group, sessionManager, settings)
 	registerDashboardVMActionRoute(group, sessionManager, "/dashboard/remove", "dashboard remove", "remove", "Failed to remove VM.", "VM removed.", func(name string) error {
 		return virt.RemoveVM(name, settings)
 	})
@@ -323,7 +324,7 @@ func registerDashboardDataRoute(group huma.API, sessionManager *session.Manager,
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		vmRows, err := dashboard.ListDashboardVMs(settings, user.Name)
+		vmRows, err := dashboard.ListDashboardVMs(user.Name)
 		if err != nil {
 			log.Printf("list vms: %v", err)
 			dashboard.WriteJSON(w, http.StatusInternalServerError, dashboard.DataResponse{
@@ -478,6 +479,39 @@ func registerDashboardResourcesRoute(group huma.API, sessionManager *session.Man
 			OK:      true,
 			Message: "VM resources updated.",
 		})
+	})
+}
+
+// registerDashboardRDPRoute serves the per-VM "Connect" action. It verifies the
+// caller owns the VM, opens a short-lived RDP authorization window for the
+// caller's client IP (so the RDP front handler's authorizeRDPAccess will admit
+// the connection), and returns the .rdp connection file as a download. Making
+// the download an explicit, authenticated, same-origin POST is what narrows RDP
+// authorization to a deliberate action instead of any standing dashboard session.
+func registerDashboardRDPRoute(group huma.API, sessionManager *session.Manager, settings *config.SettingsType) {
+	registerHiddenPost(group, "/dashboard/rdp", func(ctx huma.Context) {
+		req, w := humachi.Unwrap(ctx)
+		name, ok := authorizeDashboardVMAction(req, w, sessionManager, "dashboard rdp", "connect to")
+		if !ok {
+			return
+		}
+		user, ok := sessionManager.UserFromContext(req.Context())
+		if !ok {
+			dashboard.WriteJSON(w, http.StatusUnauthorized, dashboard.ActionResponse{
+				OK:    false,
+				Error: "Login required.",
+			})
+			return
+		}
+		if err := sessionManager.GrantRDPConnect(req.Context(), name); err != nil {
+			log.Printf("grant rdp connect for vm %q failed: %v", name, err)
+			dashboard.WriteJSON(w, http.StatusInternalServerError, dashboard.ActionResponse{
+				OK:    false,
+				Error: "Failed to authorize RDP connection.",
+			})
+			return
+		}
+		dashboard.WriteRDPFile(w, settings, user.GetName(), name)
 	})
 }
 

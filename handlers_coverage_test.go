@@ -627,16 +627,6 @@ func TestWriteJSON(t *testing.T) {
 	}
 }
 
-func TestGenerateRDP(t *testing.T) {
-	rdp := dashboard.GenerateRDP("vm1.desktop.local.gd", "alice")
-	if rdp == "" {
-		t.Fatal("expected non-empty RDP data URI")
-	}
-	if !strings.HasPrefix(rdp, "data:application/x-rdp;base64,") {
-		t.Fatalf("expected base64 data URI, got %q", rdp[:50])
-	}
-}
-
 func TestHandleHealthEndpoint(t *testing.T) {
 	sm := session.NewManager()
 	settings := config.NewSettingType(false)

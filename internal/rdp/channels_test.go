@@ -175,7 +175,7 @@ func TestHandleRDPStripsBlockedChannelsEndToEnd(t *testing.T) {
 	receivedPDU := startEchoBackendCapturingPDU(t, backendHost)
 	frontTLS, settings := newFrontTLSManager(t, "example.test")
 	sessionManager := session.NewManager()
-	issueUserSession(t, sessionManager, "alice", "192.0.2.150:5000")
+	issueUserSession(t, sessionManager, "alice", "192.0.2.150:5000", "vmfilter")
 
 	client, done := startHandleRDPTestConnection(t, frontTLS, sessionManager, settings, "192.0.2.150")
 	tlsClient := performFrontHandshake(t, client, "vmfilter.example.test")

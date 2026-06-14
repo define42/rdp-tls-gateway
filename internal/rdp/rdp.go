@@ -435,8 +435,8 @@ func authorizeRDPAccess(remoteAddr net.Addr, sessionManager *session.Manager, sn
 		log.Printf("rdp denied SNI=%q vm=%q remote=%s: invalid client IP", sni, hostname, remoteAddr)
 		return false
 	}
-	if !sessionManager.UserHasActiveSessionFromIP(owner, clientIP) {
-		log.Printf("rdp denied SNI=%q vm=%q owner=%q client_ip=%q remote=%s: no matching active session", sni, hostname, owner, clientIP, remoteAddr)
+	if !sessionManager.HasRDPConnectGrant(owner, clientIP, hostname) {
+		log.Printf("rdp denied SNI=%q vm=%q owner=%q client_ip=%q remote=%s: no active Connect authorization (owner must click Connect in the dashboard)", sni, hostname, owner, clientIP, remoteAddr)
 		return false
 	}
 

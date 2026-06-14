@@ -4,6 +4,7 @@ package session
 import (
 	"context"
 	"encoding/gob"
+	"errors"
 	"net"
 	"net/http"
 	"net/netip"
@@ -22,6 +23,13 @@ type sessionData struct {
 	User      *types.User
 	CreatedAt time.Time
 	ClientIP  string
+	// RDPConnectGrants records, per VM name, the instant until which an RDP
+	// connection for that VM is authorized from this session's client IP. A
+	// grant is created when the user clicks "Connect" (downloads the .rdp) and
+	// expires after rdpConnectWindow, so a standing dashboard session no longer
+	// implicitly authorizes RDP — see HasRDPConnectGrant and the RDP front
+	// handler's authorizeRDPAccess.
+	RDPConnectGrants map[string]time.Time
 }
 
 const sessionKey = "session"
@@ -32,6 +40,14 @@ const sessionKey = "session"
 // can start new dashboard, RDP, or console access. Existing long-lived RDP and
 // WebSocket connections are authorized at setup and are not force-closed here.
 const sessionTTL = 30 * time.Minute
+
+// rdpConnectWindow is how long an explicit "Connect" action authorizes RDP for a
+// VM from the session's client IP. It must cover a user downloading the .rdp
+// file and launching their RDP client (so the initial connection establishes),
+// while staying short enough that a logged-in dashboard session does not leave a
+// standing, always-open RDP authorization. New RDP connections after the window
+// closes (e.g. a reconnect) require clicking Connect again.
+const rdpConnectWindow = 2 * time.Minute
 
 var registerSessionTypesOnce sync.Once //nolint:gochecknoglobals // package-level singleton needed for one-time registration
 
@@ -104,6 +120,39 @@ func (m *Manager) CreateSession(ctx context.Context, u *types.User, clientIP str
 	return nil
 }
 
+// GrantRDPConnect opens a short-lived RDP authorization window for vmName on the
+// caller's own session, recording that the user explicitly clicked "Connect".
+// The grant is checked by HasRDPConnectGrant when an RDP connection arrives. It
+// must be called within an authenticated request so the session is loaded; the
+// grant is persisted when the session is committed (via the LoadAndSave
+// middleware) before the response — and therefore before the RDP client dials.
+func (m *Manager) GrantRDPConnect(ctx context.Context, vmName string) error {
+	vmName = strings.TrimSpace(vmName)
+	if vmName == "" {
+		return errors.New("vm name is required")
+	}
+
+	sess, ok := m.Get(ctx, sessionKey).(sessionData)
+	if !ok || sess.User == nil {
+		return errors.New("no authenticated session")
+	}
+
+	now := time.Now()
+	grants := make(map[string]time.Time, len(sess.RDPConnectGrants)+1)
+	// Carry over only still-valid grants so the map cannot grow unbounded with
+	// expired entries for VMs the user connected to earlier.
+	for name, expiry := range sess.RDPConnectGrants {
+		if now.Before(expiry) {
+			grants[name] = expiry
+		}
+	}
+	grants[vmName] = now.Add(rdpConnectWindow)
+
+	sess.RDPConnectGrants = grants
+	m.Put(ctx, sessionKey, sess)
+	return nil
+}
+
 func (m *Manager) getSession(r *http.Request) (sessionData, bool) {
 	sess, ok := m.Get(r.Context(), sessionKey).(sessionData)
 	if !ok || sess.User == nil {
@@ -157,6 +206,35 @@ func (m *Manager) UserHasActiveSessionFromIP(username, clientIP string) bool {
 			continue
 		}
 		if sess.User.GetName() == username && sess.ClientIP == canonicalIP {
+			return true
+		}
+	}
+	return false
+}
+
+// HasRDPConnectGrant reports whether username has an unexpired RDP connect grant
+// for vmName from clientIP — i.e. the user clicked "Connect" for that VM from
+// that address within the last rdpConnectWindow. This is the gate the RDP front
+// handler uses: it narrows authorization from "any active dashboard session on
+// this IP" to "an explicit, recent Connect action for this specific VM".
+func (m *Manager) HasRDPConnectGrant(username, clientIP, vmName string) bool {
+	username = strings.TrimSpace(username)
+	vmName = strings.TrimSpace(vmName)
+	if username == "" || vmName == "" {
+		return false
+	}
+
+	canonicalIP, ok := CanonicalClientIP(clientIP)
+	if !ok {
+		return false
+	}
+
+	now := time.Now()
+	for _, sess := range m.allSessions() {
+		if sess.User == nil || sess.User.GetName() != username || sess.ClientIP != canonicalIP {
+			continue
+		}
+		if expiry, ok := sess.RDPConnectGrants[vmName]; ok && now.Before(expiry) {
 			return true
 		}
 	}
