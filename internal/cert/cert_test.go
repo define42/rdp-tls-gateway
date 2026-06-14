@@ -243,6 +243,58 @@ func TestNewTLSManagerACMERequiresFrontDomain(t *testing.T) {
 	}
 }
 
+func TestNewTLSManagerACMEDefersIssuance(t *testing.T) {
+	// With ACME enabled and a front domain, NewTLSManager must prepare
+	// certificate management without any network I/O: issuance is deferred to
+	// StartManaging so it can run after the front listener (local or SSH tunnel)
+	// is accepting TLS-ALPN-01 validation.
+	t.Setenv(config.ACME_ENABLE, "true")
+	t.Setenv(config.FRONT_DOMAIN, "vdi.example.test")
+	t.Setenv(config.CERT_FILE, "")
+	t.Setenv(config.KEY_FILE, "")
+	t.Setenv(config.DATA_ROOT_DIR, t.TempDir())
+
+	settings := config.NewSettingType(false)
+	tm, err := NewTLSManager(settings)
+	if err != nil {
+		t.Fatalf("NewTLSManager: %v", err)
+	}
+
+	if tm.magic == nil {
+		t.Fatal("expected certmagic config for ACME-enabled manager")
+	}
+	if len(tm.initialDomains) != 1 || tm.initialDomains[0] != "vdi.example.test" {
+		t.Fatalf("expected initial domains [vdi.example.test], got %v", tm.initialDomains)
+	}
+	// Issuance has not started, so nothing is managed yet and no worker runs,
+	// which means Close must be a no-op.
+	if got := tm.managedDomains(); len(got) != 0 {
+		t.Fatalf("expected no managed domains before StartManaging, got %v", got)
+	}
+	if err := tm.Close(); err != nil {
+		t.Fatalf("Close before StartManaging should be a no-op, got %v", err)
+	}
+}
+
+func TestStartManagingStaticNoop(t *testing.T) {
+	t.Setenv(config.ACME_ENABLE, "false")
+	t.Setenv(config.CERT_FILE, "")
+	t.Setenv(config.KEY_FILE, "")
+
+	settings := config.NewSettingType(false)
+	tm, err := NewTLSManager(settings)
+	if err != nil {
+		t.Fatalf("NewTLSManager: %v", err)
+	}
+
+	if err := tm.StartManaging(); err != nil {
+		t.Fatalf("StartManaging on a static manager should be a no-op, got %v", err)
+	}
+	if err := tm.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}
+
 func TestUpdateDomainsNoChange(t *testing.T) {
 	t.Setenv(config.FRONT_DOMAIN, "example.test")
 	settings := config.NewSettingType(false)

@@ -38,6 +38,10 @@ type Setting struct {
 	I int
 	B bool
 	D time.Duration
+
+	// Secret masks the value in the printed settings table so credentials such
+	// as passphrases are not written to logs.
+	Secret bool
 }
 
 // SettingsType holds the process configuration keyed by environment-backed setting ID.
@@ -96,6 +100,8 @@ func NewSettingType(printSettings bool) *SettingsType {
 	s.SetBool(RDP_DISABLE_CLIPBOARD, "Strip clipboard (cliprdr) channel from RDP sessions so the gateway prevents clipboard redirection regardless of client/VM policy", false)
 	s.SetBool(RDP_DISABLE_DRIVES, "Strip drive redirection (rdpdr) channel from RDP sessions so the gateway prevents local drive mapping regardless of client/VM policy", false)
 
+	s.setSSHTunnelDefaults()
+
 	if printSettings {
 		table := tablewriter.NewWriter(os.Stdout)
 		table.Header("KEY", "Description", "Value")
@@ -108,12 +114,32 @@ func NewSettingType(printSettings bool) *SettingsType {
 
 		for _, key := range keys {
 			st := s.m[key]
-			_ = table.Append([]string{key, st.Description, st.Raw})
+			value := st.Raw
+			if st.Secret && value != "" {
+				value = "***"
+			}
+			_ = table.Append([]string{key, st.Description, value})
 		}
 		_ = table.Render()
 	}
 
 	return s
+}
+
+// setSSHTunnelDefaults registers the SSH reverse-tunnel settings. Instead of
+// binding the front listener locally, the gateway can dial out to a public
+// relay over SSH and have it listen on the gateway's behalf, so a gateway behind
+// NAT can publish its :443 service on a reachable host.
+func (s *SettingsType) setSSHTunnelDefaults() {
+	s.SetBool(SSH_TUNNEL_ENABLE, "Publish the front listener through an SSH reverse tunnel to a public relay instead of binding locally; lets the gateway run behind NAT", false)
+	s.SetString(SSH_TUNNEL_SERVER, "Relay SSH endpoint as <ip>:<port> (literal IP required so DNS cannot redirect the outbound dial)", "")
+	s.SetString(SSH_TUNNEL_USER, "SSH username used to authenticate to the relay", "")
+	s.SetString(SSH_TUNNEL_PRIVATE_KEY, "Path to the PEM SSH private key used to authenticate to the relay", "/etc/rdp-tls-gateway/ssh/id_ed25519")
+	s.SetSecretString(SSH_TUNNEL_PRIVATE_KEY_PASSPHRASE, "Passphrase for the SSH private key; leave empty for an unencrypted key", "")
+	s.SetString(SSH_TUNNEL_KNOWN_HOSTS, "Path to a known_hosts file pinning the relay's SSH host key", "/etc/rdp-tls-gateway/ssh/known_hosts")
+	s.SetString(SSH_TUNNEL_REMOTE_ADDR, "Address the relay listens on and forwards back through the tunnel", ":443")
+	s.SetDuration(SSH_TUNNEL_KEEPALIVE_INTERVAL, "Interval between SSH keepalive probes that detect a dead tunnel", 15*time.Second)
+	s.SetDuration(SSH_TUNNEL_KEEPALIVE_TIMEOUT, "Time to wait for an SSH keepalive reply before treating the tunnel as dead", 10*time.Second)
 }
 
 // DataRootDir resolves the root directory for gateway-managed data.
@@ -180,6 +206,14 @@ func (s *SettingsType) SetString(id, description, defaultValue string) {
 		Raw:         raw,
 		S:           raw,
 	}
+}
+
+// SetSecretString registers a string setting whose value is masked in the
+// printed settings table. Use it for credentials so secrets do not leak into
+// process logs; Get/GetString still return the real value to feature code.
+func (s *SettingsType) SetSecretString(id, description, defaultValue string) {
+	s.SetString(id, description, defaultValue)
+	s.m[id].Secret = true
 }
 
 // SetInt registers an integer setting and resolves its effective value.
@@ -369,6 +403,16 @@ const (
 	VIRT_STORAGE_POOL_NAME = "VIRT_STORAGE_POOL_NAME"
 	BASE_IMAGE_DIR         = "BASE_IMAGE_DIR"
 	TIMEOUT                = "TIMEOUT"
+
+	SSH_TUNNEL_ENABLE                 = "SSH_TUNNEL_ENABLE"
+	SSH_TUNNEL_SERVER                 = "SSH_TUNNEL_SERVER"
+	SSH_TUNNEL_USER                   = "SSH_TUNNEL_USER"
+	SSH_TUNNEL_PRIVATE_KEY            = "SSH_TUNNEL_PRIVATE_KEY"
+	SSH_TUNNEL_PRIVATE_KEY_PASSPHRASE = "SSH_TUNNEL_PRIVATE_KEY_PASSPHRASE"
+	SSH_TUNNEL_KNOWN_HOSTS            = "SSH_TUNNEL_KNOWN_HOSTS"
+	SSH_TUNNEL_REMOTE_ADDR            = "SSH_TUNNEL_REMOTE_ADDR"
+	SSH_TUNNEL_KEEPALIVE_INTERVAL     = "SSH_TUNNEL_KEEPALIVE_INTERVAL"
+	SSH_TUNNEL_KEEPALIVE_TIMEOUT      = "SSH_TUNNEL_KEEPALIVE_TIMEOUT"
 )
 
 // OverwriteForTestString replaces a string setting value for tests.
