@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"path/filepath"
 	"strings"
@@ -71,13 +72,19 @@ func domainVNCSocketPath(dom *libvirt.Domain) (string, bool, error) {
 
 // OpenVNCConn returns a connection to a running domain's VNC server.
 //
-// It uses libvirt's OpenGraphicsFD: libvirt opens the (libvirt-managed) VNC unix
-// socket itself — as root, unconfined by svirt — and passes back a connected
-// file descriptor. The gateway therefore never touches the socket path, which
-// lives in libvirt's per-domain runtime directory
-// (/var/lib/libvirt/qemu/domain-*/) that is otherwise unreachable for a non-root
-// or SELinux-confined gateway. This mirrors how libvirt fd-passes the serial
-// console socket.
+// It first dials the libvirt-managed VNC unix socket directly. When the gateway
+// runs as root with access to libvirt's per-domain runtime directory
+// (/var/lib/libvirt/qemu/domain-*/), this is the simplest and most reliable way
+// to reach the raw RFB stream.
+//
+// If the direct dial fails — e.g. the gateway runs in a container that only has
+// libvirt's RPC socket mounted (not the per-domain socket path), or is
+// SELinux-confined and cannot touch the path — it falls back to libvirt's
+// OpenGraphicsFD, which opens the socket inside libvirtd (as root, unconfined by
+// svirt) and fd-passes a connected descriptor back. This mirrors how libvirt
+// fd-passes the serial console socket. OpenGraphicsFD's QEMU add_client path has
+// been observed to hand back an fd that yields no RFB stream on some hosts, so
+// the direct dial is preferred whenever the path is reachable.
 func OpenVNCConn(name string) (net.Conn, error) {
 	conn, err := libvirt.NewConnect(LibvirtURI())
 	if err != nil {
@@ -103,8 +110,39 @@ func OpenVNCConn(name string) (net.Conn, error) {
 		return nil, ErrVNCNotRunning
 	}
 
-	// idx 0 = the domain's first (only) graphics device; SKIPAUTH yields the raw
-	// RFB stream (the unix-socket VNC has no password), matching a direct dial.
+	socketPath, ok, err := domainVNCSocketPath(dom)
+	if err != nil {
+		return nil, fmt.Errorf("resolve vnc socket for %s: %w", name, err)
+	}
+	if !ok {
+		return nil, ErrVNCNotConfigured
+	}
+
+	// Preferred: dial the libvirt-managed VNC unix socket directly.
+	vncConn, dialErr := net.Dial("unix", socketPath)
+	if dialErr == nil {
+		return vncConn, nil
+	}
+
+	// Fallback: ask libvirtd to open the socket and fd-pass it back.
+	fdConn, fdErr := openVNCViaGraphicsFD(dom, name)
+	if fdErr == nil {
+		return fdConn, nil
+	}
+
+	// The socket path not existing yet (boot race) is the documented "not ready"
+	// condition the callers retry on.
+	if errors.Is(dialErr, fs.ErrNotExist) {
+		return nil, ErrVNCNotReady
+	}
+	return nil, fmt.Errorf("open vnc for %s: dial %s: %w; graphics-fd fallback: %v", name, socketPath, dialErr, fdErr)
+}
+
+// openVNCViaGraphicsFD opens the domain's VNC stream through libvirt's
+// OpenGraphicsFD so the gateway never touches the socket path itself. idx 0 is
+// the domain's first (only) graphics device; SKIPAUTH yields the raw RFB stream
+// (the unix-socket VNC has no password), matching a direct dial.
+func openVNCViaGraphicsFD(dom *libvirt.Domain, name string) (net.Conn, error) {
 	file, err := dom.OpenGraphicsFD(0, libvirt.DOMAIN_OPEN_GRAPHICS_SKIPAUTH)
 	if err != nil {
 		return nil, fmt.Errorf("open graphics fd for %s: %w", name, err)

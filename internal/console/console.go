@@ -133,9 +133,9 @@ func HandleDashboardVNCWS(sessionManager *session.Manager) http.HandlerFunc {
 }
 
 func openDashboardVNCSocket(name string) (net.Conn, error) {
-	// The VNC socket is libvirt-managed (inside libvirt's per-domain runtime dir),
-	// so the gateway cannot dial its path directly. OpenVNCConn has libvirt open
-	// it and hand back a connected fd instead.
+	// The VNC socket is libvirt-managed (inside libvirt's per-domain runtime dir).
+	// OpenVNCConn dials it directly when reachable and otherwise has libvirt open
+	// it and hand back a connected fd.
 	return virt.OpenVNCConn(name)
 }
 
