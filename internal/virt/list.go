@@ -466,7 +466,6 @@ func (s *SingletonWorker) run() {
 }
 
 func (s *SingletonWorker) doWork(conn *libvirt.Connect) error {
-	log.Println("doing work every 2 seconds")
 	if conn == nil {
 		return fmt.Errorf("libvirt connection is nil")
 	}
