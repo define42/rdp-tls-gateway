@@ -222,7 +222,7 @@ function bootstrap() {
             </div>
             <div class="col-12 col-md-6 col-lg-4">
               <label class="form-label" for="vm-username">Username</label>
-              <input class="form-control" id="vm-username" name="vm_username" autocomplete="off" pattern="[a-z_][a-z0-9_-]*" maxlength="32" title="Login user created inside the DevBox. Lowercase letters, numbers, hyphens, or underscores. Must start with a letter or underscore. Max 32 characters." autocapitalize="none" spellcheck="false">
+              <input class="form-control" id="vm-username" name="vm_username" autocomplete="off" pattern="[a-z_][a-z0-9_\\-]*" maxlength="32" title="Login user created inside the DevBox. Lowercase letters, numbers, hyphens, or underscores. Must start with a letter or underscore. Max 32 characters." autocapitalize="none" spellcheck="false">
             </div>
             <div class="col-12 col-md-6 col-lg-6">
               <label class="form-label" for="vm-password">Password</label>

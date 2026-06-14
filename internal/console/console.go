@@ -56,7 +56,7 @@ func HandleDashboardConsoleWS(sessionManager *session.Manager) http.HandlerFunc 
 			CheckOrigin: sameOriginWebsocketRequest,
 		}
 
-		ws, err := dashboardSocketUpgrader.Upgrade(w, r, nil)
+		ws, err := dashboardSocketUpgrader.Upgrade(hijackableResponseWriter(w), r, nil)
 		if err != nil {
 			_ = console.Close()
 			log.Printf("upgrade dashboard websocket for vm %q failed: %v", name, err)
@@ -116,7 +116,7 @@ func HandleDashboardVNCWS(sessionManager *session.Manager) http.HandlerFunc {
 			CheckOrigin: sameOriginWebsocketRequest,
 		}
 
-		ws, err := dashboardSocketUpgrader.Upgrade(w, r, nil)
+		ws, err := dashboardSocketUpgrader.Upgrade(hijackableResponseWriter(w), r, nil)
 		if err != nil {
 			_ = vncConn.Close()
 			log.Printf("upgrade dashboard websocket for vm %q failed: %v", name, err)
@@ -310,6 +310,29 @@ func copyWebsocketToSocket(ws *websocket.Conn, backendConn net.Conn) error {
 
 func isExpectedConsoleClose(err error) bool {
 	return websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseNoStatusReceived)
+}
+
+// hijackableResponseWriter unwraps middleware response-writer wrappers until it
+// reaches one that implements http.Hijacker. The session manager's LoadAndSave
+// wraps the writer (to buffer the body and commit the session cookie) in a type
+// that is not itself an http.Hijacker; it only exposes the underlying writer via
+// Unwrap(). gorilla/websocket's Upgrade type-asserts the writer to
+// http.Hijacker directly and does not follow Go's Unwrap() convention, so
+// without this every console/VNC upgrade fails with "response does not implement
+// http.Hijacker" (HTTP 500) and the browser sees the socket close with code
+// 1006. Upgrading on the unwrapped writer is safe here because the handlers only
+// read the session, so no session cookie needs to be written on the 101 response.
+func hijackableResponseWriter(w http.ResponseWriter) http.ResponseWriter {
+	for {
+		if _, ok := w.(http.Hijacker); ok {
+			return w
+		}
+		unwrapper, ok := w.(interface{ Unwrap() http.ResponseWriter })
+		if !ok {
+			return w
+		}
+		w = unwrapper.Unwrap()
+	}
 }
 
 func sameOriginWebsocketRequest(r *http.Request) bool {

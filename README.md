@@ -434,8 +434,9 @@ restrict,port-forwarding,permitlisten="127.0.0.1:8443" ssh-ed25519 AAAA...key...
 **Gateway setup.**
 
 1. Generate a key pair for the gateway and install the public key in the relay
-   user's `authorized_keys`:
+   user's `authorized_keys` (`ssh-keygen` does not create the parent directory):
    ```bash
+   mkdir -p /etc/rdp-tls-gateway/ssh
    ssh-keygen -t ed25519 -f /etc/rdp-tls-gateway/ssh/id_ed25519 -N ''
    ```
 2. Pin the relay's host key so the outbound dial cannot be spoofed:
