@@ -56,6 +56,7 @@ var registerSessionTypesOnce sync.Once //nolint:gochecknoglobals // package-leve
 // Manager wraps the session store used by HTTP handlers and middleware.
 type Manager struct {
 	*scs.SessionManager
+
 	connectionsMu    sync.Mutex
 	nextConnectionID uint64
 	userConnections  map[string]map[uint64]func()
