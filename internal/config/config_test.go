@@ -24,6 +24,15 @@ func TestNewSettingTypeDefaults(t *testing.T) {
 	if got := s.GetDuration(TIMEOUT); got != 10*time.Second {
 		t.Fatalf("expected default TIMEOUT=10s, got %v", got)
 	}
+	if got := s.GetInt(LOGIN_RATE_LIMIT_MAX_ATTEMPTS); got != 5 {
+		t.Fatalf("expected default LOGIN_RATE_LIMIT_MAX_ATTEMPTS=5, got %d", got)
+	}
+	if got := s.GetDuration(LOGIN_RATE_LIMIT_WINDOW); got != 5*time.Minute {
+		t.Fatalf("expected default LOGIN_RATE_LIMIT_WINDOW=5m, got %v", got)
+	}
+	if got := s.GetDuration(LOGIN_RATE_LIMIT_LOCKOUT); got != 15*time.Minute {
+		t.Fatalf("expected default LOGIN_RATE_LIMIT_LOCKOUT=15m, got %v", got)
+	}
 }
 
 func TestDerivedDataPathsDefault(t *testing.T) {

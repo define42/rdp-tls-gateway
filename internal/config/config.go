@@ -73,14 +73,6 @@ func NewSettingType(printSettings bool) *SettingsType {
 
 	s.SetString(DATA_ROOT_DIR, "Root directory for gateway-managed data", DefaultDataRootDir)
 	s.SetString(VIRT_STORAGE_POOL_NAME, "Libvirt storage pool name for VM volumes", DefaultVirtStoragePoolName)
-	s.SetString(LDAP_URL, "LDAP server url", "ldaps://ldap:389")
-	s.SetString(LDAP_BASE_DN, "LDAP base DN", "dc=glauth,dc=com")
-	s.SetString(LDAP_USER_FILTER, "LDAP user filter", "(mail=%s)")
-	s.SetString(LDAP_USER_DOMAIN, "LDAP user mail domain", "@example.com")
-	s.SetBool(LDAP_STARTTLS, "Use StartTLS when connecting to LDAP", false)
-	s.SetBool(LDAP_SKIP_TLS_VERIFY, "Skip TLS verification when connecting to LDAP", true)
-
-	s.SetString(LOCAL_USER_SHA256, "';'-delimited list of sha256(\"username:password\") hex digests for local users authenticated without LDAP", "")
 
 	s.SetString(BASE_IMAGE_DIR, "Directory of selectable base VDI images (.img/.qcow2/.raw); must contain at least one image at boot. Empty -> <DATA_ROOT_DIR>/baseimages", "")
 
@@ -102,6 +94,7 @@ func NewSettingType(printSettings bool) *SettingsType {
 
 	s.SetBool(DEBUG_CONNECTIONS, "Verbose debug logging of every accepted front connection and HTTP/WebSocket request (type, source address, method, path); use to trace connectivity, e.g. through the SSH reverse tunnel", false)
 
+	s.setAuthDefaults()
 	s.setSSHTunnelDefaults()
 
 	if printSettings {
@@ -126,6 +119,19 @@ func NewSettingType(printSettings bool) *SettingsType {
 	}
 
 	return s
+}
+
+func (s *SettingsType) setAuthDefaults() {
+	s.SetString(LDAP_URL, "LDAP server url", "ldaps://ldap:389")
+	s.SetString(LDAP_BASE_DN, "LDAP base DN", "dc=glauth,dc=com")
+	s.SetString(LDAP_USER_FILTER, "LDAP user filter", "(mail=%s)")
+	s.SetString(LDAP_USER_DOMAIN, "LDAP user mail domain", "@example.com")
+	s.SetBool(LDAP_STARTTLS, "Use StartTLS when connecting to LDAP", false)
+	s.SetBool(LDAP_SKIP_TLS_VERIFY, "Skip TLS verification when connecting to LDAP", true)
+	s.SetString(LOCAL_USER_SHA256, "';'-delimited list of sha256(\"username:password\") hex digests for local users authenticated without LDAP", "")
+	s.SetInt(LOGIN_RATE_LIMIT_MAX_ATTEMPTS, "Maximum failed login attempts allowed per username or client IP within LOGIN_RATE_LIMIT_WINDOW; <=0 disables login throttling", 5)
+	s.SetDuration(LOGIN_RATE_LIMIT_WINDOW, "Rolling window for failed login attempt counting", 5*time.Minute)
+	s.SetDuration(LOGIN_RATE_LIMIT_LOCKOUT, "How long to reject login attempts after LOGIN_RATE_LIMIT_MAX_ATTEMPTS failures", 15*time.Minute)
 }
 
 // setSSHTunnelDefaults registers the SSH reverse-tunnel settings. Instead of
@@ -384,28 +390,31 @@ func (s *SettingsType) GetDuration(id string) time.Duration {
 
 // Environment-backed configuration keys.
 const (
-	ACME_EMAIL             = "ACME_EMAIL"
-	ACME_CA                = "ACME_CA"
-	ACME_ENABLE            = "ACME_ENABLE"
-	CERT_FILE              = "CERT_FILE"
-	DATA_ROOT_DIR          = "DATA_ROOT_DIR"
-	FRONT_DOMAIN           = "FRONT_DOMAIN"
-	KEY_FILE               = "KEY_FILE"
-	LDAP_URL               = "LDAP_URL"
-	LDAP_BASE_DN           = "LDAP_BASE_DN"
-	LDAP_USER_FILTER       = "LDAP_USER_FILTER"
-	LDAP_USER_DOMAIN       = "LDAP_USER_DOMAIN"
-	LDAP_STARTTLS          = "LDAP_STARTTLS"
-	LDAP_SKIP_TLS_VERIFY   = "LDAP_SKIP_TLS_VERIFY"
-	LOCAL_USER_SHA256      = "LOCAL_USER_SHA256"
-	LISTEN_ADDR            = "LISTEN_ADDR"
-	RDP_DISABLE_CLIPBOARD  = "RDP_DISABLE_CLIPBOARD"
-	RDP_DISABLE_DRIVES     = "RDP_DISABLE_DRIVES"
-	SNI_HASH_SECRET        = "SNI_HASH_SECRET"
-	VIRT_STORAGE_POOL_NAME = "VIRT_STORAGE_POOL_NAME"
-	BASE_IMAGE_DIR         = "BASE_IMAGE_DIR"
-	TIMEOUT                = "TIMEOUT"
-	DEBUG_CONNECTIONS      = "DEBUG_CONNECTIONS"
+	ACME_EMAIL                    = "ACME_EMAIL"
+	ACME_CA                       = "ACME_CA"
+	ACME_ENABLE                   = "ACME_ENABLE"
+	CERT_FILE                     = "CERT_FILE"
+	DATA_ROOT_DIR                 = "DATA_ROOT_DIR"
+	FRONT_DOMAIN                  = "FRONT_DOMAIN"
+	KEY_FILE                      = "KEY_FILE"
+	LDAP_URL                      = "LDAP_URL"
+	LDAP_BASE_DN                  = "LDAP_BASE_DN"
+	LDAP_USER_FILTER              = "LDAP_USER_FILTER"
+	LDAP_USER_DOMAIN              = "LDAP_USER_DOMAIN"
+	LDAP_STARTTLS                 = "LDAP_STARTTLS"
+	LDAP_SKIP_TLS_VERIFY          = "LDAP_SKIP_TLS_VERIFY"
+	LOCAL_USER_SHA256             = "LOCAL_USER_SHA256"
+	LOGIN_RATE_LIMIT_MAX_ATTEMPTS = "LOGIN_RATE_LIMIT_MAX_ATTEMPTS"
+	LOGIN_RATE_LIMIT_WINDOW       = "LOGIN_RATE_LIMIT_WINDOW"
+	LOGIN_RATE_LIMIT_LOCKOUT      = "LOGIN_RATE_LIMIT_LOCKOUT"
+	LISTEN_ADDR                   = "LISTEN_ADDR"
+	RDP_DISABLE_CLIPBOARD         = "RDP_DISABLE_CLIPBOARD"
+	RDP_DISABLE_DRIVES            = "RDP_DISABLE_DRIVES"
+	SNI_HASH_SECRET               = "SNI_HASH_SECRET"
+	VIRT_STORAGE_POOL_NAME        = "VIRT_STORAGE_POOL_NAME"
+	BASE_IMAGE_DIR                = "BASE_IMAGE_DIR"
+	TIMEOUT                       = "TIMEOUT"
+	DEBUG_CONNECTIONS             = "DEBUG_CONNECTIONS"
 
 	SSH_TUNNEL_ENABLE                 = "SSH_TUNNEL_ENABLE"
 	SSH_TUNNEL_SERVER                 = "SSH_TUNNEL_SERVER"

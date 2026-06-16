@@ -17,6 +17,7 @@ import (
 	"rdptlsgateway/internal/vmname"
 	"strconv"
 	"strings"
+	"time"
 
 	consolepkg "rdptlsgateway/internal/console"
 	dashboard "rdptlsgateway/internal/dashboard"
@@ -32,6 +33,7 @@ const (
 	expiresValue      = "0"
 	rdpFilename       = "rdpgw.rdp"
 	forbiddenOrigin   = "Forbidden request origin."
+	loginLocked       = "Too many login attempts. Try again later."
 	maxFormBodyBytes  = 1 << 20
 	// maxVMNameLength and maxLoginUsernameLength mirror the canonical limits in
 	// the vmname package, which is the single source of truth for VDI naming.
@@ -77,7 +79,7 @@ func validateLoginUsername(username string) (string, error) {
 	return vmname.ValidateUsername(username)
 }
 
-func handleLoginPost(sessionManager *session.Manager, settings *config.SettingsType) http.HandlerFunc {
+func handleLoginPost(sessionManager *session.Manager, settings *config.SettingsType, loginLimiter *loginRateLimiter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		username, password, ok, err := extractCredentials(w, r)
 		if err != nil {
@@ -89,22 +91,48 @@ func handleLoginPost(sessionManager *session.Manager, settings *config.SettingsT
 			return
 		}
 
+		if rejectRateLimitedLogin(w, loginLimiter, "", r.RemoteAddr) {
+			return
+		}
+
 		username, err = validateLoginUsername(username)
 		if err != nil {
 			log.Printf("rejected login attempt: %v", err)
-			serveLogin(w, "Invalid credentials.")
+			recordFailedLogin(w, loginLimiter, "", r.RemoteAddr, "Invalid credentials.")
+			return
+		}
+
+		if rejectRateLimitedLogin(w, loginLimiter, username, r.RemoteAddr) {
 			return
 		}
 
 		user, err := authenticateLogin(username, password, settings)
 		if err != nil {
 			log.Printf("auth failed for %s: %v", username, err)
-			serveLogin(w, "Invalid credentials.")
+			recordFailedLogin(w, loginLimiter, username, r.RemoteAddr, "Invalid credentials.")
 			return
 		}
 
+		loginLimiter.RecordSuccess(username, r.RemoteAddr)
 		completeLogin(sessionManager, w, r, user)
 	}
+}
+
+func rejectRateLimitedLogin(w http.ResponseWriter, loginLimiter *loginRateLimiter, username, remoteAddr string) bool {
+	retryAfter, limited := loginLimiter.RetryAfter(username, remoteAddr)
+	if !limited {
+		return false
+	}
+	serveLoginRateLimited(w, retryAfter)
+	return true
+}
+
+func recordFailedLogin(w http.ResponseWriter, loginLimiter *loginRateLimiter, username, remoteAddr, message string) {
+	if retryAfter := loginLimiter.RecordFailure(username, remoteAddr); retryAfter > 0 {
+		serveLoginRateLimited(w, retryAfter)
+		return
+	}
+	serveLogin(w, message)
 }
 
 // authenticateLogin authorizes a login attempt. Local users (matched against the
@@ -132,8 +160,18 @@ func completeLogin(sessionManager *session.Manager, w http.ResponseWriter, r *ht
 }
 
 func serveLogin(w http.ResponseWriter, message string) {
+	serveLoginStatus(w, message, http.StatusOK)
+}
+
+func serveLoginRateLimited(w http.ResponseWriter, retryAfter time.Duration) {
+	w.Header().Set("Retry-After", loginRetryAfterSeconds(retryAfter))
+	serveLoginStatus(w, loginLocked, http.StatusTooManyRequests)
+}
+
+func serveLoginStatus(w http.ResponseWriter, message string, status int) {
 	setNoCacheHeaders(w)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
 	errorHTML := ""
 	if message != "" {
 		errorHTML = `<div class="alert alert-danger mb-3" role="alert">` + html.EscapeString(message) + `</div>`
@@ -233,13 +271,14 @@ func debugConnectionLogger(next http.Handler) http.Handler {
 
 func getRemoteGatewayRotuer(sessionManager *session.Manager, settings *config.SettingsType) http.Handler {
 	router := chi.NewRouter()
+	loginLimiter := newLoginRateLimiter(settings)
 	if settings.GetBool(config.DEBUG_CONNECTIONS) {
 		router.Use(debugConnectionLogger)
 	}
 	router.Use(sessionManager.LoadAndSave)
 
 	router.Handle("/static/*", noCacheStaticFileServer())
-	router.Post("/login", handleLoginPost(sessionManager, settings))
+	router.Post("/login", handleLoginPost(sessionManager, settings, loginLimiter))
 	router.Get("/login", handleLoginGet)
 	router.Post("/logout", handleLogout(sessionManager))
 
