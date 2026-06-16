@@ -702,6 +702,8 @@ func TestLogoutRejectsMissingSameOriginHeader(t *testing.T) {
 	settings := config.NewSettingType(false)
 	router := getRemoteGatewayRotuer(sm, settings)
 	cookie := issueSessionCookie(t, sm, "alice")
+	closed := 0
+	sm.RegisterUserConnection("alice", func() { closed++ })
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
@@ -714,13 +716,23 @@ func TestLogoutRejectsMissingSameOriginHeader(t *testing.T) {
 	if !sm.UserHasActiveSessionFromIP("alice", "192.0.2.10") {
 		t.Fatal("expected rejected logout to leave the session active")
 	}
+	if closed != 0 {
+		t.Fatalf("expected rejected logout not to close live connections, got %d", closed)
+	}
 }
 
 func TestLogoutRedirects(t *testing.T) {
 	sm := session.NewManager()
 	settings := config.NewSettingType(false)
 	router := getRemoteGatewayRotuer(sm, settings)
-	cookie := issueSessionCookie(t, sm, "alice")
+	cookie := issueSessionCookieFromIP(t, sm, "alice", "192.0.2.10:12345")
+	issueSessionCookieFromIP(t, sm, "alice", "192.0.2.11:12345")
+	issueSessionCookieFromIP(t, sm, "bob", "192.0.2.12:12345")
+	aliceClosed := 0
+	bobClosed := 0
+	sm.RegisterUserConnection("alice", func() { aliceClosed++ })
+	sm.RegisterUserConnection("alice", func() { aliceClosed++ })
+	sm.RegisterUserConnection("bob", func() { bobClosed++ })
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
@@ -735,7 +747,37 @@ func TestLogoutRedirects(t *testing.T) {
 		t.Fatalf("expected redirect to /login, got %q", loc)
 	}
 	if sm.UserHasActiveSessionFromIP("alice", "192.0.2.10") {
-		t.Fatal("expected POST /logout to destroy the session")
+		t.Fatal("expected POST /logout to destroy alice's current session")
+	}
+	if sm.UserHasActiveSessionFromIP("alice", "192.0.2.11") {
+		t.Fatal("expected POST /logout to destroy alice's other sessions")
+	}
+	if !sm.UserHasActiveSessionFromIP("bob", "192.0.2.12") {
+		t.Fatal("expected POST /logout to leave bob's session active")
+	}
+	if aliceClosed != 2 {
+		t.Fatalf("expected POST /logout to close alice's live connections twice, got %d", aliceClosed)
+	}
+	if bobClosed != 0 {
+		t.Fatalf("expected POST /logout to leave bob's live connection open, got %d closes", bobClosed)
+	}
+}
+
+func TestLogoutWithoutSessionRedirects(t *testing.T) {
+	sm := session.NewManager()
+	settings := config.NewSettingType(false)
+	router := getRemoteGatewayRotuer(sm, settings)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
+	setSameOriginHeader(req)
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303, got %d", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/login" {
+		t.Fatalf("expected redirect to /login, got %q", loc)
 	}
 }
 

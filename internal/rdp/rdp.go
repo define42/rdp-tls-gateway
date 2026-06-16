@@ -70,7 +70,8 @@ func HandleRDP(raw net.Conn, frontTLS *cert.TLSManager, sessionManager *session.
 	if !ok {
 		return
 	}
-	if !authorizeRDPAccess(raw.RemoteAddr(), sessionManager, clientConn.sni, clientConn.hostname) {
+	owner, ok := authorizeRDPAccess(raw.RemoteAddr(), sessionManager, clientConn.sni, clientConn.hostname)
+	if !ok {
 		_ = clientConn.tlsConn.Close()
 		return
 	}
@@ -86,6 +87,11 @@ func HandleRDP(raw net.Conn, frontTLS *cert.TLSManager, sessionManager *session.
 		_ = clientConn.tlsConn.Close()
 		return
 	}
+	unregisterConnection := sessionManager.RegisterUserConnection(owner, func() {
+		_ = clientConn.tlsConn.Close()
+		_ = backendTLS.Close()
+	})
+	defer unregisterConnection()
 
 	_ = clientConn.tlsConn.SetDeadline(time.Time{})
 	_ = backendTLS.SetDeadline(time.Time{})
@@ -414,34 +420,34 @@ func validateFrontSNI(sni string, remoteAddr net.Addr, settings *config.Settings
 	return hostname, true
 }
 
-func authorizeRDPAccess(remoteAddr net.Addr, sessionManager *session.Manager, sni, hostname string) bool {
+func authorizeRDPAccess(remoteAddr net.Addr, sessionManager *session.Manager, sni, hostname string) (string, bool) {
 	if sessionManager == nil {
 		log.Printf("rdp denied SNI=%q vm=%q remote=%s: session manager unavailable", sni, hostname, remoteAddr)
-		return false
+		return "", false
 	}
 
 	owner, hasOwner, err := virt.VMOwner(hostname)
 	if err != nil {
 		log.Printf("resolve owner for VM %s: %v", hostname, err)
-		return false
+		return "", false
 	}
 	if !hasOwner {
 		log.Printf("rdp denied SNI=%q vm=%q remote=%s: missing VM owner", sni, hostname, remoteAddr)
-		return false
+		return "", false
 	}
 
 	clientIP, ok := session.CanonicalClientIP(remoteAddr.String())
 	if !ok {
 		log.Printf("rdp denied SNI=%q vm=%q remote=%s: invalid client IP", sni, hostname, remoteAddr)
-		return false
+		return "", false
 	}
 	if !sessionManager.ConsumeRDPConnectGrant(owner, clientIP, hostname) {
 		log.Printf("rdp denied SNI=%q vm=%q owner=%q client_ip=%q remote=%s: no unused Connect authorization (owner must click Connect in the dashboard for each connection)", sni, hostname, owner, clientIP, remoteAddr)
-		return false
+		return "", false
 	}
 
 	log.Printf("rdp debug: authorized owner=%q client_ip=%q vm=%q", owner, clientIP, hostname)
-	return true
+	return owner, true
 }
 
 func resolveBackendAddr(remoteAddr net.Addr, sni, hostname string) (string, bool) {

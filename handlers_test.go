@@ -13,6 +13,11 @@ import (
 
 func issueSessionCookie(t *testing.T, sessionManager *session.Manager, username string) *http.Cookie {
 	t.Helper()
+	return issueSessionCookieFromIP(t, sessionManager, username, "192.0.2.10:12345")
+}
+
+func issueSessionCookieFromIP(t *testing.T, sessionManager *session.Manager, username string, remoteAddr string) *http.Cookie {
+	t.Helper()
 
 	user, err := types.NewUser(username)
 	if err != nil {
@@ -21,7 +26,7 @@ func issueSessionCookie(t *testing.T, sessionManager *session.Manager, username 
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/login", nil)
-	req.RemoteAddr = "192.0.2.10:12345"
+	req.RemoteAddr = remoteAddr
 
 	handler := sessionManager.LoadAndSave(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := sessionManager.CreateSession(r.Context(), user, r.RemoteAddr); err != nil {

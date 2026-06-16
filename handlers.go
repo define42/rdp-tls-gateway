@@ -159,8 +159,23 @@ func handleLogout(sessionManager *session.Manager) http.HandlerFunc {
 			http.Error(w, forbiddenOrigin, http.StatusForbidden)
 			return
 		}
+
+		user, authenticated := sessionManager.UserFromContext(r.Context())
+		username := ""
+		if authenticated {
+			username = user.GetName()
+			if err := sessionManager.DestroyAllSessionsForUser(username); err != nil {
+				log.Printf("destroy sessions for user %q failed: %v", username, err)
+			}
+		}
 		if err := sessionManager.DestroySession(r.Context()); err != nil {
 			log.Printf("session destroy failed: %v", err)
+		}
+		if authenticated {
+			closed := sessionManager.CloseUserConnections(username)
+			if closed > 0 {
+				log.Printf("closed %d live connection(s) for user %q during logout", closed, username)
+			}
 		}
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 	}

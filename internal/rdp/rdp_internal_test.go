@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"io"
 	"net"
+	"rdptlsgateway/internal/session"
 	"testing"
 	"time"
 
@@ -186,6 +187,36 @@ func TestProxyBidirectional(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("proxyBidirectional did not return in time")
+	}
+}
+
+func TestProxyBidirectionalClosesOnUserRevocation(t *testing.T) {
+	clientA, serverA := net.Pipe()
+	clientB, serverB := net.Pipe()
+	defer func() { _ = clientA.Close() }()
+	defer func() { _ = clientB.Close() }()
+
+	done := make(chan struct{})
+	go func() {
+		proxyBidirectional(serverA, serverB)
+		close(done)
+	}()
+
+	sessionManager := session.NewManager()
+	unregister := sessionManager.RegisterUserConnection("alice", func() {
+		_ = serverA.Close()
+		_ = serverB.Close()
+	})
+	defer unregister()
+
+	if got := sessionManager.CloseUserConnections("alice"); got != 1 {
+		t.Fatalf("expected to close 1 alice connection, got %d", got)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("proxyBidirectional did not return after user revocation")
 	}
 }
 

@@ -38,7 +38,8 @@ const sessionKey = "session"
 // Credentials are verified once at login and not re-checked against the
 // directory afterwards, so this bound caps how long a revoked directory account
 // can start new dashboard, RDP, or console access. Existing long-lived RDP and
-// WebSocket connections are authorized at setup and are not force-closed here.
+// WebSocket connections are not re-checked against LDAP while open; explicit
+// gateway logout closes tracked user connections via CloseUserConnections.
 const sessionTTL = 30 * time.Minute
 
 // rdpConnectWindow bounds how long an explicit "Connect" action authorizes RDP
@@ -55,12 +56,18 @@ var registerSessionTypesOnce sync.Once //nolint:gochecknoglobals // package-leve
 // Manager wraps the session store used by HTTP handlers and middleware.
 type Manager struct {
 	*scs.SessionManager
+	connectionsMu    sync.Mutex
+	nextConnectionID uint64
+	userConnections  map[string]map[uint64]func()
 }
 
 // NewManager constructs the gateway session manager.
 func NewManager() *Manager {
 	registerSessionTypes()
-	return &Manager{SessionManager: newSessionManager()}
+	return &Manager{
+		SessionManager:  newSessionManager(),
+		userConnections: make(map[string]map[uint64]func()),
+	}
 }
 
 func registerSessionTypes() {
@@ -313,9 +320,105 @@ func (m *Manager) allSessions() []sessionData {
 	return decoded
 }
 
-// DestroySession removes the current browser session.
+// DestroySession removes the current browser session and expires its cookie in
+// the response handled by LoadAndSave.
 func (m *Manager) DestroySession(ctx context.Context) error {
 	return m.Destroy(ctx)
+}
+
+// DestroyAllSessionsForUser removes every active browser session belonging to
+// username from the backing store. The current request should still call
+// DestroySession so LoadAndSave expires that browser's cookie.
+func (m *Manager) DestroyAllSessionsForUser(username string) error {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return nil
+	}
+
+	store, ok := m.Store.(scs.IterableStore)
+	if !ok {
+		return errors.New("session store does not support iteration")
+	}
+	sessions, err := store.All()
+	if err != nil {
+		return err
+	}
+
+	var firstErr error
+	for token, raw := range sessions {
+		_, values, err := m.Codec.Decode(raw)
+		if err != nil {
+			continue
+		}
+		sess, ok := values[sessionKey].(sessionData)
+		if !ok || sess.User == nil || sess.User.GetName() != username {
+			continue
+		}
+		if err := m.Store.Delete(token); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+// RegisterUserConnection records a live, long-running connection for username
+// and returns an idempotent unregister function. closeFn is called by
+// CloseUserConnections when the user logs out everywhere.
+func (m *Manager) RegisterUserConnection(username string, closeFn func()) func() {
+	username = strings.TrimSpace(username)
+	if username == "" || closeFn == nil {
+		return func() {}
+	}
+
+	m.connectionsMu.Lock()
+	defer m.connectionsMu.Unlock()
+
+	if m.userConnections == nil {
+		m.userConnections = make(map[string]map[uint64]func())
+	}
+	m.nextConnectionID++
+	id := m.nextConnectionID
+	if m.userConnections[username] == nil {
+		m.userConnections[username] = make(map[uint64]func())
+	}
+	m.userConnections[username][id] = closeFn
+
+	var unregisterOnce sync.Once
+	return func() {
+		unregisterOnce.Do(func() {
+			m.connectionsMu.Lock()
+			defer m.connectionsMu.Unlock()
+
+			connections := m.userConnections[username]
+			delete(connections, id)
+			if len(connections) == 0 {
+				delete(m.userConnections, username)
+			}
+		})
+	}
+}
+
+// CloseUserConnections closes and unregisters every tracked live connection for
+// username. Close functions are called after releasing the registry lock.
+func (m *Manager) CloseUserConnections(username string) int {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return 0
+	}
+
+	m.connectionsMu.Lock()
+	connections := m.userConnections[username]
+	closeFns := make([]func(), 0, len(connections))
+	for _, closeFn := range connections {
+		closeFns = append(closeFns, closeFn)
+	}
+	delete(m.userConnections, username)
+	m.connectionsMu.Unlock()
+
+	for _, closeFn := range closeFns {
+		closeFn()
+	}
+	return len(closeFns)
 }
 
 type sessionContextKey struct{}

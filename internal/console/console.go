@@ -92,6 +92,11 @@ func HandleDashboardConsoleWS(sessionManager *session.Manager) http.HandlerFunc 
 			return
 		}
 		debugf("serial: websocket upgraded for vm %q (remote %s)", name, r.RemoteAddr)
+		unregisterConnection := sessionManager.RegisterUserConnection(user.GetName(), func() {
+			_ = ws.Close()
+			_ = console.Interrupt()
+		})
+		defer unregisterConnection()
 
 		bridgeSerialConsole(name, ws, console)
 	}
@@ -160,6 +165,11 @@ func HandleDashboardVNCWS(sessionManager *session.Manager) http.HandlerFunc {
 			return
 		}
 		debugf("vnc: websocket upgraded for vm %q (remote %s)", name, r.RemoteAddr)
+		unregisterConnection := sessionManager.RegisterUserConnection(user.GetName(), func() {
+			_ = ws.Close()
+			_ = vncConn.Close()
+		})
+		defer unregisterConnection()
 
 		bridgeDashboardSocket("vnc", name, ws, vncConn)
 	}

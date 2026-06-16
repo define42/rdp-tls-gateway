@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"rdptlsgateway/internal/session"
 	"strings"
 	"testing"
 	"time"
@@ -204,5 +205,36 @@ func TestBridgeDashboardSocket(t *testing.T) {
 	case <-done:
 	case <-time.After(websocketTestTimeout):
 		t.Fatal("bridgeDashboardSocket did not return in time")
+	}
+}
+
+func TestBridgeDashboardSocketClosesOnUserRevocation(t *testing.T) {
+	_, serverWS, cleanup := newWebsocketPair(t)
+	defer cleanup()
+
+	backendConn, backendPeer := net.Pipe()
+	defer func() { _ = backendPeer.Close() }()
+
+	done := make(chan struct{})
+	go func() {
+		bridgeDashboardSocket("vnc", "alice-devbox", serverWS, backendConn)
+		close(done)
+	}()
+
+	sessionManager := session.NewManager()
+	unregister := sessionManager.RegisterUserConnection("alice", func() {
+		_ = serverWS.Close()
+		_ = backendConn.Close()
+	})
+	defer unregister()
+
+	if got := sessionManager.CloseUserConnections("alice"); got != 1 {
+		t.Fatalf("expected to close 1 alice connection, got %d", got)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(websocketTestTimeout):
+		t.Fatal("bridgeDashboardSocket did not return after user revocation")
 	}
 }

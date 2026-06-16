@@ -206,7 +206,7 @@ func TestValidateFrontSNIRejectsUnknownLabel(t *testing.T) {
 
 func TestAuthorizeRDPAccessRejectsNilSessionManager(t *testing.T) {
 	addr := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1}
-	if authorizeRDPAccess(addr, nil, "vm.example.test", "vm") {
+	if _, ok := authorizeRDPAccess(addr, nil, "vm.example.test", "vm"); ok {
 		t.Fatal("expected authorizeRDPAccess to return false when session manager is nil")
 	}
 }

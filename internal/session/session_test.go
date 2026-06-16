@@ -185,6 +185,101 @@ func TestDestroySession(t *testing.T) {
 	}
 }
 
+func TestDestroyAllSessionsForUser(t *testing.T) {
+	m := NewManager()
+
+	alice, err := types.NewUser("alice")
+	if err != nil {
+		t.Fatalf("new alice: %v", err)
+	}
+	bob, err := types.NewUser("bob")
+	if err != nil {
+		t.Fatalf("new bob: %v", err)
+	}
+
+	aliceCookie := issueSession(t, m, alice, "192.0.2.20:5000")
+	issueSession(t, m, alice, "192.0.2.21:5001")
+	issueSession(t, m, bob, "192.0.2.30:5002")
+
+	withLoadedSession(t, m, "192.0.2.20:5000", aliceCookie, func(r *http.Request) {
+		if err := m.GrantRDPConnect(r.Context(), "alice-desk"); err != nil {
+			t.Fatalf("grant rdp connect: %v", err)
+		}
+	})
+
+	if err := m.DestroyAllSessionsForUser("alice"); err != nil {
+		t.Fatalf("destroy all sessions for alice: %v", err)
+	}
+
+	if m.UserHasActiveSessionFromIP("alice", "192.0.2.20") {
+		t.Fatal("expected alice session from first IP to be destroyed")
+	}
+	if m.UserHasActiveSessionFromIP("alice", "192.0.2.21") {
+		t.Fatal("expected alice session from second IP to be destroyed")
+	}
+	if m.ConsumeRDPConnectGrant("alice", "192.0.2.20", "alice-desk") {
+		t.Fatal("expected alice RDP grant to be removed with her sessions")
+	}
+	if !m.UserHasActiveSessionFromIP("bob", "192.0.2.30") {
+		t.Fatal("expected bob session to remain active")
+	}
+	if err := m.DestroyAllSessionsForUser("   "); err != nil {
+		t.Fatalf("blank username should be a no-op: %v", err)
+	}
+}
+
+func TestCloseUserConnectionsClosesOnlyMatchingUser(t *testing.T) {
+	m := NewManager()
+	aliceClosed := 0
+	bobClosed := 0
+
+	m.RegisterUserConnection("alice", func() { aliceClosed++ })
+	m.RegisterUserConnection("alice", func() { aliceClosed++ })
+	m.RegisterUserConnection("bob", func() { bobClosed++ })
+
+	if got := m.CloseUserConnections("alice"); got != 2 {
+		t.Fatalf("expected to close 2 alice connections, got %d", got)
+	}
+	if aliceClosed != 2 {
+		t.Fatalf("expected alice close functions to run twice, got %d", aliceClosed)
+	}
+	if bobClosed != 0 {
+		t.Fatalf("expected bob connection to remain open, got %d closes", bobClosed)
+	}
+	if got := m.CloseUserConnections("alice"); got != 0 {
+		t.Fatalf("expected second alice close to be empty, got %d", got)
+	}
+	if got := m.CloseUserConnections("bob"); got != 1 {
+		t.Fatalf("expected to close 1 bob connection, got %d", got)
+	}
+	if bobClosed != 1 {
+		t.Fatalf("expected bob close function to run once, got %d", bobClosed)
+	}
+}
+
+func TestRegisterUserConnectionUnregisterIsIdempotent(t *testing.T) {
+	m := NewManager()
+	closed := 0
+
+	unregister := m.RegisterUserConnection("alice", func() { closed++ })
+	unregister()
+	unregister()
+
+	if got := m.CloseUserConnections("alice"); got != 0 {
+		t.Fatalf("expected unregistered connection not to close, got %d", got)
+	}
+	if closed != 0 {
+		t.Fatalf("expected close function not to run after unregister, got %d", closed)
+	}
+
+	noOpUnregister := m.RegisterUserConnection("   ", func() { closed++ })
+	noOpUnregister()
+	m.RegisterUserConnection("alice", nil)()
+	if got := m.CloseUserConnections("   "); got != 0 {
+		t.Fatalf("expected blank username close to be a no-op, got %d", got)
+	}
+}
+
 func TestUserHasActiveSessionFromIP(t *testing.T) {
 	m := NewManager()
 

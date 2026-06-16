@@ -710,6 +710,12 @@ Some integration tests (e.g. `ldap_integration_test.go`,
   login). Because consumption happens at connection time, a connection that fails
   after authorization spends the grant, and reconnecting requires clicking
   Connect again.
+- Logout is user-wide within the running gateway process: a valid `POST
+  /logout` destroys all active browser sessions for that username and closes
+  tracked live RDP, serial-console, and VNC WebSocket connections. External
+  directory revocation without a gateway logout is still enforced only for new
+  logins or new connection setup; already-open streams are not continuously
+  re-checked against LDAP.
 - All environment-backed parameters must be defined in
   `internal/config/config.go`. Reading `os.Getenv` directly from feature code
   is not allowed and is enforced by `make lint`.
