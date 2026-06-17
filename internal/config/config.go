@@ -57,6 +57,9 @@ const (
 	DefaultDataRootDir = "/var/lib/libvirt/devbox-gateway"
 	// DefaultVirtStoragePoolName is the default libvirt storage pool name.
 	DefaultVirtStoragePoolName = "desktop"
+	// DefaultVMDiskSizeGB is the default virtual disk capacity, in GiB, for newly
+	// created VM volumes. Used when VM_DISK_SIZE_GB is unset or non-positive.
+	DefaultVMDiskSizeGB = 200
 )
 
 const (
@@ -75,6 +78,7 @@ func NewSettingType(printSettings bool) *SettingsType {
 	s.SetString(VIRT_STORAGE_POOL_NAME, "Libvirt storage pool name for VM volumes", DefaultVirtStoragePoolName)
 
 	s.SetString(BASE_IMAGE_DIR, "Directory of selectable base VDI images (.img/.qcow2/.raw); must contain at least one image at boot. Empty -> <DATA_ROOT_DIR>/baseimages", "")
+	s.SetInt(VM_DISK_SIZE_GB, "Virtual disk capacity in GiB for newly created VM qcow2 volumes; the base image is grown to this size (qcow2 is thin-provisioned, so the host file only consumes written data). Values <=0 fall back to the default", DefaultVMDiskSizeGB)
 
 	s.SetString(LISTEN_ADDR, "listen address", ":443")
 	s.SetString(CERT_FILE, "TLS certificate PEM for clients (front side)", "")
@@ -196,6 +200,19 @@ func VNCSocketDir(settings *SettingsType) string {
 // VirtStoragePoolPath resolves the libvirt storage pool path below the data root.
 func VirtStoragePoolPath(settings *SettingsType) string {
 	return ImageDir(settings)
+}
+
+// VMDiskCapacityBytes resolves the virtual disk capacity, in bytes, for newly
+// created VM volumes. A non-positive or missing VM_DISK_SIZE_GB falls back to
+// DefaultVMDiskSizeGB.
+func VMDiskCapacityBytes(settings *SettingsType) uint64 {
+	sizeGB := DefaultVMDiskSizeGB
+	if settings != nil {
+		if configured := settings.GetInt(VM_DISK_SIZE_GB); configured > 0 {
+			sizeGB = configured
+		}
+	}
+	return uint64(sizeGB) * 1024 * 1024 * 1024
 }
 
 // ---- Setters ----
@@ -413,6 +430,7 @@ const (
 	SNI_HASH_SECRET               = "SNI_HASH_SECRET"
 	VIRT_STORAGE_POOL_NAME        = "VIRT_STORAGE_POOL_NAME"
 	BASE_IMAGE_DIR                = "BASE_IMAGE_DIR"
+	VM_DISK_SIZE_GB               = "VM_DISK_SIZE_GB"
 	TIMEOUT                       = "TIMEOUT"
 	DEBUG_CONNECTIONS             = "DEBUG_CONNECTIONS"
 

@@ -26,19 +26,20 @@ const defaultNetworkRoutingCIDR = "192.168.122.0/24"
 
 // VMInfo describes a VM entry shown in the dashboard and worker cache.
 type VMInfo struct {
-	Name      string
-	Owner     string
-	GuestUser string
-	BaseImage string
-	CreatedAt string
-	State     string
-	MemoryMiB int
-	VCPU      int
-	VolumeGB  int
-	IP        string
-	PrimaryIP string
-	TTYReady  bool
-	VNCReady  bool
+	Name         string
+	Owner        string
+	GuestUser    string
+	BaseImage    string
+	CreatedAt    string
+	State        string
+	MemoryMiB    int
+	VCPU         int
+	VolumeGB     int
+	VolumeUsedGB int
+	IP           string
+	PrimaryIP    string
+	TTYReady     bool
+	VNCReady     bool
 }
 
 // ListVMs returns VMs visible to the given user from the provided libvirt connection.
@@ -86,20 +87,22 @@ func domainVMInfo(d libvirt.Domain, user string) (VMInfo, bool) {
 
 	mem, vcpu := domainResources(d)
 	ip, primaryIP := domainDisplayIPs(d, state)
+	diskUsedGB, diskTotalGB := domainDiskGB(d)
 	return VMInfo{
-		Name:      name,
-		Owner:     owner,
-		GuestUser: domainGuestUserForVMInfo(name, &d),
-		BaseImage: domainBaseImageForVMInfo(name, &d),
-		CreatedAt: domainCreatedAtForVMInfo(name, &d),
-		State:     formatState(state),
-		MemoryMiB: mem,
-		VCPU:      vcpu,
-		VolumeGB:  domainDiskGB(d),
-		IP:        ip,
-		PrimaryIP: primaryIP,
-		TTYReady:  domainTTYReady(&d),
-		VNCReady:  domainVNCReady(&d),
+		Name:         name,
+		Owner:        owner,
+		GuestUser:    domainGuestUserForVMInfo(name, &d),
+		BaseImage:    domainBaseImageForVMInfo(name, &d),
+		CreatedAt:    domainCreatedAtForVMInfo(name, &d),
+		State:        formatState(state),
+		MemoryMiB:    mem,
+		VCPU:         vcpu,
+		VolumeGB:     diskTotalGB,
+		VolumeUsedGB: diskUsedGB,
+		IP:           ip,
+		PrimaryIP:    primaryIP,
+		TTYReady:     domainTTYReady(&d),
+		VNCReady:     domainVNCReady(&d),
 	}, true
 }
 
@@ -241,22 +244,37 @@ func domainResources(d libvirt.Domain) (int, int) {
 	return memMiB, int(info.NrVirtCpu)
 }
 
-func domainDiskGB(d libvirt.Domain) int {
+// domainDiskGB returns the primary disk's used and total sizes in GiB. total is
+// the virtual capacity the guest sees (the configured VM_DISK_SIZE_GB); used is
+// the bytes the thin-provisioned qcow2 actually occupies on the host. Either is
+// 0 when libvirt cannot report it.
+func domainDiskGB(d libvirt.Domain) (used int, total int) {
 	info, err := d.GetBlockInfo("vda", 0)
 	if err != nil {
+		return 0, 0
+	}
+
+	capacity := info.Capacity
+	if capacity == 0 {
+		capacity = info.Physical
+	}
+	if capacity == 0 {
+		capacity = info.Allocation
+	}
+
+	allocation := info.Allocation
+	if allocation == 0 {
+		allocation = info.Physical
+	}
+
+	return bytesToGiBCeil(allocation), bytesToGiBCeil(capacity)
+}
+
+func bytesToGiBCeil(b uint64) int {
+	if b == 0 {
 		return 0
 	}
-	size := info.Capacity
-	if size == 0 {
-		size = info.Physical
-	}
-	if size == 0 {
-		size = info.Allocation
-	}
-	if size == 0 {
-		return 0
-	}
-	return int((size + (1 << 30) - 1) >> 30)
+	return int((b + (1 << 30) - 1) >> 30)
 }
 
 func domainIPs(d libvirt.Domain) []string {

@@ -890,7 +890,9 @@ function bootstrap() {
             vcpuCell.textContent = vm.vcpu ? `${vm.vcpu}` : "n/a";
             row.appendChild(vcpuCell);
             const diskCell = document.createElement("td");
-            diskCell.textContent = vm.volumeGB ? `${vm.volumeGB} GB` : "n/a";
+            diskCell.textContent = vm.volumeGB
+                ? `${vm.volumeUsedGB || 0} GB / ${vm.volumeGB} GB`
+                : "n/a";
             row.appendChild(diskCell);
             const actionCell = document.createElement("td");
             actionCell.className = "align-top";

@@ -712,7 +712,7 @@ func resetExistingVMArtifacts(conn *libvirt.Connect, poolName, vmName, seedIso s
 }
 
 func provisionBootVolumes(conn *libvirt.Connect, settings *config.SettingsType, poolName, vmName, seedIso, hostname, guestUsername, cloudInitPasswordHash, baseImagePath string) error {
-	if err := copyAndResizeVolumeWithSettings(conn, settings, poolName, vmName, baseImagePath, 40*1024*1024*1024); err != nil {
+	if err := copyAndResizeVolumeWithSettings(conn, settings, poolName, vmName, baseImagePath, config.VMDiskCapacityBytes(settings)); err != nil {
 		return fmt.Errorf("failed to copy and resize base image: %w", err)
 	}
 	if err := createUbuntuSeedISOToPoolWithSettings(settings, conn, poolName, seedIso, guestUsername, cloudInitPasswordHash, hostname); err != nil {

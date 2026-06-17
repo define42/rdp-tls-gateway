@@ -25,19 +25,20 @@ const (
 
 // VM represents a single virtual machine row returned to the dashboard.
 type VM struct {
-	Name        string `json:"name"`
-	DisplayName string `json:"displayName"`
-	User        string `json:"user"`
-	BaseImage   string `json:"baseImage,omitempty"`
-	CreatedAt   string `json:"createdAt,omitempty"`
-	RDPFilename string `json:"rdpFilename"`
-	IP          string `json:"ip"`
-	State       string `json:"state"`
-	MemoryMiB   int    `json:"memoryMiB"`
-	VCPU        int    `json:"vcpu"`
-	VolumeGB    int    `json:"volumeGB"`
-	TTYReady    bool   `json:"ttyReady"`
-	VNCReady    bool   `json:"vncReady"`
+	Name         string `json:"name"`
+	DisplayName  string `json:"displayName"`
+	User         string `json:"user"`
+	BaseImage    string `json:"baseImage,omitempty"`
+	CreatedAt    string `json:"createdAt,omitempty"`
+	RDPFilename  string `json:"rdpFilename"`
+	IP           string `json:"ip"`
+	State        string `json:"state"`
+	MemoryMiB    int    `json:"memoryMiB"`
+	VCPU         int    `json:"vcpu"`
+	VolumeGB     int    `json:"volumeGB"`
+	VolumeUsedGB int    `json:"volumeUsedGB"`
+	TTYReady     bool   `json:"ttyReady"`
+	VNCReady     bool   `json:"vncReady"`
 }
 
 // DataResponse is the API response for /api/dashboard/data.
@@ -190,19 +191,20 @@ func buildDashboardRows(vmList []virt.VMInfo, user string) []VM {
 			rdpUser = user
 		}
 		rows = append(rows, VM{
-			Name:        vm.Name,
-			DisplayName: displayName,
-			User:        rdpUser,
-			BaseImage:   strings.TrimSpace(vm.BaseImage),
-			CreatedAt:   strings.TrimSpace(vm.CreatedAt),
-			RDPFilename: rdpDownloadFilename(vm.Name),
-			IP:          vm.IP,
-			State:       vm.State,
-			MemoryMiB:   vm.MemoryMiB,
-			VCPU:        vm.VCPU,
-			VolumeGB:    vm.VolumeGB,
-			TTYReady:    vm.TTYReady,
-			VNCReady:    vm.VNCReady,
+			Name:         vm.Name,
+			DisplayName:  displayName,
+			User:         rdpUser,
+			BaseImage:    strings.TrimSpace(vm.BaseImage),
+			CreatedAt:    strings.TrimSpace(vm.CreatedAt),
+			RDPFilename:  rdpDownloadFilename(vm.Name),
+			IP:           vm.IP,
+			State:        vm.State,
+			MemoryMiB:    vm.MemoryMiB,
+			VCPU:         vm.VCPU,
+			VolumeGB:     vm.VolumeGB,
+			VolumeUsedGB: vm.VolumeUsedGB,
+			TTYReady:     vm.TTYReady,
+			VNCReady:     vm.VNCReady,
 		})
 	}
 	return rows
