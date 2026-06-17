@@ -286,7 +286,10 @@ const contentSecurityPolicy = "default-src 'self'; " +
 	"object-src 'none'; " +
 	"base-uri 'self'; " +
 	"form-action 'self'; " +
-	"frame-ancestors 'none'"
+	// 'self', not 'none': the dashboard embeds the noVNC viewer
+	// (/static/novnc/vnc.html) in a same-origin iframe. This still blocks
+	// third-party sites from framing the gateway.
+	"frame-ancestors 'self'"
 
 // securityHeaders sets HTTP response security headers on every response. The
 // gateway terminates TLS and is only ever reachable over HTTPS, so HSTS is safe
@@ -298,7 +301,7 @@ func securityHeaders(next http.Handler) http.Handler {
 		h := w.Header()
 		h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		h.Set("X-Content-Type-Options", "nosniff")
-		h.Set("X-Frame-Options", "DENY")
+		h.Set("X-Frame-Options", "SAMEORIGIN")
 		// same-origin (not no-referrer): no-referrer makes browsers send
 		// "Origin: null" on same-origin form POSTs, which breaks the logout and
 		// dashboard same-origin checks. same-origin still withholds the referrer

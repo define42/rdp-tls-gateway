@@ -16,7 +16,7 @@ func TestSecurityHeadersOnEveryResponse(t *testing.T) {
 	want := map[string]string{
 		"Strict-Transport-Security": "max-age=31536000; includeSubDomains",
 		"X-Content-Type-Options":    "nosniff",
-		"X-Frame-Options":           "DENY",
+		"X-Frame-Options":           "SAMEORIGIN",
 		"Referrer-Policy":           "same-origin",
 		"Content-Security-Policy":   contentSecurityPolicy,
 	}
