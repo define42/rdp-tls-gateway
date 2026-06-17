@@ -3,9 +3,9 @@ package ldap
 
 import (
 	"crypto/tls"
+	"devboxgateway/internal/config"
+	"devboxgateway/internal/types"
 	"fmt"
-	"rdptlsgateway/internal/config"
-	"rdptlsgateway/internal/types"
 	"strings"
 
 	"github.com/go-ldap/ldap/v3"

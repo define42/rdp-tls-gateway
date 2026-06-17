@@ -1,11 +1,11 @@
 package console
 
 import (
+	"devboxgateway/internal/session"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"rdptlsgateway/internal/session"
 	"strings"
 	"testing"
 	"time"

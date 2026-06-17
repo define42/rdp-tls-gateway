@@ -7,8 +7,8 @@ package localauth
 import (
 	"crypto/sha256"
 	"crypto/subtle"
+	"devboxgateway/internal/config"
 	"encoding/hex"
-	"rdptlsgateway/internal/config"
 	"strings"
 )
 

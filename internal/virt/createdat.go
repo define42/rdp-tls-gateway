@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	domainCreatedAtMetadataNamespace = "urn:rdptlsgateway:domain:createdat"
-	domainCreatedAtMetadataPrefix    = "rdptlsgatewaycreatedat"
+	domainCreatedAtMetadataNamespace = "urn:devboxgateway:domain:createdat"
+	domainCreatedAtMetadataPrefix    = "devboxgatewaycreatedat"
 )
 
 type domainCreatedAtMetadata struct {

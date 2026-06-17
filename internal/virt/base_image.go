@@ -2,10 +2,10 @@
 package virt
 
 import (
+	"devboxgateway/internal/config"
 	"fmt"
 	"os"
 	"path/filepath"
-	"rdptlsgateway/internal/config"
 	"sort"
 	"strings"
 )

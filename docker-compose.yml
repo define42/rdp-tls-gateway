@@ -10,7 +10,7 @@ services:
       #    privileged: true
     environment:
       # Pin the data root to the bind-mounted /data; the binary's built-in
-      # default is /var/lib/libvirt/rdp-tls-gateway for native (RPM) installs.
+      # default is /var/lib/libvirt/devbox-gateway for native (RPM) installs.
       - DATA_ROOT_DIR=/data
       - BASE_IMAGE_DIR=/data/baseimages
     ports:

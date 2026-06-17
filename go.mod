@@ -1,4 +1,4 @@
-module rdptlsgateway
+module devboxgateway
 
 go 1.25.0
 

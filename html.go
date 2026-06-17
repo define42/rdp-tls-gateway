@@ -5,7 +5,7 @@ const loginHTML = `<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DevBoxGateway</title>
+  <title>DevBox Gateway</title>
   <link rel="stylesheet" href="/static/vendor/bootstrap/5.3.2/bootstrap.min.css">
   <link rel="stylesheet" href="/static/vendor/bootstrap-icons/1.11.3/bootstrap-icons.min.css">
   <link rel="stylesheet" href="/static/theme.css">
@@ -18,7 +18,7 @@ const loginHTML = `<!doctype html>
           <div class="card-body p-4 p-sm-5">
             <div class="text-center mb-4">
               <div class="brand-badge mx-auto mb-3"><i class="bi bi-boxes" aria-hidden="true"></i></div>
-              <h1 class="h4 mb-1">DevBoxGateway</h1>
+              <h1 class="h4 mb-1">DevBox Gateway</h1>
               <p class="text-body-secondary mb-0">Sign in to continue</p>
             </div>
             {{ERROR}}

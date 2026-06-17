@@ -1,11 +1,11 @@
 package console
 
 import (
+	"devboxgateway/internal/session"
+	"devboxgateway/internal/virt"
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"rdptlsgateway/internal/session"
-	"rdptlsgateway/internal/virt"
 	"strings"
 	"testing"
 

@@ -2,9 +2,9 @@ package virt
 
 import (
 	"context"
+	"devboxgateway/internal/config"
 	"encoding/xml"
 	"path/filepath"
-	"rdptlsgateway/internal/config"
 	"strings"
 	"testing"
 	"time"

@@ -25,7 +25,7 @@ func TestLoadConfigFileMissingIsNoError(t *testing.T) {
 }
 
 func TestLoadConfigFileAppliesValues(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "rdp-tls-gateway.conf")
+	path := filepath.Join(t.TempDir(), "devbox-gateway.conf")
 	content := `# sample config
 LISTEN_ADDR=:8443
 export FRONT_DOMAIN=desktop.example.com
@@ -73,7 +73,7 @@ RDP_DISABLE_CLIPBOARD=true
 }
 
 func TestLoadConfigFileEnvironmentWins(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "rdp-tls-gateway.conf")
+	path := filepath.Join(t.TempDir(), "devbox-gateway.conf")
 	if err := os.WriteFile(path, []byte("LISTEN_ADDR=:8443\n"), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}

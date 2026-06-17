@@ -1,6 +1,7 @@
 package virt
 
 import (
+	"devboxgateway/internal/config"
 	"fmt"
 	"io"
 	"net/http"
@@ -8,7 +9,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"rdptlsgateway/internal/config"
 	"syscall"
 	"testing"
 	"time"
@@ -166,7 +166,7 @@ func ensureAccessibleBaseImageSourcePath(t *testing.T, baseImageURL string) stri
 func ensureCachedBaseImageSourcePath(t *testing.T, baseImageURL, imageName string) string {
 	t.Helper()
 
-	cacheDir := filepath.Join(os.TempDir(), "rdptlsgateway-test-base-image-cache")
+	cacheDir := filepath.Join(os.TempDir(), "devboxgateway-test-base-image-cache")
 	cachedPath := filepath.Join(cacheDir, imageName)
 
 	withTestBaseImageCacheLock(t, cacheDir, func() {
@@ -188,7 +188,7 @@ func findExistingBaseImageSourcePath(imageName string) (string, bool) {
 	candidates := []string{
 		filepath.Join(config.ImageDir(nil), imageName),
 		filepath.Join(legacyDefaultImageDir, imageName),
-		filepath.Join(os.TempDir(), "rdptlsgateway-test-base-image-cache", imageName),
+		filepath.Join(os.TempDir(), "devboxgateway-test-base-image-cache", imageName),
 	}
 	for _, candidate := range candidates {
 		if canUseBaseImageSourcePath(candidate) {

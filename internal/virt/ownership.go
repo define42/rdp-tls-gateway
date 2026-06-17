@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	domainOwnerMetadataNamespace = "urn:rdptlsgateway:domain:owner"
-	domainOwnerMetadataPrefix    = "rdptlsgateway"
+	domainOwnerMetadataNamespace = "urn:devboxgateway:domain:owner"
+	domainOwnerMetadataPrefix    = "devboxgateway"
 )
 
 type domainOwnerMetadata struct {

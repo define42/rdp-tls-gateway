@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	domainGuestUserMetadataNamespace = "urn:rdptlsgateway:domain:guestuser"
-	domainGuestUserMetadataPrefix    = "rdptlsgatewayguestuser"
+	domainGuestUserMetadataNamespace = "urn:devboxgateway:domain:guestuser"
+	domainGuestUserMetadataPrefix    = "devboxgatewayguestuser"
 )
 
 type domainGuestUserMetadata struct {

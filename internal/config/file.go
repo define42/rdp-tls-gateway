@@ -16,7 +16,7 @@ const ConfigFileEnv = "CONFIG_FILE"
 
 // DefaultConfigFile is the config file the gateway reads when CONFIG_FILE is
 // unset. It matches the path the RPM installs and the systemd unit references.
-const DefaultConfigFile = "/etc/rdp-tls-gateway/rdp-tls-gateway.conf"
+const DefaultConfigFile = "/etc/devbox-gateway/devbox-gateway.conf"
 
 // FilePath returns the config file path, honoring the CONFIG_FILE environment
 // variable and falling back to DefaultConfigFile.

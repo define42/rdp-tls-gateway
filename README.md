@@ -1,8 +1,8 @@
-# RDP-TLS-Gateway
+# DevBox Gateway
 
-[![codecov](https://codecov.io/gh/define42/rdp-tls-gateway/graph/badge.svg?token=HS2KD8YHNG)](https://codecov.io/gh/define42/rdp-tls-gateway)
+[![codecov](https://codecov.io/gh/define42/devbox-gateway/graph/badge.svg?token=HS2KD8YHNG)](https://codecov.io/gh/define42/devbox-gateway)
 
-`rdp-tls-gateway` is a self-hosted gateway that publishes libvirt-managed virtual
+`devbox-gateway` is a self-hosted gateway that publishes libvirt-managed virtual
 desktops over a single HTTPS port. It combines three things on TCP `:443`:
 
 1. An **RDP-over-TLS reverse proxy** that terminates TLS from the client, picks
@@ -133,17 +133,17 @@ To stop everything: `docker compose stop`.
 
 For a native (non-container) deployment on an RPM-based distribution
 (Fedora / RHEL / Rocky / Alma / openSUSE …), each tagged release publishes a
-`rdp-tls-gateway-<version>-1.x86_64.rpm` artifact on the
-[GitHub Releases](https://github.com/define42/rdp-tls-gateway/releases) page. The
+`devbox-gateway-<version>-1.x86_64.rpm` artifact on the
+[GitHub Releases](https://github.com/define42/devbox-gateway/releases) page. The
 RPM version matches the container image tag for the same release.
 
 The package installs:
 
 | Path                                            | Purpose                                              |
 |-------------------------------------------------|------------------------------------------------------|
-| `/usr/bin/rdp-tls-gateway`                       | The gateway binary.                                  |
-| `/usr/lib/systemd/system/rdp-tls-gateway.service`| systemd unit (runs as root, binds `:443`).          |
-| `/etc/rdp-tls-gateway/rdp-tls-gateway.conf`      | Config file, marked `%config(noreplace)` so your edits survive upgrades. |
+| `/usr/bin/devbox-gateway`                        | The gateway binary.                                  |
+| `/usr/lib/systemd/system/devbox-gateway.service` | systemd unit (runs as root, binds `:443`).           |
+| `/etc/devbox-gateway/devbox-gateway.conf`        | Config file, marked `%config(noreplace)` so your edits survive upgrades. |
 
 It requires `libvirt-libs` and `ca-certificates`, plus `libvirt-daemon-kvm` and
 `qemu-kvm` — the local libvirt/KVM stack that hosts the virtual desktops.
@@ -155,12 +155,12 @@ gateway port yourself (`443/tcp` by default, or your custom `LISTEN_ADDR` port).
 1. **Install** (let `dnf` pull in the dependencies):
 
    ```sh
-   sudo dnf install ./rdp-tls-gateway-<version>-1.x86_64.rpm
+   sudo dnf install ./devbox-gateway-<version>-1.x86_64.rpm
    ```
 
 2. **Satisfy the runtime prerequisites** — the same ones as the Docker quick
    start: a running libvirt daemon, a storage pool, write access to
-   `DATA_ROOT_DIR` (native default `/var/lib/libvirt/rdp-tls-gateway`), and at
+   `DATA_ROOT_DIR` (native default `/var/lib/libvirt/devbox-gateway`), and at
    least one base image in `<DATA_ROOT_DIR>/baseimages` (the gateway refuses to
    start with an empty library). The default lives under `/var/lib/libvirt` so
    images and sockets sit in a tree QEMU can use under SELinux without
@@ -189,26 +189,26 @@ gateway port yourself (`443/tcp` by default, or your custom `LISTEN_ADDR` port).
    documented inline; see [Configuration](#configuration)):
 
    ```sh
-   sudo nano /etc/rdp-tls-gateway/rdp-tls-gateway.conf
+   sudo nano /etc/devbox-gateway/devbox-gateway.conf
    ```
 
 4. **Enable and start** the service (installation does not start it
    automatically):
 
    ```sh
-   sudo systemctl enable --now rdp-tls-gateway
+   sudo systemctl enable --now devbox-gateway
    ```
 
 5. **Check status and logs**:
 
    ```sh
-   systemctl status rdp-tls-gateway
-   journalctl -u rdp-tls-gateway -f
+   systemctl status devbox-gateway
+   journalctl -u devbox-gateway -f
    ```
 
-To upgrade, install the newer RPM (`sudo dnf upgrade ./rdp-tls-gateway-*.rpm`);
+To upgrade, install the newer RPM (`sudo dnf upgrade ./devbox-gateway-*.rpm`);
 your config file is preserved and the service is restarted automatically. To
-remove it: `sudo dnf remove rdp-tls-gateway`.
+remove it: `sudo dnf remove devbox-gateway`.
 
 > Building the RPM yourself instead of downloading it is covered under
 > [Building from source](#building-from-source).
@@ -216,18 +216,18 @@ remove it: `sudo dnf remove rdp-tls-gateway`.
 ## Installing the deb
 
 For a native deployment on a Debian-based distribution (Debian / Ubuntu / Mint
-…), each tagged release also publishes a `rdp-tls-gateway_<version>_amd64.deb`
+…), each tagged release also publishes a `devbox-gateway_<version>_amd64.deb`
 artifact on the
-[GitHub Releases](https://github.com/define42/rdp-tls-gateway/releases) page,
+[GitHub Releases](https://github.com/define42/devbox-gateway/releases) page,
 built from the same binary as the RPM and container for that release.
 
 The package installs:
 
 | Path                                            | Purpose                                              |
 |-------------------------------------------------|------------------------------------------------------|
-| `/usr/bin/rdp-tls-gateway`                       | The gateway binary.                                  |
-| `/lib/systemd/system/rdp-tls-gateway.service`    | systemd unit (runs as root, binds `:443`).          |
-| `/etc/rdp-tls-gateway/rdp-tls-gateway.conf`      | Config file, registered as a `conffile` so your edits survive upgrades. |
+| `/usr/bin/devbox-gateway`                     | The gateway binary.                                  |
+| `/lib/systemd/system/devbox-gateway.service`  | systemd unit (runs as root, binds `:443`).           |
+| `/etc/devbox-gateway/devbox-gateway.conf`     | Config file, registered as a `conffile` so your edits survive upgrades. |
 
 It depends on `libvirt0` and `ca-certificates`, plus `libvirt-daemon-system` and
 `qemu-system-x86` — the local libvirt/KVM stack that hosts the virtual desktops
@@ -236,16 +236,16 @@ It depends on `libvirt0` and `ca-certificates`, plus `libvirt-daemon-system` and
 1. **Install** (let `apt` pull in the dependencies):
 
    ```sh
-   sudo apt install ./rdp-tls-gateway_<version>_amd64.deb
+   sudo apt install ./devbox-gateway_<version>_amd64.deb
    ```
 
 2. Then follow the same steps as the RPM install above — satisfy the libvirt/KVM
-   runtime prerequisites, edit `/etc/rdp-tls-gateway/rdp-tls-gateway.conf`, and
-   `sudo systemctl enable --now rdp-tls-gateway`. Installation enables the unit
+   runtime prerequisites, edit `/etc/devbox-gateway/devbox-gateway.conf`, and
+   `sudo systemctl enable --now devbox-gateway`. Installation enables the unit
    per systemd preset policy but does not start it; an upgrade preserves your
    config and restarts the service.
 
-To remove it: `sudo apt remove rdp-tls-gateway` (add `--purge` to also delete the
+To remove it: `sudo apt remove devbox-gateway` (add `--purge` to also delete the
 config file).
 
 > Building the deb yourself instead of downloading it is covered under
@@ -313,7 +313,7 @@ gateway loads a config file, then applies any matching environment variables on
 top, and prints a table of every setting and its effective value.
 
 **Config file.** The gateway reads a `KEY=VALUE` config file on start-up
-(default `/etc/rdp-tls-gateway/rdp-tls-gateway.conf`, overridable with the
+(default `/etc/devbox-gateway/devbox-gateway.conf`, overridable with the
 `CONFIG_FILE` environment variable). Blank lines and `#` comments are ignored,
 an optional leading `export` is stripped, and values may be wrapped in single or
 double quotes. A missing file is not an error — the gateway then runs purely on
@@ -333,7 +333,7 @@ file**, which keeps container and development overrides working.
 | `ACME_CA`                 | _(empty)_                                                                                                        | ACME directory URL, or `staging` for the Let's Encrypt staging endpoint.                          |
 | `FRONT_DOMAIN`            | `desktop.local.gd`                                                                                               | Domain served by the dashboard and used as the suffix for VM SNI routing labels.                  |
 | `SNI_HASH_SECRET`         | _(empty)_                                                                                                        | Secret keying the HMAC that turns VM names into opaque SNI labels. Empty → auto-generated once and persisted to `<DATA_ROOT_DIR>/sni_hash.secret` so labels stay stable across restarts. |
-| `DATA_ROOT_DIR`           | `/var/lib/libvirt/rdp-tls-gateway`                                                                               | Root directory for gateway-managed state (ACME data, images, serial sockets, VNC sockets). Under `/var/lib/libvirt` so QEMU can use it under SELinux. The bundled `docker-compose.yml` overrides this to `/data`. |
+| `DATA_ROOT_DIR`           | `/var/lib/libvirt/devbox-gateway`                                                                               | Root directory for gateway-managed state (ACME data, images, serial sockets, VNC sockets). Under `/var/lib/libvirt` so QEMU can use it under SELinux. The bundled `docker-compose.yml` overrides this to `/data`. |
 | `VIRT_STORAGE_POOL_NAME`  | `desktop`                                                                                                        | Libvirt storage pool to allocate VM volumes in.                                                   |
 | `BASE_IMAGE_DIR`          | _(empty → `<DATA_ROOT_DIR>/baseimages`)_                                                                          | Directory of selectable base VDI images (`.img`, `.qcow2`, `.raw`). Users pick one per VM in the dashboard. The gateway refuses to start if it is empty. |
 | `LDAP_URL`                | `ldaps://ldap:389`                                                                                               | LDAP server URL.                                                                                  |
@@ -352,9 +352,9 @@ file**, which keeps container and development overrides working.
 | `SSH_TUNNEL_ENABLE`       | `false`                                                                                                          | Publish the front listener through an SSH reverse tunnel to a public relay instead of binding `LISTEN_ADDR` locally. See [SSH reverse tunnel](#ssh-reverse-tunnel-publish-behind-nat). |
 | `SSH_TUNNEL_SERVER`       | _(empty)_                                                                                                        | Relay SSH endpoint as `<ip>:<port>`. Must be a literal IP (not a hostname) so DNS cannot redirect the outbound dial. |
 | `SSH_TUNNEL_USER`         | _(empty)_                                                                                                        | SSH username used to authenticate to the relay.                                                   |
-| `SSH_TUNNEL_PRIVATE_KEY`  | `/etc/rdp-tls-gateway/ssh/id_ed25519`                                                                            | Path to the PEM SSH private key used to authenticate to the relay.                                |
+| `SSH_TUNNEL_PRIVATE_KEY`  | `/etc/devbox-gateway/ssh/id_ed25519`                                                                            | Path to the PEM SSH private key used to authenticate to the relay.                                |
 | `SSH_TUNNEL_PRIVATE_KEY_PASSPHRASE` | _(empty)_                                                                                              | Passphrase for the private key; empty for an unencrypted key. Masked in the printed settings table. |
-| `SSH_TUNNEL_KNOWN_HOSTS`  | `/etc/rdp-tls-gateway/ssh/known_hosts`                                                                           | `known_hosts` file pinning the relay's SSH host key.                                              |
+| `SSH_TUNNEL_KNOWN_HOSTS`  | `/etc/devbox-gateway/ssh/known_hosts`                                                                           | `known_hosts` file pinning the relay's SSH host key.                                              |
 | `SSH_TUNNEL_REMOTE_ADDR`  | `:443`                                                                                                           | Address the relay listens on and forwards back through the tunnel.                                |
 | `SSH_TUNNEL_KEEPALIVE_INTERVAL` | `15s`                                                                                                     | Interval between SSH keepalive probes that detect a dead tunnel.                                  |
 | `SSH_TUNNEL_KEEPALIVE_TIMEOUT`  | `10s`                                                                                                     | How long to wait for a keepalive reply before treating the tunnel as dead.                        |
@@ -445,7 +445,7 @@ In either case, lock the tunnel key down in the relay user's `authorized_keys`
 so it can do nothing but the one forward, then restart `sshd`:
 
 ```
-restrict,port-forwarding,permitlisten="127.0.0.1:8443" ssh-ed25519 AAAA...key... rdp-tls-gateway
+restrict,port-forwarding,permitlisten="127.0.0.1:8443" ssh-ed25519 AAAA...key... devbox-gateway
 ```
 (use `permitlisten="443"` for Option B).
 
@@ -454,12 +454,12 @@ restrict,port-forwarding,permitlisten="127.0.0.1:8443" ssh-ed25519 AAAA...key...
 1. Generate a key pair for the gateway and install the public key in the relay
    user's `authorized_keys` (`ssh-keygen` does not create the parent directory):
    ```bash
-   mkdir -p /etc/rdp-tls-gateway/ssh
-   ssh-keygen -t ed25519 -f /etc/rdp-tls-gateway/ssh/id_ed25519 -N ''
+   mkdir -p /etc/devbox-gateway/ssh
+   ssh-keygen -t ed25519 -f /etc/devbox-gateway/ssh/id_ed25519 -N ''
    ```
 2. Pin the relay's host key so the outbound dial cannot be spoofed:
    ```bash
-   ssh-keyscan -p 22 <relay-ip> > /etc/rdp-tls-gateway/ssh/known_hosts
+   ssh-keyscan -p 22 <relay-ip> > /etc/devbox-gateway/ssh/known_hosts
    ```
 3. Configure the tunnel (config file or environment). `SSH_TUNNEL_USER` and
    `SSH_TUNNEL_REMOTE_ADDR` follow whichever relay option you chose above; the
@@ -587,8 +587,8 @@ Because `docker-compose.yml` already bind-mounts `/data/`, files dropped in
 `/data/baseimages` on the host are visible to the gateway container.
 
 For a native (RPM) install the data root defaults to
-`/var/lib/libvirt/rdp-tls-gateway`, so populate
-`/var/lib/libvirt/rdp-tls-gateway/baseimages` instead (or set `DATA_ROOT_DIR` /
+`/var/lib/libvirt/devbox-gateway`, so populate
+`/var/lib/libvirt/devbox-gateway/baseimages` instead (or set `DATA_ROOT_DIR` /
 `BASE_IMAGE_DIR` to wherever you keep images).
 
 ## Building from source
@@ -604,7 +604,7 @@ Build the dashboard bundle and the binary locally:
 
 ```sh
 tsc -p tsconfig.json          # compile ui/dashboard.ts → static/dashboard.js
-CGO_ENABLED=1 go build -o rdp-tls-gateway
+CGO_ENABLED=1 go build -o devbox-gateway
 ```
 
 Or build the production container image:
@@ -628,8 +628,8 @@ make rpm VERSION=1.4.0
 ```
 
 This compiles the UI and a `CGO_ENABLED=1` binary into `dist/`, then packages it
-together with the systemd unit and `rdp-tls-gateway.conf` into
-`dist/rdp-tls-gateway-<version>-1.x86_64.rpm` using the pure-Go
+together with the systemd unit and `devbox-gateway.conf` into
+`dist/devbox-gateway-<version>-1.x86_64.rpm` using the pure-Go
 [`cmd/mkrpm`](cmd/mkrpm) helper — no `rpmbuild` or spec file required. Run `go run
 ./cmd/mkrpm -h` to see the available packaging flags.
 
@@ -643,7 +643,7 @@ make deb VERSION=1.4.0
 ```
 
 This packages the same `dist/` artifacts into
-`dist/rdp-tls-gateway_<version>_amd64.deb` using the pure-Go
+`dist/devbox-gateway_<version>_amd64.deb` using the pure-Go
 [`cmd/mkdeb`](cmd/mkdeb) helper (built on `github.com/xor-gate/debpkg`) — no
 `dpkg-deb` or `debian/` tree required. Run `go run ./cmd/mkdeb -h` to see the
 available packaging flags. Override `DEB_ARCH` for a non-`amd64` target.

@@ -1,10 +1,10 @@
 package main
 
 import (
+	"devboxgateway/internal/config"
+	"devboxgateway/internal/session"
 	"net/http"
 	"net/http/httptest"
-	"rdptlsgateway/internal/config"
-	"rdptlsgateway/internal/session"
 	"strings"
 	"testing"
 )

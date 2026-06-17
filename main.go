@@ -1,6 +1,6 @@
 // main.go
 //
-// RDP TLS SNI gateway (TLS terminate on the front, TLS initiate to backend).
+// DevBox Gateway multiplexes HTTPS and RDP-over-TLS for development desktops.
 // Routing is based on the client's TLS SNI.
 // Backend TLS certificates are NOT validated (InsecureSkipVerify=true).
 //
@@ -24,6 +24,13 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"devboxgateway/internal/cert"
+	"devboxgateway/internal/config"
+	consolepkg "devboxgateway/internal/console"
+	"devboxgateway/internal/rdp"
+	"devboxgateway/internal/session"
+	"devboxgateway/internal/sshtunnel"
+	"devboxgateway/internal/virt"
 	"errors"
 	"fmt"
 	"log"
@@ -31,13 +38,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"rdptlsgateway/internal/cert"
-	"rdptlsgateway/internal/config"
-	consolepkg "rdptlsgateway/internal/console"
-	"rdptlsgateway/internal/rdp"
-	"rdptlsgateway/internal/session"
-	"rdptlsgateway/internal/sshtunnel"
-	"rdptlsgateway/internal/virt"
 	"strings"
 	"sync"
 	"syscall"
@@ -131,7 +131,7 @@ func bootGateway() (*gatewayRuntime, error) {
 	rdp.InitLogging()
 
 	// Configuration lives in a KEY=VALUE config file (default
-	// /etc/rdp-tls-gateway/rdp-tls-gateway.conf, overridable via CONFIG_FILE).
+	// /etc/devbox-gateway/devbox-gateway.conf, overridable via CONFIG_FILE).
 	// Explicit environment variables still take precedence, so containers and
 	// development setups can override individual values.
 	if err := config.LoadConfigFile(config.FilePath()); err != nil {

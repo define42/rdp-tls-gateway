@@ -1,8 +1,8 @@
 package virt
 
 import (
+	"devboxgateway/internal/hash"
 	"fmt"
-	"rdptlsgateway/internal/hash"
 	"sync"
 	"testing"
 

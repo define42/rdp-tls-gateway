@@ -1,9 +1,9 @@
 package virt
 
 import (
+	"devboxgateway/internal/config"
 	"os"
 	"path/filepath"
-	"rdptlsgateway/internal/config"
 	"testing"
 )
 

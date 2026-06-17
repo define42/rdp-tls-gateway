@@ -154,6 +154,6 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}:latest
-            ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.new_tag }}
-            ghcr.io/${{ github.repository }}:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/devbox-gateway:latest
+            ghcr.io/${{ github.repository_owner }}/devbox-gateway:${{ steps.tag.outputs.new_tag }}
+            ghcr.io/${{ github.repository_owner }}/devbox-gateway:${{ github.sha }}

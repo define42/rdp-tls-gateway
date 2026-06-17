@@ -1,12 +1,12 @@
 package virt
 
 import (
+	"devboxgateway/internal/config"
+	"devboxgateway/internal/types"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
-	"rdptlsgateway/internal/config"
-	"rdptlsgateway/internal/types"
 	"strings"
 	"testing"
 	"time"
@@ -20,7 +20,7 @@ func newBootTestSettings(t *testing.T) *config.SettingsType {
 	t.Helper()
 
 	settings := config.NewSettingType(false)
-	if err := settings.OverwriteForTestString(config.DATA_ROOT_DIR, newLibvirtAccessibleTempDir(t, "rdptlsgateway-root-")); err != nil {
+	if err := settings.OverwriteForTestString(config.DATA_ROOT_DIR, newLibvirtAccessibleTempDir(t, "devboxgateway-root-")); err != nil {
 		t.Fatalf("overwrite DATA_ROOT_DIR: %v", err)
 	}
 	if err := settings.OverwriteForTestString(config.VIRT_STORAGE_POOL_NAME, uniquePoolName("boot-test-pool")); err != nil {
@@ -32,7 +32,7 @@ func newBootTestSettings(t *testing.T) *config.SettingsType {
 func configureIsolatedBootStorage(t *testing.T, settings *config.SettingsType) {
 	t.Helper()
 
-	rootDir := newLibvirtAccessibleTempDir(t, "rdptlsgateway-root-")
+	rootDir := newLibvirtAccessibleTempDir(t, "devboxgateway-root-")
 	poolName := uniquePoolName("boot-lifecycle-pool")
 	baseImagePath := ensureAccessibleBaseImageSourcePath(t, testBaseImageURL)
 	t.Cleanup(func() { cleanupStoragePool(t, poolName) })

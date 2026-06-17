@@ -1,13 +1,13 @@
 package main
 
 import (
+	"devboxgateway/internal/dashboard"
+	"devboxgateway/internal/session"
+	"devboxgateway/internal/types"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"rdptlsgateway/internal/dashboard"
-	"rdptlsgateway/internal/session"
-	"rdptlsgateway/internal/types"
 	"testing"
 )
 

@@ -3,13 +3,13 @@ package main
 import (
 	"bufio"
 	"crypto/tls"
+	"devboxgateway/internal/cert"
+	"devboxgateway/internal/config"
+	"devboxgateway/internal/session"
 	"errors"
 	"io"
 	"net"
 	"net/http"
-	"rdptlsgateway/internal/cert"
-	"rdptlsgateway/internal/config"
-	"rdptlsgateway/internal/session"
 	"testing"
 	"time"
 )

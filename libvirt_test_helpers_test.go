@@ -1,11 +1,11 @@
 package main
 
 import (
+	"devboxgateway/internal/config"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
-	"rdptlsgateway/internal/config"
 	"syscall"
 	"testing"
 )
@@ -84,7 +84,7 @@ func stageExistingBaseImageFromDefaultRoot(t *testing.T, settings *config.Settin
 func ensureCachedBaseImageSourcePath(t *testing.T, imageName string) string {
 	t.Helper()
 
-	cacheDir := filepath.Join(os.TempDir(), "rdptlsgateway-test-base-image-cache")
+	cacheDir := filepath.Join(os.TempDir(), "devboxgateway-test-base-image-cache")
 	cachedPath := filepath.Join(cacheDir, imageName)
 
 	withTestBaseImageCacheLock(t, cacheDir, func() {

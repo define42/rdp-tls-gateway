@@ -8,7 +8,7 @@ VERSION  ?= 0.0.0
 RELEASE  ?= 1
 ARCH     ?= x86_64
 DEB_ARCH ?= amd64
-BINARY   := dist/rdp-tls-gateway
+BINARY   := dist/devbox-gateway
 
 # build compiles the UI and a native (CGO/libvirt-linked) binary into dist/.
 # Requires the libvirt development headers and a C toolchain on the build host.

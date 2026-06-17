@@ -3,12 +3,12 @@ package session
 
 import (
 	"context"
+	"devboxgateway/internal/types"
 	"encoding/gob"
 	"errors"
 	"net"
 	"net/http"
 	"net/netip"
-	"rdptlsgateway/internal/types"
 	"strings"
 	"sync"
 	"time"

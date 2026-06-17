@@ -8,14 +8,14 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"devboxgateway/internal/config"
+	"devboxgateway/internal/hash"
+	"devboxgateway/internal/virt"
 	"encoding/pem"
 	"fmt"
 	"log"
 	"math/big"
 	"net"
-	"rdptlsgateway/internal/config"
-	"rdptlsgateway/internal/hash"
-	"rdptlsgateway/internal/virt"
 	"slices"
 	"strings"
 	"sync"
@@ -300,7 +300,7 @@ func generateSelfSignedCert() (tls.Certificate, error) {
 	tmpl := x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
-			CommonName: "rdp-tls-gateway",
+			CommonName: "devbox-gateway",
 		},
 		NotBefore:             time.Now().Add(-1 * time.Hour),
 		NotAfter:              time.Now().Add(365 * 24 * time.Hour),

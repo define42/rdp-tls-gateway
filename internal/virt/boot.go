@@ -1,16 +1,16 @@
 package virt
 
 import (
+	"devboxgateway/internal/config"
+	"devboxgateway/internal/hash"
+	"devboxgateway/internal/types"
+	"devboxgateway/internal/vmname"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
-	"rdptlsgateway/internal/config"
-	"rdptlsgateway/internal/hash"
-	"rdptlsgateway/internal/types"
-	"rdptlsgateway/internal/vmname"
 	"strings"
 
 	"libvirt.org/go/libvirt"

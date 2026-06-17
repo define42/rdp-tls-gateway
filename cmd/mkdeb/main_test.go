@@ -47,9 +47,9 @@ func TestMaintainerScriptsDoNotConfigureFirewall(t *testing.T) {
 // "no LICENSE in the repo" path by default.
 func stageInputs(t *testing.T, dir string) (bin, unit, conf string) {
 	t.Helper()
-	bin = filepath.Join(dir, "rdp-tls-gateway")
-	unit = filepath.Join(dir, "rdp-tls-gateway.service")
-	conf = filepath.Join(dir, "rdp-tls-gateway.conf")
+	bin = filepath.Join(dir, "devbox-gateway")
+	unit = filepath.Join(dir, "devbox-gateway.service")
+	conf = filepath.Join(dir, "devbox-gateway.conf")
 	for _, f := range []string{bin, unit, conf} {
 		if err := os.WriteFile(f, []byte("content of "+filepath.Base(f)), 0o600); err != nil {
 			t.Fatalf("seed %s: %v", f, err)
@@ -73,7 +73,7 @@ func TestWriteDeb(t *testing.T) {
 		version:    "1.2.3",
 		arch:       "amd64",
 		binarySrc:  bin,
-		binaryDest: "/usr/bin/rdp-tls-gateway",
+		binaryDest: "/usr/bin/devbox-gateway",
 		unitSrc:    unit,
 		confSrc:    conf,
 		licenseSrc: filepath.Join(dir, "LICENSE"), // absent: exercises the skip path
@@ -113,7 +113,7 @@ func TestWriteDebWithLicense(t *testing.T) {
 		version:    "1.2.3",
 		arch:       "amd64",
 		binarySrc:  bin,
-		binaryDest: "/usr/bin/rdp-tls-gateway",
+		binaryDest: "/usr/bin/devbox-gateway",
 		unitSrc:    unit,
 		confSrc:    conf,
 		licenseSrc: license,
@@ -132,7 +132,7 @@ func TestWriteDebMissingBinary(t *testing.T) {
 		version:    "1.0.0",
 		arch:       "amd64",
 		binarySrc:  filepath.Join(t.TempDir(), "absent"),
-		binaryDest: "/usr/bin/rdp-tls-gateway",
+		binaryDest: "/usr/bin/devbox-gateway",
 		out:        filepath.Join(t.TempDir(), "out.deb"),
 	}
 	if err := writeDeb(o); err == nil {
@@ -186,7 +186,7 @@ func TestWriteDebOutputCreateError(t *testing.T) {
 		version:    "1.0.0",
 		arch:       "amd64",
 		binarySrc:  bin,
-		binaryDest: "/usr/bin/rdp-tls-gateway",
+		binaryDest: "/usr/bin/devbox-gateway",
 		unitSrc:    unit,
 		confSrc:    conf,
 		out:        filepath.Join(blocker, "out.deb"),

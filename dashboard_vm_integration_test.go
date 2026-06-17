@@ -1,11 +1,11 @@
 package main
 
 import (
-	"rdptlsgateway/internal/config"
-	dashboard "rdptlsgateway/internal/dashboard"
-	"rdptlsgateway/internal/hash"
-	"rdptlsgateway/internal/types"
-	"rdptlsgateway/internal/virt"
+	"devboxgateway/internal/config"
+	dashboard "devboxgateway/internal/dashboard"
+	"devboxgateway/internal/hash"
+	"devboxgateway/internal/types"
+	"devboxgateway/internal/virt"
 	"strconv"
 	"strings"
 	"testing"
@@ -39,7 +39,7 @@ func newDashboardVMSettings(t *testing.T) *config.SettingsType {
 	t.Helper()
 
 	settings := config.NewSettingType(false)
-	if err := settings.OverwriteForTestString(config.DATA_ROOT_DIR, newLibvirtAccessibleTempDir(t, "rdptlsgateway-root-")); err != nil {
+	if err := settings.OverwriteForTestString(config.DATA_ROOT_DIR, newLibvirtAccessibleTempDir(t, "devboxgateway-root-")); err != nil {
 		t.Fatalf("overwrite DATA_ROOT_DIR: %v", err)
 	}
 	if err := settings.OverwriteForTestString(config.VIRT_STORAGE_POOL_NAME, "dashboard-test-"+strconv.FormatInt(time.Now().UnixNano(), 10)); err != nil {

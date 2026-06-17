@@ -1,9 +1,9 @@
 package session
 
 import (
+	"devboxgateway/internal/types"
 	"net/http"
 	"net/http/httptest"
-	"rdptlsgateway/internal/types"
 	"testing"
 	"time"
 

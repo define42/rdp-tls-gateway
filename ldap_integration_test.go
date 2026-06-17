@@ -2,10 +2,10 @@ package main
 
 import (
 	"context"
+	"devboxgateway/internal/config"
+	"devboxgateway/internal/ldap"
 	"fmt"
 	"path/filepath"
-	"rdptlsgateway/internal/config"
-	"rdptlsgateway/internal/ldap"
 	"testing"
 	"time"
 

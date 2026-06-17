@@ -1,8 +1,8 @@
 package main
 
 import (
+	"devboxgateway/internal/config"
 	"net"
-	"rdptlsgateway/internal/config"
 	"testing"
 	"time"
 )

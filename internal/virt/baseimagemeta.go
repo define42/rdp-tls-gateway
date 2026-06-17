@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	domainBaseImageMetadataNamespace = "urn:rdptlsgateway:domain:baseimage"
-	domainBaseImageMetadataPrefix    = "rdptlsgatewaybaseimage"
+	domainBaseImageMetadataNamespace = "urn:devboxgateway:domain:baseimage"
+	domainBaseImageMetadataPrefix    = "devboxgatewaybaseimage"
 )
 
 type domainBaseImageMetadata struct {

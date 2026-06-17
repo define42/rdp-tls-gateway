@@ -3,6 +3,8 @@ package console
 
 import (
 	"bufio"
+	"devboxgateway/internal/session"
+	"devboxgateway/internal/virt"
 	"errors"
 	"fmt"
 	"io"
@@ -10,8 +12,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"rdptlsgateway/internal/session"
-	"rdptlsgateway/internal/virt"
 	"strings"
 	"sync"
 	"sync/atomic"

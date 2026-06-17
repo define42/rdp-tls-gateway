@@ -54,7 +54,7 @@ const (
 	// It lives under /var/lib/libvirt so VM disk images and sockets sit in a tree
 	// libvirt/QEMU can use under SELinux (svirt) without relabeling a custom path
 	// such as /data. Override with DATA_ROOT_DIR.
-	DefaultDataRootDir = "/var/lib/libvirt/rdp-tls-gateway"
+	DefaultDataRootDir = "/var/lib/libvirt/devbox-gateway"
 	// DefaultVirtStoragePoolName is the default libvirt storage pool name.
 	DefaultVirtStoragePoolName = "desktop"
 )
@@ -142,9 +142,9 @@ func (s *SettingsType) setSSHTunnelDefaults() {
 	s.SetBool(SSH_TUNNEL_ENABLE, "Publish the front listener through an SSH reverse tunnel to a public relay instead of binding locally; lets the gateway run behind NAT", false)
 	s.SetString(SSH_TUNNEL_SERVER, "Relay SSH endpoint as <ip>:<port> (literal IP required so DNS cannot redirect the outbound dial)", "")
 	s.SetString(SSH_TUNNEL_USER, "SSH username used to authenticate to the relay", "")
-	s.SetString(SSH_TUNNEL_PRIVATE_KEY, "Path to the PEM SSH private key used to authenticate to the relay", "/etc/rdp-tls-gateway/ssh/id_ed25519")
+	s.SetString(SSH_TUNNEL_PRIVATE_KEY, "Path to the PEM SSH private key used to authenticate to the relay", "/etc/devbox-gateway/ssh/id_ed25519")
 	s.SetSecretString(SSH_TUNNEL_PRIVATE_KEY_PASSPHRASE, "Passphrase for the SSH private key; leave empty for an unencrypted key", "")
-	s.SetString(SSH_TUNNEL_KNOWN_HOSTS, "Path to a known_hosts file pinning the relay's SSH host key", "/etc/rdp-tls-gateway/ssh/known_hosts")
+	s.SetString(SSH_TUNNEL_KNOWN_HOSTS, "Path to a known_hosts file pinning the relay's SSH host key", "/etc/devbox-gateway/ssh/known_hosts")
 	s.SetString(SSH_TUNNEL_REMOTE_ADDR, "Address the relay listens on and forwards back through the tunnel", ":443")
 	s.SetDuration(SSH_TUNNEL_KEEPALIVE_INTERVAL, "Interval between SSH keepalive probes that detect a dead tunnel", 15*time.Second)
 	s.SetDuration(SSH_TUNNEL_KEEPALIVE_TIMEOUT, "Time to wait for an SSH keepalive reply before treating the tunnel as dead", 10*time.Second)

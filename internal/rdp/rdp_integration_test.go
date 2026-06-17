@@ -2,6 +2,11 @@ package rdp
 
 import (
 	"crypto/tls"
+	"devboxgateway/internal/cert"
+	"devboxgateway/internal/config"
+	"devboxgateway/internal/session"
+	"devboxgateway/internal/types"
+	"devboxgateway/internal/virt"
 	"encoding/binary"
 	"encoding/xml"
 	"errors"
@@ -10,11 +15,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"rdptlsgateway/internal/cert"
-	"rdptlsgateway/internal/config"
-	"rdptlsgateway/internal/session"
-	"rdptlsgateway/internal/types"
-	"rdptlsgateway/internal/virt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -77,8 +77,8 @@ func issueUserSession(t *testing.T, sessionManager *session.Manager, username, r
 }
 
 const (
-	testDomainOwnerMetadataNamespace = "urn:rdptlsgateway:domain:owner"
-	testDomainOwnerMetadataPrefix    = "rdptlsgateway"
+	testDomainOwnerMetadataNamespace = "urn:devboxgateway:domain:owner"
+	testDomainOwnerMetadataPrefix    = "devboxgateway"
 )
 
 type testDomainOwnerMetadata struct {

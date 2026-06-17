@@ -1,9 +1,9 @@
 package rdp
 
 import (
+	"devboxgateway/internal/config"
+	"devboxgateway/internal/hash"
 	"net"
-	"rdptlsgateway/internal/config"
-	"rdptlsgateway/internal/hash"
 	"strings"
 	"testing"
 	"time"

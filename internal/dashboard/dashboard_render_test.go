@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"devboxgateway/internal/virt"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -9,7 +10,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"rdptlsgateway/internal/virt"
 	"strings"
 	"testing"
 )

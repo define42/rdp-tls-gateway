@@ -1,10 +1,10 @@
 package main
 
 import (
+	"devboxgateway/internal/config"
+	"devboxgateway/internal/dashboard"
 	"net/http"
 	"net/url"
-	"rdptlsgateway/internal/config"
-	"rdptlsgateway/internal/dashboard"
 	"strconv"
 	"strings"
 	"testing"
@@ -19,7 +19,7 @@ func newGatewayIntegrationSettings(t *testing.T, ldapURL string) *config.Setting
 	t.Setenv(config.LDAP_STARTTLS, "false")
 	t.Setenv(config.LDAP_USER_DOMAIN, "@example.com")
 	t.Setenv(config.FRONT_DOMAIN, "gateway.test")
-	t.Setenv(config.DATA_ROOT_DIR, newLibvirtAccessibleTempDir(t, "rdptlsgateway-root-"))
+	t.Setenv(config.DATA_ROOT_DIR, newLibvirtAccessibleTempDir(t, "devboxgateway-root-"))
 	t.Setenv(config.VIRT_STORAGE_POOL_NAME, "gateway-test-"+uniqueGatewayVMShortName("pool"))
 
 	settings := config.NewSettingType(false)

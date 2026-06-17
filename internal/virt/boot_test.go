@@ -1,15 +1,15 @@
 package virt_test
 
 import (
+	"devboxgateway/internal/config"
+	typesUser "devboxgateway/internal/types"
+	"devboxgateway/internal/virt"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
-	"rdptlsgateway/internal/config"
-	typesUser "rdptlsgateway/internal/types"
-	"rdptlsgateway/internal/virt"
 	"syscall"
 	"testing"
 	"time"
@@ -148,7 +148,7 @@ func waitForVNCSocket(t *testing.T, vmName string, timeout time.Duration) {
 func newConsoleSocketSettings(t *testing.T) *config.SettingsType {
 	t.Helper()
 
-	rootDir := newLibvirtAccessibleTempDir(t, "rdptlsgateway-console-root-")
+	rootDir := newLibvirtAccessibleTempDir(t, "devboxgateway-console-root-")
 
 	settings := config.NewSettingType(false)
 	if settings.OverwriteForTestString(config.DATA_ROOT_DIR, rootDir) != nil {
@@ -208,7 +208,7 @@ func findExistingBaseImageSourcePath(imageName string) (string, bool) {
 	candidates := []string{
 		filepath.Join(config.ImageDir(nil), imageName),
 		filepath.Join(legacyDefaultImageDir, imageName),
-		filepath.Join(os.TempDir(), "rdptlsgateway-test-base-image-cache", imageName),
+		filepath.Join(os.TempDir(), "devboxgateway-test-base-image-cache", imageName),
 	}
 	for _, candidate := range candidates {
 		if canUseBaseImageSourcePath(candidate) {

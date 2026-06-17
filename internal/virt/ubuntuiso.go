@@ -2,8 +2,8 @@ package virt
 
 import (
 	"bytes"
+	"devboxgateway/internal/config"
 	"fmt"
-	"rdptlsgateway/internal/config"
 
 	"github.com/google/uuid"
 	"libvirt.org/go/libvirt"

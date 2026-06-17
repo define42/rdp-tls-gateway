@@ -2,11 +2,11 @@ package rdp
 
 import (
 	"crypto/tls"
+	"devboxgateway/internal/config"
+	"devboxgateway/internal/session"
 	"encoding/binary"
 	"io"
 	"net"
-	"rdptlsgateway/internal/config"
-	"rdptlsgateway/internal/session"
 	"strings"
 	"testing"
 	"time"

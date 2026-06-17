@@ -9,7 +9,7 @@ import (
 // keepAliveRequest is an out-of-band SSH global request sent purely to prove the
 // transport is still alive. The relay replies with a failure because the
 // request name is unknown to it, but any reply still confirms the connection.
-const keepAliveRequest = "keepalive@rdp-tls-gateway"
+const keepAliveRequest = "keepalive@devbox-gateway"
 
 // keepAliveSender is the subset of *ssh.Client used to probe liveness; it keeps
 // the keepalive logic testable without a live SSH connection.

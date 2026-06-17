@@ -2,12 +2,12 @@ package main
 
 import (
 	"crypto/sha256"
+	"devboxgateway/internal/config"
+	"devboxgateway/internal/session"
 	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"rdptlsgateway/internal/config"
-	"rdptlsgateway/internal/session"
 	"strings"
 	"testing"
 	"time"

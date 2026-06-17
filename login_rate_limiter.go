@@ -1,8 +1,8 @@
 package main
 
 import (
-	"rdptlsgateway/internal/config"
-	"rdptlsgateway/internal/session"
+	"devboxgateway/internal/config"
+	"devboxgateway/internal/session"
 	"strconv"
 	"strings"
 	"sync"

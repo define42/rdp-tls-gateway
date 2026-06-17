@@ -64,9 +64,9 @@ func TestPostInstallDoesNotConfigureFirewall(t *testing.T) {
 // "no LICENSE in the repo" path by default.
 func stageInputs(t *testing.T, dir string) (bin, unit, conf string) {
 	t.Helper()
-	bin = filepath.Join(dir, "rdp-tls-gateway")
-	unit = filepath.Join(dir, "rdp-tls-gateway.service")
-	conf = filepath.Join(dir, "rdp-tls-gateway.conf")
+	bin = filepath.Join(dir, "devbox-gateway")
+	unit = filepath.Join(dir, "devbox-gateway.service")
+	conf = filepath.Join(dir, "devbox-gateway.conf")
 	for _, f := range []string{bin, unit, conf} {
 		if err := os.WriteFile(f, []byte("content of "+filepath.Base(f)), 0o600); err != nil {
 			t.Fatalf("seed %s: %v", f, err)
@@ -89,7 +89,7 @@ func TestWriteRPM(t *testing.T) {
 		arch:       "x86_64",
 		licence:    "Proprietary",
 		binarySrc:  bin,
-		binaryDest: "/usr/bin/rdp-tls-gateway",
+		binaryDest: "/usr/bin/devbox-gateway",
 		unitSrc:    unit,
 		confSrc:    conf,
 		licenseSrc: filepath.Join(dir, "LICENSE"), // absent: exercises the skip path
@@ -126,7 +126,7 @@ func TestWriteRPMWithLicense(t *testing.T) {
 		arch:       "x86_64",
 		licence:    "Apache-2.0",
 		binarySrc:  bin,
-		binaryDest: "/usr/bin/rdp-tls-gateway",
+		binaryDest: "/usr/bin/devbox-gateway",
 		unitSrc:    unit,
 		confSrc:    conf,
 		licenseSrc: license,
@@ -147,7 +147,7 @@ func TestWriteRPMMissingBinary(t *testing.T) {
 		arch:       "x86_64",
 		licence:    "Proprietary",
 		binarySrc:  filepath.Join(t.TempDir(), "absent"),
-		binaryDest: "/usr/bin/rdp-tls-gateway",
+		binaryDest: "/usr/bin/devbox-gateway",
 		out:        filepath.Join(t.TempDir(), "out.rpm"),
 	}
 	if err := writeRPM(o); err == nil {
@@ -204,7 +204,7 @@ func TestWriteRPMOutputCreateError(t *testing.T) {
 		arch:       "x86_64",
 		licence:    "Proprietary",
 		binarySrc:  bin,
-		binaryDest: "/usr/bin/rdp-tls-gateway",
+		binaryDest: "/usr/bin/devbox-gateway",
 		unitSrc:    unit,
 		confSrc:    conf,
 		out:        filepath.Join(blocker, "out.rpm"),

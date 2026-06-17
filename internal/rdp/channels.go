@@ -23,9 +23,9 @@
 package rdp
 
 import (
+	"devboxgateway/internal/config"
 	"encoding/binary"
 	"log"
-	"rdptlsgateway/internal/config"
 	"strings"
 )
 

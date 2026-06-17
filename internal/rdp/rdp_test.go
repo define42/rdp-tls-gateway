@@ -2,10 +2,10 @@ package rdp
 
 import (
 	"crypto/tls"
+	"devboxgateway/internal/cert"
+	"devboxgateway/internal/config"
 	"io"
 	"net"
-	"rdptlsgateway/internal/cert"
-	"rdptlsgateway/internal/config"
 	"testing"
 	"time"
 

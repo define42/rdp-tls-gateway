@@ -2,9 +2,9 @@ package ldap
 
 import (
 	"context"
+	"devboxgateway/internal/config"
 	"fmt"
 	"path/filepath"
-	"rdptlsgateway/internal/config"
 	"strings"
 	"testing"
 	"time"

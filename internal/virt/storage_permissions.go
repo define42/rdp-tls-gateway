@@ -1,13 +1,13 @@
 package virt
 
 import (
+	"devboxgateway/internal/config"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
-	"rdptlsgateway/internal/config"
 	"strings"
 	"syscall"
 

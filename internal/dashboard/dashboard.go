@@ -3,14 +3,14 @@
 package dashboard
 
 import (
+	"devboxgateway/internal/config"
+	"devboxgateway/internal/hash"
+	"devboxgateway/internal/virt"
 	"encoding/json"
 	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
-	"rdptlsgateway/internal/config"
-	"rdptlsgateway/internal/hash"
-	"rdptlsgateway/internal/virt"
 	"strings"
 )
 

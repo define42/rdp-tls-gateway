@@ -34,7 +34,7 @@ COPY tsconfig.json ./
 RUN tsc -p tsconfig.json
 # Build
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=1 go build -o /app/remotegateway
+    CGO_ENABLED=1 go build -o /app/devbox-gateway
 
 
 # ---------- runtime stage ----------
@@ -46,9 +46,9 @@ RUN apk add --no-cache \
     ca-certificates \
     libvirt-libs
 
-COPY --from=builder /app/remotegateway /app/remotegateway
+COPY --from=builder /app/devbox-gateway /app/devbox-gateway
 
 EXPOSE 443
 
 
-ENTRYPOINT ["/app/remotegateway"]
+ENTRYPOINT ["/app/devbox-gateway"]

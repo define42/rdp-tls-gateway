@@ -1,7 +1,7 @@
 package ldap
 
 import (
-	"rdptlsgateway/internal/config"
+	"devboxgateway/internal/config"
 	"testing"
 )
 

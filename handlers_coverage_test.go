@@ -1,14 +1,14 @@
 package main
 
 import (
+	"devboxgateway/internal/config"
+	"devboxgateway/internal/dashboard"
+	"devboxgateway/internal/session"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"rdptlsgateway/internal/config"
-	"rdptlsgateway/internal/dashboard"
-	"rdptlsgateway/internal/session"
 	"strings"
 	"testing"
 )
@@ -107,7 +107,7 @@ func TestServeLogin(t *testing.T) {
 		t.Fatalf("expected text/html, got %q", ct)
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "DevBoxGateway") {
+	if !strings.Contains(body, "DevBox Gateway") {
 		t.Fatal("expected login page content")
 	}
 	if strings.Contains(body, "cdn.jsdelivr.net") || strings.Contains(body, "https://") || strings.Contains(body, "http://") {
@@ -173,7 +173,7 @@ func TestHandleLoginGet(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "DevBoxGateway") {
+	if !strings.Contains(body, "DevBox Gateway") {
 		t.Fatal("expected login page content")
 	}
 }
@@ -673,7 +673,7 @@ func TestLoginGetServesPage(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "DevBoxGateway") {
+	if !strings.Contains(rec.Body.String(), "DevBox Gateway") {
 		t.Fatal("expected login page content")
 	}
 }
