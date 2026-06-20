@@ -2,8 +2,25 @@ package ldap
 
 import (
 	"devboxgateway/internal/config"
+	"errors"
 	"testing"
 )
+
+func TestAuthenticateAccessRejectsEmptyPassword(t *testing.T) {
+	// Point at a reserved, non-resolvable host so that if the empty-password
+	// guard were ever removed the test fails fast on a dial error rather than
+	// authenticating or hanging.
+	t.Setenv(config.LDAP_URL, "ldaps://ldap.invalid:636")
+	settings := config.NewSettingType(false)
+
+	user, err := AuthenticateAccess("johndoe", "", settings)
+	if user != nil {
+		t.Fatalf("expected no user for empty password, got %#v", user)
+	}
+	if !errors.Is(err, ErrEmptyPassword) {
+		t.Fatalf("expected ErrEmptyPassword, got %v", err)
+	}
+}
 
 func TestConfigured(t *testing.T) {
 	t.Setenv(config.LDAP_URL, "ldaps://ldap:389")

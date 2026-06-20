@@ -5,11 +5,20 @@ import (
 	"crypto/tls"
 	"devboxgateway/internal/config"
 	"devboxgateway/internal/types"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/go-ldap/ldap/v3"
 )
+
+// ErrEmptyPassword rejects a login with a zero-length password before any LDAP
+// bind. Per RFC 4513 §5.1.2 a bind with a populated DN but an empty password is
+// an "unauthenticated authentication" that many directories accept as an
+// anonymous bind, which would let an empty password succeed against any
+// account. The HTTP layer already rejects empty credentials, so this is the
+// authoritative backstop guaranteeing the bypass cannot reappear via any caller.
+var ErrEmptyPassword = errors.New("password must not be empty")
 
 // Configured reports whether an LDAP directory is configured. When LDAP_URL is
 // empty the gateway runs in local-users-only mode (see internal/localauth) and
@@ -20,6 +29,12 @@ func Configured(settings *config.SettingsType) bool {
 
 // AuthenticateAccess authenticates a user against LDAP and returns the gateway user model.
 func AuthenticateAccess(username, password string, settings *config.SettingsType) (*types.User, error) {
+	// Reject empty passwords before dialing or binding so an empty-password
+	// anonymous bind can never authenticate a user. See ErrEmptyPassword.
+	if password == "" {
+		return nil, ErrEmptyPassword
+	}
+
 	conn, err := dialLDAP(settings)
 	if err != nil {
 		return nil, err
