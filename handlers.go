@@ -341,6 +341,7 @@ func getRemoteGatewayRotuer(sessionManager *session.Manager, settings *config.Se
 	registerAPI(api, sessionManager, settings)
 	router.Get("/api/dashboard/console/{name}/ws", consolepkg.HandleDashboardConsoleWS(sessionManager))
 	router.Get("/api/dashboard/vnc/{name}/ws", consolepkg.HandleDashboardVNCWS(sessionManager))
+	router.Get("/api/dashboard/ping/ws", consolepkg.HandleDashboardPingWS(sessionManager))
 
 	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)

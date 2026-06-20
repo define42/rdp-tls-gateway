@@ -208,6 +208,44 @@ func TestBridgeDashboardSocket(t *testing.T) {
 	}
 }
 
+func TestBridgePingSocketEchoesProbes(t *testing.T) {
+	clientWS, serverWS, cleanup := newWebsocketPair(t)
+	defer cleanup()
+
+	done := make(chan struct{})
+	go func() {
+		bridgePingSocket(serverWS)
+		close(done)
+	}()
+
+	for _, want := range []string{"123.45", "678.9"} {
+		if err := clientWS.WriteMessage(websocket.TextMessage, []byte(want)); err != nil {
+			t.Fatalf("write probe %q: %v", want, err)
+		}
+		if err := clientWS.SetReadDeadline(time.Now().Add(websocketTestTimeout)); err != nil {
+			t.Fatalf("set websocket read deadline: %v", err)
+		}
+		messageType, got, err := clientWS.ReadMessage()
+		if err != nil {
+			t.Fatalf("read echoed probe: %v", err)
+		}
+		if messageType != websocket.TextMessage {
+			t.Fatalf("expected text websocket message, got %d", messageType)
+		}
+		if string(got) != want {
+			t.Fatalf("expected echoed probe %q, got %q", want, string(got))
+		}
+	}
+
+	closeWebsocketClient(t, clientWS)
+
+	select {
+	case <-done:
+	case <-time.After(websocketTestTimeout):
+		t.Fatal("bridgePingSocket did not return after client close")
+	}
+}
+
 func TestBridgeDashboardSocketClosesOnUserRevocation(t *testing.T) {
 	_, serverWS, cleanup := newWebsocketPair(t)
 	defer cleanup()

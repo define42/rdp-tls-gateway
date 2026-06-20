@@ -6,6 +6,15 @@
   min-width: 140px;
 }
 
+.rtt-indicator,
+.jitter-indicator {
+  min-width: 7.5rem;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: center;
+}
+
 .terminal-modal[hidden] {
   display: none !important;
 }

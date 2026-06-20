@@ -175,6 +175,62 @@ func HandleDashboardVNCWS(sessionManager *session.Manager) http.HandlerFunc {
 	}
 }
 
+// pingReadLimit caps the size of an RTT probe message. Probes carry only a tiny
+// client-generated token, so a small limit is plenty and keeps the echo loop
+// from buffering anything large.
+const pingReadLimit = 1024
+
+// HandleDashboardPingWS serves a lightweight echo websocket the dashboard uses to
+// measure live round-trip time to the gateway. It keeps the connection open and
+// echoes each client message straight back so the browser can time the round
+// trip. Browsers do not expose WebSocket protocol-level ping/pong to JavaScript,
+// so the probe is an application-level echo. No VM ownership is involved; it only
+// requires an authenticated session like the other dashboard sockets.
+func HandleDashboardPingWS(sessionManager *session.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, ok := sessionManager.UserFromContext(r.Context())
+		if !ok {
+			log.Printf("reject ping websocket from %s: no authenticated session", r.RemoteAddr)
+			http.Error(w, "Login required.", http.StatusUnauthorized)
+			return
+		}
+
+		dashboardSocketUpgrader := websocket.Upgrader{
+			CheckOrigin: sameOriginWebsocketRequest,
+		}
+
+		ws, err := dashboardSocketUpgrader.Upgrade(upgradeResponseWriter("ping", "rtt", w), r, nil)
+		if err != nil {
+			log.Printf("upgrade dashboard ping websocket failed: %v", err)
+			return
+		}
+		unregisterConnection := sessionManager.RegisterUserConnection(user.GetName(), func() {
+			_ = ws.Close()
+		})
+		defer unregisterConnection()
+
+		bridgePingSocket(ws)
+	}
+}
+
+// bridgePingSocket echoes every client probe back until the connection closes.
+func bridgePingSocket(ws *websocket.Conn) {
+	defer func() { _ = ws.Close() }()
+	ws.SetReadLimit(pingReadLimit)
+	for {
+		messageType, payload, err := ws.ReadMessage()
+		if err != nil {
+			return
+		}
+		if messageType != websocket.TextMessage && messageType != websocket.BinaryMessage {
+			continue
+		}
+		if err := ws.WriteMessage(messageType, payload); err != nil {
+			return
+		}
+	}
+}
+
 func openDashboardVNCSocket(name string) (net.Conn, error) {
 	// The VNC socket is libvirt-managed (inside libvirt's per-domain runtime dir).
 	// OpenVNCConn dials it directly when reachable and otherwise has libvirt open

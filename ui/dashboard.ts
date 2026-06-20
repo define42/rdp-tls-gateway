@@ -3,6 +3,12 @@
 const DEFAULT_VM_ERROR = "Unable to load virtual machines right now.";
 const SESSION_CHECK_ERROR = "Unable to verify your session. Reload and sign in again.";
 const AUTO_REFRESH_INTERVAL_MS = 10000;
+const RTT_PING_INTERVAL_MS = 2000;
+const RTT_RECONNECT_DELAY_MS = 2000;
+const RTT_GREEN_MAX_MS = 30;
+const RTT_YELLOW_MAX_MS = 50;
+const JITTER_GREEN_MAX_MS = 20;
+const JITTER_YELLOW_MAX_MS = 50;
 const DEFAULT_VCPU = "4";
 const DEFAULT_MEMORY_MIB = "4096";
 const LOGIN_PATH = "/login";
@@ -228,6 +234,11 @@ function terminalWebSocketURL(name: string): string {
     return `${scheme}://${window.location.host}/api/dashboard/console/${encodeURIComponent(name)}/ws`;
 }
 
+function pingWebSocketURL(): string {
+    const scheme = window.location.protocol === "https:" ? "wss" : "ws";
+    return `${scheme}://${window.location.host}/api/dashboard/ping/ws`;
+}
+
 function vncFrameURL(name: string): string {
     const params = new URLSearchParams({
         autoconnect: "1",
@@ -257,6 +268,8 @@ function bootstrap(): void {
               <p class="text-body-secondary mb-0">Live inventory.</p>
             </div>
             <div class="d-flex flex-wrap align-items-center gap-2">
+              <span id="rtt-indicator" class="badge rounded-pill text-bg-secondary rtt-indicator" title="Live round-trip time to the gateway" aria-live="polite"><i class="bi bi-activity me-1" aria-hidden="true"></i>RTT: &ndash;&ndash;</span>
+              <span id="jitter-indicator" class="badge rounded-pill text-bg-secondary jitter-indicator" title="Live RTT jitter (variation between samples)" aria-live="polite"><i class="bi bi-graph-up me-1" aria-hidden="true"></i>Jitter: &ndash;&ndash;</span>
               <button class="btn btn-primary" id="open-create-button" type="button"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Create DevBox</button>
               <form method="post" action="/logout" class="m-0">
                 <button class="btn btn-outline-secondary btn-sm" type="submit"><i class="bi bi-box-arrow-right me-1" aria-hidden="true"></i>Logout</button>
@@ -401,6 +414,8 @@ function bootstrap(): void {
     const memorySelect = root.querySelector<HTMLSelectElement>("#vm-memory");
     const baseImageSelect = root.querySelector<HTMLSelectElement>("#vm-base-image");
     const createButton = root.querySelector<HTMLButtonElement>("#create-button");
+    const rttIndicator = root.querySelector<HTMLSpanElement>("#rtt-indicator");
+    const jitterIndicator = root.querySelector<HTMLSpanElement>("#jitter-indicator");
     const actionArea = root.querySelector<HTMLDivElement>("#action-area");
     const listArea = root.querySelector<HTMLDivElement>("#vm-list");
     const terminalModal = root.querySelector<HTMLDivElement>("#terminal-modal");
@@ -442,6 +457,8 @@ function bootstrap(): void {
         !memorySelect ||
         !baseImageSelect ||
         !createButton ||
+        !rttIndicator ||
+        !jitterIndicator ||
         !actionArea ||
         !listArea ||
         !terminalModal ||
@@ -485,6 +502,8 @@ function bootstrap(): void {
     const memorySelectEl = memorySelect;
     const baseImageSelectEl = baseImageSelect;
     const createButtonEl = createButton;
+    const rttIndicatorEl = rttIndicator;
+    const jitterIndicatorEl = jitterIndicator;
     const actionAreaEl = actionArea;
     const listAreaEl = listArea;
     const terminalModalEl = terminalModal;
@@ -575,6 +594,190 @@ function bootstrap(): void {
                 terminalInstance.focus();
             }
         });
+    }
+
+    // renderRTT paints the live round-trip-time and jitter badges in the header.
+    // The RTT colour follows the latency thresholds: green below 30ms, yellow from
+    // 30 to 50ms, and red above 50ms. The jitter badge stays neutral. A null
+    // reading means the last probe failed or the socket is down.
+    function renderRTT(rttMs: number | null, jitterMs: number | null): void {
+        rttIndicatorEl.classList.remove(
+            "text-bg-success",
+            "text-bg-warning",
+            "text-bg-danger",
+            "text-bg-secondary",
+        );
+        if (rttMs === null) {
+            rttIndicatorEl.classList.add("text-bg-secondary");
+            setIconLabel(rttIndicatorEl, "bi-activity", "RTT: --");
+        } else {
+            const rounded = Math.round(rttMs);
+            let colorClass = "text-bg-success";
+            if (rttMs > RTT_YELLOW_MAX_MS) {
+                colorClass = "text-bg-danger";
+            } else if (rttMs > RTT_GREEN_MAX_MS) {
+                colorClass = "text-bg-warning";
+            }
+            rttIndicatorEl.classList.add(colorClass);
+            setIconLabel(rttIndicatorEl, "bi-activity", `RTT: ${rounded} ms`);
+        }
+
+        jitterIndicatorEl.classList.remove(
+            "text-bg-success",
+            "text-bg-warning",
+            "text-bg-danger",
+            "text-bg-secondary",
+        );
+        if (jitterMs === null) {
+            jitterIndicatorEl.classList.add("text-bg-secondary");
+            setIconLabel(jitterIndicatorEl, "bi-graph-up", "Jitter: --");
+        } else {
+            let jitterClass = "text-bg-success";
+            if (jitterMs > JITTER_YELLOW_MAX_MS) {
+                jitterClass = "text-bg-danger";
+            } else if (jitterMs > JITTER_GREEN_MAX_MS) {
+                jitterClass = "text-bg-warning";
+            }
+            jitterIndicatorEl.classList.add(jitterClass);
+            setIconLabel(jitterIndicatorEl, "bi-graph-up", `Jitter: ${Math.round(jitterMs)} ms`);
+        }
+    }
+
+    let rttSocket: WebSocket | null = null;
+    let rttPingHandle = 0;
+    let rttReconnectHandle = 0;
+    let rttClosing = false;
+    let rttPrev: number | null = null;
+    let rttJitter = 0;
+    let rttHasJitter = false;
+
+    function resetRTTStats(): void {
+        rttPrev = null;
+        rttJitter = 0;
+        rttHasJitter = false;
+    }
+
+    // recordRTTSample folds a fresh round-trip reading into the smoothed jitter
+    // estimate (RFC 3550-style mean deviation of successive samples) and repaints
+    // both badges. Jitter needs two samples, so the first reading reports none.
+    function recordRTTSample(rttMs: number): void {
+        if (rttPrev !== null) {
+            const diff = Math.abs(rttMs - rttPrev);
+            rttJitter += (diff - rttJitter) / 16;
+            rttHasJitter = true;
+        }
+        rttPrev = rttMs;
+        renderRTT(rttMs, rttHasJitter ? rttJitter : null);
+    }
+
+    // sendRTTProbe stamps the current time into the probe payload and bounces it
+    // off the server's echo socket; the round trip is computed when the echo
+    // returns. Carrying the send time in the payload keeps the reading correct
+    // even if a probe is dropped or replies arrive out of step.
+    function sendRTTProbe(): void {
+        if (!rttSocket || rttSocket.readyState !== WebSocket.OPEN) {
+            return;
+        }
+        try {
+            rttSocket.send(String(performance.now()));
+        } catch {
+            // A failed send means the socket is going away; onclose handles it.
+        }
+    }
+
+    function stopRTTPing(): void {
+        if (rttPingHandle) {
+            window.clearInterval(rttPingHandle);
+            rttPingHandle = 0;
+        }
+    }
+
+    function scheduleRTTReconnect(): void {
+        if (rttClosing || rttReconnectHandle) {
+            return;
+        }
+        rttReconnectHandle = window.setTimeout(() => {
+            rttReconnectHandle = 0;
+            connectRTT();
+        }, RTT_RECONNECT_DELAY_MS);
+    }
+
+    // connectRTT opens (and keeps open) the persistent RTT websocket, firing a
+    // probe on a timer while it is connected and auto-reconnecting if it drops.
+    function connectRTT(): void {
+        if (rttClosing || rttSocket) {
+            return;
+        }
+        let socket: WebSocket;
+        try {
+            socket = new WebSocket(pingWebSocketURL());
+        } catch {
+            resetRTTStats();
+            renderRTT(null, null);
+            scheduleRTTReconnect();
+            return;
+        }
+        rttSocket = socket;
+
+        socket.onopen = () => {
+            if (rttSocket !== socket) {
+                return;
+            }
+            sendRTTProbe();
+            stopRTTPing();
+            rttPingHandle = window.setInterval(() => {
+                if (document.hidden) {
+                    return;
+                }
+                sendRTTProbe();
+            }, RTT_PING_INTERVAL_MS);
+        };
+
+        socket.onmessage = (event: MessageEvent) => {
+            if (rttSocket !== socket || typeof event.data !== "string") {
+                return;
+            }
+            const sent = Number(event.data);
+            if (Number.isNaN(sent)) {
+                return;
+            }
+            recordRTTSample(performance.now() - sent);
+        };
+
+        socket.onerror = () => {
+            if (rttSocket === socket) {
+                renderRTT(null, null);
+            }
+        };
+
+        socket.onclose = () => {
+            if (rttSocket === socket) {
+                rttSocket = null;
+            }
+            stopRTTPing();
+            // Drop the prior sample so a reconnect does not register a bogus
+            // jitter spike across the gap.
+            resetRTTStats();
+            renderRTT(null, null);
+            scheduleRTTReconnect();
+        };
+    }
+
+    function teardownRTT(): void {
+        rttClosing = true;
+        stopRTTPing();
+        if (rttReconnectHandle) {
+            window.clearTimeout(rttReconnectHandle);
+            rttReconnectHandle = 0;
+        }
+        if (rttSocket) {
+            try {
+                rttSocket.close();
+            } catch {
+                // Ignore close errors during teardown.
+            }
+            rttSocket = null;
+        }
     }
 
     function renderAction(): void {
@@ -1698,7 +1901,9 @@ function bootstrap(): void {
     renderVNC();
     renderCreate();
     updateCreateAvailability();
+    renderRTT(null, null);
     void loadVMs();
+    connectRTT();
 
     const refreshHandle = window.setInterval(() => {
         if (document.hidden || state.busy) {
@@ -1710,6 +1915,9 @@ function bootstrap(): void {
     document.addEventListener("visibilitychange", () => {
         if (!document.hidden) {
             void loadVMs({ showLoading: false });
+            // Re-probe immediately on return; reconnect if the socket dropped.
+            connectRTT();
+            sendRTTProbe();
         }
     });
 
@@ -1725,6 +1933,7 @@ function bootstrap(): void {
 
     window.addEventListener("beforeunload", () => {
         window.clearInterval(refreshHandle);
+        teardownRTT();
         terminalResizeObserver.disconnect();
         teardownTerminalRuntime();
         closeVNC();
