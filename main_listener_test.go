@@ -334,3 +334,45 @@ func TestHandleSharedConnRoutesTLS(t *testing.T) {
 
 	waitHandleHTTPSDone(t, done)
 }
+
+// panicOnReadConn is a net.Conn whose Read panics, standing in for malformed
+// input that trips an unanticipated panic during the pre-handler RDP/TLS
+// parsing. Its other methods are inert so the panic surfaces at the
+// protocol-byte peek.
+type panicOnReadConn struct{}
+
+func (panicOnReadConn) Read([]byte) (int, error)        { panic("simulated parser panic") }
+func (panicOnReadConn) Write(b []byte) (int, error)     { return len(b), nil }
+func (panicOnReadConn) Close() error                    { return nil }
+func (panicOnReadConn) LocalAddr() net.Addr             { return panicConnAddr{} }
+func (panicOnReadConn) RemoteAddr() net.Addr            { return panicConnAddr{} }
+func (panicOnReadConn) SetDeadline(time.Time) error     { return nil }
+func (panicOnReadConn) SetReadDeadline(time.Time) error { return nil }
+func (panicOnReadConn) SetWriteDeadline(time.Time) error {
+	return nil
+}
+
+type panicConnAddr struct{}
+
+func (panicConnAddr) Network() string { return "tcp" }
+func (panicConnAddr) String() string  { return "203.0.113.7:54321" }
+
+// TestHandleSharedConnRecoversPanic verifies the per-connection goroutine
+// contains a panic raised while parsing attacker-controlled bytes instead of
+// letting it crash the whole gateway. nil settings makes setSetupDeadline a
+// no-op, so the panicking Read is reached at the protocol-byte peek before any
+// other argument is used. If the recover were removed, the panic would escape
+// the goroutine and abort the test binary.
+func TestHandleSharedConnRecoversPanic(t *testing.T) {
+	done := make(chan struct{})
+	go func() {
+		handleSharedConn(panicOnReadConn{}, nil, nil, nil, nil)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("handleSharedConn did not return; panic was not recovered")
+	}
+}

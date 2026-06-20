@@ -38,6 +38,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"syscall"
@@ -248,6 +249,18 @@ func serveListener(ln net.Listener, mux http.Handler, frontTLS *cert.TLSManager,
 
 func handleSharedConn(raw net.Conn, frontTLS *cert.TLSManager, mux http.Handler, sessionManager *session.Manager, settings *config.SettingsType) {
 	defer func() { _ = raw.Close() }()
+
+	// Defense in depth: this goroutine parses attacker-controlled bytes (the RDP
+	// X.224/TPKT negotiation, the channel filter, and the TLS handshake) before
+	// any net/http handler — which has its own per-request recover — takes over.
+	// An unanticipated panic here would otherwise crash the whole gateway, so
+	// contain it to this single connection. Registered after the Close defer so
+	// it runs first on unwind and the socket is still closed afterward.
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("recovered from panic handling connection from %s: %v\n%s", raw.RemoteAddr(), r, debug.Stack())
+		}
+	}()
 
 	if !setSetupDeadline(raw, settings) {
 		return
