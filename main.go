@@ -340,8 +340,22 @@ type bufferedConn struct {
 	r *bufio.Reader
 }
 
+// Read drains the bufio.Reader used for the one-byte protocol sniff, then reads
+// straight from the underlying conn. Keeping bufio in the path for the whole
+// session would copy every RDP byte through its 4 KiB buffer; once the buffered
+// sniff bytes are gone there is nothing left to drain, so we bypass it and let
+// the TLS layer read record-aligned chunks directly off the socket.
 func (c *bufferedConn) Read(p []byte) (int, error) {
-	return c.r.Read(p)
+	if c.r != nil {
+		if n := c.r.Buffered(); n > 0 {
+			if len(p) > n {
+				p = p[:n]
+			}
+			return c.r.Read(p)
+		}
+		c.r = nil
+	}
+	return c.Conn.Read(p)
 }
 
 func handleHTTPS(raw net.Conn, frontTLS *cert.TLSManager, mux http.Handler, settings *config.SettingsType) {

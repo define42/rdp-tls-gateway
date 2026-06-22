@@ -161,6 +161,30 @@ func forwardClientMCSConnectInitial(client, backend net.Conn, filter channelFilt
 	return true
 }
 
+// proxyBufferSize matches the largest TLS record (16 KiB) plus headroom, so a
+// full record is forwarded in a single read/write without splitting.
+const proxyBufferSize = 32 * 1024
+
+// proxyBufferPool reuses copy buffers across connections. *tls.Conn implements
+// neither io.ReaderFrom nor io.WriterTo, so io.Copy would otherwise allocate a
+// fresh 32 KiB buffer per direction per connection; pooling removes that churn
+// (and the resulting GC pause jitter) under many concurrent sessions.
+//
+//nolint:gochecknoglobals // process-wide buffer pool for the proxy hot path
+var proxyBufferPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, proxyBufferSize)
+		return &b
+	},
+}
+
+// copyPooled forwards src->dst using a pooled buffer.
+func copyPooled(dst io.Writer, src io.Reader) (int64, error) {
+	bufp, _ := proxyBufferPool.Get().(*[]byte)
+	defer proxyBufferPool.Put(bufp)
+	return io.CopyBuffer(dst, src, *bufp)
+}
+
 func proxyBidirectional(a, b net.Conn) {
 	var once sync.Once
 	closeBoth := func() {
@@ -180,7 +204,7 @@ func proxyBidirectional(a, b net.Conn) {
 
 	started := time.Now()
 	go func() {
-		n, err := io.Copy(b, a)
+		n, err := copyPooled(b, a)
 		debugf(
 			"proxy a->b done bytes=%d err=%v elapsed=%s",
 			n,
@@ -189,7 +213,7 @@ func proxyBidirectional(a, b net.Conn) {
 		)
 		closeBoth()
 	}()
-	n, err := io.Copy(a, b)
+	n, err := copyPooled(a, b)
 	debugf(
 		"proxy b->a done bytes=%d err=%v elapsed=%s",
 		n,
@@ -558,10 +582,20 @@ func negotiateBackendTLS(backendRaw net.Conn, backendAddr, sni string) (*tls.Con
 	return backendTLS, nil
 }
 
+// backendSessionCache lets backend TLS handshakes resume a prior session
+// instead of running a full handshake every time. Reconnects to the same VM —
+// common during roaming re-relogin — then cost one fewer round-trip to the
+// backend. The cache is keyed by ServerName, so it is shared safely across
+// connections; tls.ClientSessionCache implementations are concurrency-safe.
+//
+//nolint:gochecknoglobals // process-wide TLS resumption cache, set up once
+var backendSessionCache = tls.NewLRUClientSessionCache(0)
+
 func backendTLSConfig(sni string) *tls.Config {
 	backendTLSCfg := &tls.Config{
 		InsecureSkipVerify: true, // ignore backend cert chain + hostname
 		MinVersion:         tls.VersionTLS12,
+		ClientSessionCache: backendSessionCache,
 	}
 	if sni != "" && sni != "*" {
 		backendTLSCfg.ServerName = sni
